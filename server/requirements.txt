@@ -1,0 +1,7 @@
+# Minimal Oracle Brain production runtime.
+fastapi==0.116.1
+pydantic==2.13.4
+ruamel.yaml==0.19.1
+rfc8785==0.1.4
+uvicorn==0.35.0
+python-multipart==0.0.20

@@ -1,0 +1,3 @@
+kind: oracle_configuration_bundle
+schema_version: 1
+bundle_id: example-home

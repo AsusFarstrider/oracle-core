@@ -1,0 +1,16 @@
+{
+  "format_version": 1,
+  "purpose": "Neutral reusable identities for clean-core tests and examples; these do not describe a real household.",
+  "satellites": [
+    {"id": "test_satellite_alpha", "label": "Kitchen Display"},
+    {"id": "test_satellite_bravo", "label": "Reading Room Display"},
+    {"id": "test_satellite_charlie", "label": "Workshop Display"},
+    {"id": "test_satellite_delta", "label": "Guest Room Display"},
+    {"id": "test_satellite_server", "label": "Utility Host Display"},
+    {"id": "test_satellite_desktop", "label": "Desktop Display"}
+  ],
+  "routine": {"id": "evening_wind_down", "label": "Evening Wind-down"},
+  "room": {"id": "reading_room", "label": "Reading Room"},
+  "entry": {"id": "side_entry", "label": "Side Entry"},
+  "suppression_mode": {"entity_id": "input_boolean.quiet_mode", "label": "Quiet Mode"}
+}

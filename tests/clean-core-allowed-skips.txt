@@ -1,0 +1,2 @@
+# Exact skip IDs observed in the required clean-core test set.
+# Changes require review; scripts/run-clean-core-ci.py fails on additions or removals.

@@ -1,0 +1,66 @@
+runtime:
+  wake_arbitration:
+    window_ms: 1000
+    scoring_strategy: audio_level_confidence_recent
+    loser_suppression_ms: 10000
+  satellite_control_timeout_seconds: 6.0
+logging:
+  level: INFO
+storage:
+  memory:
+    backend: sqlite
+    database_path: data/oracle-memory.sqlite3
+    retention:
+      successful_raw_transcript_days: 14
+      failed_raw_transcript_days: 30
+      transcript_metadata_days: 90
+      routine_event_days: 90
+      warning_event_days: 180
+      error_event_days: 365
+      critical_event_days: 730
+      provider_status_event_days: 180
+      lifecycle_event_days: 365
+      snapshot_hourly_days: 14
+      snapshot_daily_days: 90
+      cache_history_days: 30
+      rollup_days: 365
+      evidence_ref_days: 90
+  alerts:
+    backend: json_file
+    state_path: data/alerts-state.json
+speech:
+  stt:
+    enabled: false
+    providers:
+      local_fast_whisper:
+        type: fast_whisper
+        model: small.en
+        threads: 8
+      local_whisper_cpp:
+        type: whisper_cpp
+        binary_path: bin/whisper-cli
+        model_path: models/whisper.bin
+        threads: 8
+  tts:
+    enabled: false
+    providers:
+      local_piper:
+        type: piper
+        binary_path: bin/piper
+        model_path: models/voice.onnx
+inference:
+  shared_backend:
+    enabled: false
+    providers:
+      local_ollama:
+        type: ollama
+        base_url: http://127.0.0.1:11434
+        model: example-model
+        timeout_seconds: 20.0
+        keep_alive: -1
+        options:
+          num_predict: 120
+          temperature: 0.1
+          top_p: 0.9
+          seed: 7
+    fallback_router: {}

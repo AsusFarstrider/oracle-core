@@ -1,0 +1,13 @@
+{
+  "audiobook_provider": "audiobookshelf",
+  "audiobookshelf_library_id": "test-library",
+  "audiobookshelf_token": "test-audiobook-token",
+  "audiobookshelf_url": "http://audiobooks.example.test",
+  "home_assistant_token": "test-home-automation-token",
+  "home_assistant_url": "http://home-automation.example.test",
+  "music_provider": "plex",
+  "ollama_model": "test-model",
+  "ollama_url": "http://inference.example.test",
+  "plex_token": "test-music-token",
+  "plex_url": "http://music.example.test"
+}

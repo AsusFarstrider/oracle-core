@@ -1,0 +1,27 @@
+enabled: false
+internet_health_probe_adapter_id: null
+hosts:
+  - id: example_host
+    display_name: Example Host
+    kind: server
+    role: example
+devices: []
+services:
+  - id: example_service
+    display_name: Example Service
+    host_id: example_host
+    kind: example
+service_groups:
+  - id: example_services
+    display_name: Example Services
+    host_id: example_host
+    service_ids:
+      - example_service
+    collapsed: false
+monitors:
+  - id: example_service_health
+    target_type: service
+    target_id: example_service
+    adapter_id: example_http_probe
+dependencies: []
+power_targets: []

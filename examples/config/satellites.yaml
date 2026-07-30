@@ -1,0 +1,24 @@
+satellites:
+  - id: example_satellite
+    enabled: false
+    platform: linux
+    capabilities:
+      voice: false
+      display: false
+      music_playback: false
+      audiobook_playback: false
+    audio:
+      input:
+        type: system_default
+      interaction_output:
+        type: system_default
+      playback:
+        adapter: oracle_native
+    ui:
+      enabled: false
+      touch: false
+    wake:
+      enabled: false
+      model:
+        format: onnx
+        asset_id: example_wake_model

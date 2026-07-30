@@ -1,0 +1,64 @@
+name: clean-core
+
+on:
+  push:
+    branches:
+      - main
+      - "promotion/**"
+
+permissions:
+  contents: read
+
+jobs:
+  python-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify exact candidate checkout
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            server/requirements.lock
+            requirements-test.lock
+      - name: Construct minimal production environment
+        run: |
+          python -m venv .ci-production
+          .ci-production/bin/python -m pip install --require-hashes -r server/requirements.lock
+          .ci-production/bin/python -m pip check
+          ! .ci-production/bin/python -c 'import pytest'
+          PYTHONPATH=server .ci-production/bin/python -c 'import oracle_app.api'
+      - name: Construct isolated test environment
+        run: |
+          python -m venv .ci-test
+          .ci-test/bin/python -m pip install --require-hashes -r requirements-test.lock
+          .ci-test/bin/python -m pip check
+      - name: Run required clean-core tests
+        run: PYTHONPATH=server .ci-test/bin/python scripts/run-clean-core-ci.py -- -q
+      - name: Build and verify exact core artifact round trip
+        run: |
+          .ci-test/bin/python scripts/core_artifact.py build --source "$GITHUB_SHA" --output /tmp/oracle-core.tar
+          .ci-test/bin/python scripts/core_artifact.py verify /tmp/oracle-core.tar
+
+  powershell-parse:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse retained PowerShell sources
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem scripts -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -ne 0) {
+              $failed = $true
+              $errors | ForEach-Object { Write-Error "$($_.Extent.File):$($_.Extent.StartLineNumber): $($_.Message)" }
+            }
+          }
+          if ($failed) { exit 1 }

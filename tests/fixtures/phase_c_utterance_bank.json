@@ -1,0 +1,670 @@
+[
+  {
+    "id": "media-generic-dune-cross-domain-rescue",
+    "category": "cross_domain_rescue_miss",
+    "utterance": "play dune",
+    "expected_target": "music",
+    "expected_behavior": "cross_domain_rescue",
+    "risk": "high",
+    "origin": "operator_observed",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "media-put-on-dune-cross-domain-rescue",
+    "category": "cross_domain_rescue_miss",
+    "utterance": "put on dune",
+    "expected_target": "music",
+    "expected_behavior": "cross_domain_rescue",
+    "risk": "high",
+    "origin": "operator_observed",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "media-queue-up-dune-cross-domain-rescue",
+    "category": "cross_domain_rescue_miss",
+    "utterance": "queue up dune",
+    "expected_target": "music",
+    "expected_behavior": "cross_domain_rescue",
+    "risk": "high",
+    "origin": "operator_observed",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "media-cue-up-dune-cross-domain-rescue",
+    "category": "cross_domain_rescue_miss",
+    "utterance": "cue up dune",
+    "expected_target": "music",
+    "expected_behavior": "cross_domain_rescue",
+    "risk": "medium",
+    "origin": "operator_observed",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "media-probable-audiobook-title-route",
+    "category": "route_miss",
+    "utterance": "play harry potter and the prisoner of azkaban",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "high",
+    "origin": "operator_observed",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "media-i-want-to-hear-audiobook-route",
+    "category": "route_miss",
+    "utterance": "i want to hear harry potter and the prisoner of azkaban",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "operator_observed",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "media-queue-up-audiobook-route",
+    "category": "route_miss",
+    "utterance": "queue up harry potter and the prisoner of azkaban",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "media-regular-edition-audiobook-route",
+    "category": "route_miss",
+    "utterance": "play the regular prisoner of azkaban",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "media-circle-audiobook-route",
+    "category": "route_miss",
+    "utterance": "circle queue up harry potter and the prisoner of azkaban",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "audiobook-narrator-phrase-parse",
+    "category": "parser_miss",
+    "utterance": "play prisoner of azkaban narrated by jim dale",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "audiobook-series-play-parse",
+    "category": "parser_miss",
+    "utterance": "play the third harry potter book",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "audiobook-book-two-series-parse",
+    "category": "parser_miss",
+    "utterance": "start book two of dune",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "audiobook-second-book-series-parse",
+    "category": "parser_miss",
+    "utterance": "play the second book in dune",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "audiobook-stephen-fry-narrator-parse",
+    "category": "parser_miss",
+    "utterance": "play audiobook prisoner of azkaban narrated by stephen fry",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "audiobook-jim-dale-version-parse",
+    "category": "parser_miss",
+    "utterance": "play audiobook the jim dale version of prisoner of azkaban",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "audiobook-resume-natural-parse",
+    "category": "parser_miss",
+    "utterance": "pick up dune where i left off",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "audiobook-article-resume-natural-parse",
+    "category": "parser_miss",
+    "utterance": "article pick up dune where i left off",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "audiobook-start-dune-book-two-parse",
+    "category": "parser_miss",
+    "utterance": "start dune book two",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "audiobook-edition-shorthand-clarify",
+    "category": "clarification_policy_miss",
+    "utterance": "the jim dale edition",
+    "expected_target": "audiobook",
+    "expected_behavior": "deterministic_clarify",
+    "risk": "high",
+    "origin": "synthetic",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "audiobook-jim-dale-shorthand-clarify",
+    "category": "clarification_policy_miss",
+    "utterance": "jim dale",
+    "expected_target": "audiobook",
+    "expected_behavior": "deterministic_clarify",
+    "risk": "high",
+    "origin": "synthetic",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "audiobook-full-cast-shorthand-clarify",
+    "category": "clarification_policy_miss",
+    "utterance": "the full cast one",
+    "expected_target": "audiobook",
+    "expected_behavior": "deterministic_clarify",
+    "risk": "high",
+    "origin": "operator_observed",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "audiobook-regular-edition-shorthand-clarify",
+    "category": "clarification_policy_miss",
+    "utterance": "regular edition",
+    "expected_target": "audiobook",
+    "expected_behavior": "deterministic_clarify",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "audiobook-negative-narrow-reprompt",
+    "category": "clarification_policy_miss",
+    "utterance": "not the first one",
+    "expected_target": "audiobook",
+    "expected_behavior": "clarification_narrow",
+    "risk": "high",
+    "origin": "synthetic",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "audiobook-safe-other-pronoun",
+    "category": "clarification_policy_miss",
+    "utterance": "the other one",
+    "expected_target": "audiobook",
+    "expected_behavior": "deterministic_clarify",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "audiobook-pending-first-one-followup",
+    "category": "clarification_policy_miss",
+    "utterance": "the first one",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "setup": "pending_audiobook_two_candidates",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "audiobook-unsafe-vague-followup-rejected",
+    "category": "clarification_policy_miss",
+    "utterance": "sure",
+    "expected_target": "audiobook",
+    "expected_behavior": "hard_not_found",
+    "risk": "high",
+    "origin": "synthetic",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "audiobook-unsafe-vague-pronoun-rejected",
+    "category": "clarification_policy_miss",
+    "utterance": "that one",
+    "expected_target": "audiobook",
+    "expected_behavior": "hard_not_found",
+    "risk": "high",
+    "origin": "synthetic",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "home-room-first-brighter",
+    "category": "route_miss",
+    "utterance": "make the kitchen brighter",
+    "expected_target": "home_assistant",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "home-implied-dark-room",
+    "category": "route_miss",
+    "utterance": "it's dark in the guest room",
+    "expected_target": "home_assistant",
+    "expected_behavior": "route_only",
+    "risk": "high",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "home-room-first-little-brighter",
+    "category": "route_miss",
+    "utterance": "make the kitchen a little brighter",
+    "expected_target": "home_assistant",
+    "expected_behavior": "route_only",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "home-room-first-color",
+    "category": "route_miss",
+    "utterance": "make the living room blue",
+    "expected_target": "home_assistant",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "home-room-first-office-lamp",
+    "category": "route_miss",
+    "utterance": "make the office lamp brighter",
+    "expected_target": "home_assistant",
+    "expected_behavior": "route_only",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "home-room-first-warmer",
+    "category": "route_miss",
+    "utterance": "make the bedroom lights warmer",
+    "expected_target": "home_assistant",
+    "expected_behavior": "route_only",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "home-room-first-cool-off",
+    "category": "route_miss",
+    "utterance": "cool off the bedroom",
+    "expected_target": "home_assistant",
+    "expected_behavior": "route_only",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "home-leading-wakeword-prefix",
+    "category": "route_miss",
+    "utterance": "Oracle, turn off the guest room lights.",
+    "expected_target": "home_assistant",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "home-okay-oracle-brighter",
+    "category": "route_miss",
+    "utterance": "okay oracle make the kitchen brighter",
+    "expected_target": "home_assistant",
+    "expected_behavior": "route_only",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "home-stt-prefix-residue",
+    "category": "route_miss",
+    "utterance": "or go turn off the lights in the guest room",
+    "expected_target": "home_assistant",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "home-strong-followup-turn-them-back-on",
+    "category": "route_miss",
+    "utterance": "turn them back on",
+    "expected_target": "home_assistant",
+    "expected_behavior": "route_only",
+    "setup": "strong_home_context_guest_room_off",
+    "risk": "medium",
+    "origin": "operator_observed",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "home-strong-followup-what-about-room",
+    "category": "route_miss",
+    "utterance": "what about the dining room",
+    "expected_target": "home_assistant",
+    "expected_behavior": "route_only",
+    "setup": "strong_home_context_generic",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "home-strong-followup-set-it-to-temperature",
+    "category": "route_miss",
+    "utterance": "set it to 72",
+    "expected_target": "home_assistant",
+    "expected_behavior": "route_only",
+    "setup": "strong_home_context_generic",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-natural-album-phrase",
+    "category": "parser_miss",
+    "utterance": "play the abbey road album by the beatles",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "operator_observed",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-dark-side-album-phrase",
+    "category": "parser_miss",
+    "utterance": "play the dark side of the moon album",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "operator_observed",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-put-on-album-phrase",
+    "category": "parser_miss",
+    "utterance": "put on the album abbey road",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-play-me-some-artist",
+    "category": "parser_miss",
+    "utterance": "play me some david bowie",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-article-play-me-some-artist",
+    "category": "parser_miss",
+    "utterance": "article play me some david bowie",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-soundtrack-phrase",
+    "category": "parser_miss",
+    "utterance": "throw on the soundtrack to k-pop demon hunters",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-listen-to-track-phrase",
+    "category": "parser_miss",
+    "utterance": "listen to heroes by david bowie",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-queue-up-track-phrase",
+    "category": "parser_miss",
+    "utterance": "queue up heroes by david bowie",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-explicit-soundtrack-phrase",
+    "category": "parser_miss",
+    "utterance": "play the soundtrack to k-pop demon hunters",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-track-from-album-phrase",
+    "category": "parser_miss",
+    "utterance": "play how it's done from k-pop demon hunters",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-something-off-album-phrase",
+    "category": "parser_miss",
+    "utterance": "play something off abbey road",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "operator_observed",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-music-from-soundtrack-phrase",
+    "category": "parser_miss",
+    "utterance": "play music from hamilton",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "operator_observed",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-ultra-generic-single-word-one",
+    "category": "clarification_policy_miss",
+    "utterance": "play one",
+    "expected_target": "music",
+    "expected_behavior": "deterministic_clarify",
+    "risk": "high",
+    "origin": "operator_observed",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "music-ultra-generic-single-word-hello",
+    "category": "clarification_policy_miss",
+    "utterance": "play hello",
+    "expected_target": "music",
+    "expected_behavior": "deterministic_clarify",
+    "risk": "high",
+    "origin": "operator_observed",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "music-ultra-generic-single-word-stay",
+    "category": "clarification_policy_miss",
+    "utterance": "play stay",
+    "expected_target": "music",
+    "expected_behavior": "deterministic_clarify",
+    "risk": "high",
+    "origin": "operator_observed",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "music-song-by-artist-shorthand",
+    "category": "parser_miss",
+    "utterance": "play a song by the beatles",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "operator_observed",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-okay-oracle-what-song-playing",
+    "category": "parser_miss",
+    "utterance": "okay oracle what song is playing",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-pending-second-one-followup",
+    "category": "clarification_policy_miss",
+    "utterance": "the second one",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "setup": "pending_music_two_candidates",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "music-strong-session-pause-followup",
+    "category": "route_miss",
+    "utterance": "pause",
+    "expected_target": "music",
+    "expected_behavior": "route_only",
+    "setup": "strong_music_context_no_live_media",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "audiobook-strong-session-resume-followup",
+    "category": "route_miss",
+    "utterance": "resume",
+    "expected_target": "audiobook",
+    "expected_behavior": "route_only",
+    "setup": "strong_audiobook_context_no_live_media",
+    "risk": "low",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "generic-chat-stays-fallback-router",
+    "category": "fallback_policy_miss",
+    "utterance": "tell me a joke about spaceships",
+    "expected_target": "fallback_router",
+    "expected_behavior": "fallback_router_last_resort",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "generic-chat-short-joke-stays-fallback-router",
+    "category": "fallback_policy_miss",
+    "utterance": "tell me a short joke",
+    "expected_target": "fallback_router",
+    "expected_behavior": "fallback_router_last_resort",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "generic-chat-stays-fallback-router-question",
+    "category": "fallback_policy_miss",
+    "utterance": "who wrote dune",
+    "expected_target": "fallback_router",
+    "expected_behavior": "fallback_router_last_resort",
+    "risk": "medium",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "generic-chat-weak-facts-context-does-not-hijack-home",
+    "category": "fallback_policy_miss",
+    "utterance": "turn them off",
+    "expected_target": "fallback_router",
+    "expected_behavior": "route_only",
+    "setup": "weak_facts_context",
+    "risk": "high",
+    "origin": "synthetic",
+    "coverage": "route_executed"
+  },
+  {
+    "id": "weak-single-match-should-not-overcommit",
+    "category": "clarification_policy_miss",
+    "utterance": "play dooon",
+    "expected_target": "music",
+    "expected_behavior": "deterministic_clarify",
+    "risk": "high",
+    "origin": "synthetic",
+    "coverage": "handler_executed"
+  },
+  {
+    "id": "no-defensible-media-candidate-hard-not-found",
+    "category": "hard_not_found",
+    "utterance": "play qxzv impossible title",
+    "expected_target": "music",
+    "expected_behavior": "hard_not_found",
+    "risk": "high",
+    "origin": "operator_observed",
+    "coverage": "handler_executed"
+  }
+]

@@ -1,0 +1,21 @@
+actions:
+  - id: example_service_restart
+    target_type: service
+    target_id: example_service
+    adapter_id: example_service_control
+    operation: restart_service
+    enabled: false
+    requires_confirmation: true
+    description: Restart the disabled example service through its typed adapter.
+recoveries:
+  - id: example_recovery
+    enabled: false
+    display_name: Example Network Recovery
+    description: Diagnose the example inventory and prepare a bounded plan.
+    approval_mode: plan
+    diagnostic_profile: network_full_v1
+    remediation_profile: network_full_v1
+    triggers:
+      ui: false
+      voice: false
+      global_phrases: []

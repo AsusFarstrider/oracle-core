@@ -1,0 +1,13 @@
+providers:
+  example_http_probe:
+    type: direct_probe
+    http_url: http://example-host.invalid/health
+    timeout_seconds: 3
+  example_service_control:
+    type: service_control
+    target_kind: service
+    host_id: example_host
+    transport: local
+    platform: linux
+    service_target: example-service.service
+    service_adapter: systemd

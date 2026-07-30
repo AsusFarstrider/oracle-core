@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Oracle House Mode</title>
+    <link rel="stylesheet" href="/ui/assets/fonts/oracle-fonts.css?v=1">
+    <link rel="stylesheet" href="./app.css?v=23">
+  </head>
+  <body>
+    <div class="mode-shell">
+      <aside class="rail">
+        <div class="rail__brand">
+          <div>
+            <p class="rail__eyebrow">Oracle House Alpha</p>
+            <h1>Oracle</h1>
+            <p class="rail__subhead">House Mode</p>
+          </div>
+          <button
+            id="mobile-nav-toggle"
+            class="rail__toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="house-nav"
+            aria-label="Toggle house navigation"
+          >
+            <span class="material-symbols-outlined">menu</span>
+          </button>
+        </div>
+
+        <nav id="house-nav" class="rail__nav" aria-label="House pages">
+          <button class="rail__link is-active" type="button" data-page="home">
+            <span class="material-symbols-outlined">home</span>
+            <span>Home</span>
+          </button>
+          <button class="rail__link" type="button" data-page="weather">
+            <span class="material-symbols-outlined">cloud</span>
+            <span>Weather</span>
+          </button>
+          <button class="rail__link" type="button" data-page="calendar">
+            <span class="material-symbols-outlined">calendar_today</span>
+            <span>Calendar</span>
+          </button>
+          <button class="rail__link" type="button" data-page="audio">
+            <span class="material-symbols-outlined">headset</span>
+            <span>Audio</span>
+          </button>
+          <button class="rail__link" type="button" data-page="house">
+            <span class="material-symbols-outlined">house</span>
+            <span>House</span>
+          </button>
+          <button class="rail__link" type="button" data-page="internet">
+            <span class="material-symbols-outlined">router</span>
+            <span>Internet</span>
+          </button>
+        </nav>
+
+        <div class="rail__footer">
+          <a class="mode-switch" href="/admin/">
+            <span class="material-symbols-outlined">settings_input_component</span>
+            <span>System Mode</span>
+          </a>
+        </div>
+      </aside>
+
+      <div class="canvas">
+        <header class="topbar">
+          <div>
+            <h2 id="page-title">Home</h2>
+            <p id="page-subtitle" class="topbar__subhead">Calm Glance</p>
+          </div>
+          <div class="topbar__actions">
+            <nav id="escape-hatches" class="escape-hatches" aria-label="Open source application"></nav>
+            <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to light theme">
+              <span id="theme-toggle-icon" class="material-symbols-outlined">light_mode</span>
+            </button>
+          </div>
+        </header>
+
+        <div id="app-feedback" class="app-feedback is-hidden" aria-live="polite"></div>
+
+        <main class="pages">
+          <section class="page is-active" data-page-panel="home">
+            <header class="page-head page-head--status-only">
+              <p id="home-status" class="page-status">Loading Home snapshot.</p>
+            </header>
+            <div id="home-root" class="page-root"></div>
+          </section>
+
+          <section class="page" data-page-panel="weather">
+            <header class="page-head page-head--status-only">
+              <p id="weather-status" class="page-status">Loading Weather snapshot.</p>
+            </header>
+            <div id="weather-root" class="page-root"></div>
+          </section>
+
+          <section class="page" data-page-panel="calendar">
+            <header class="page-head page-head--status-only">
+              <p id="calendar-status" class="page-status">Loading Calendar snapshot.</p>
+            </header>
+            <div id="calendar-root" class="page-root"></div>
+          </section>
+
+          <section class="page" data-page-panel="audio">
+            <header class="page-head page-head--status-only">
+              <p id="audio-status" class="page-status">Loading Audio snapshot.</p>
+            </header>
+            <select id="audio-source" hidden></select>
+            <div id="audio-root" class="page-root"></div>
+          </section>
+
+          <section class="page" data-page-panel="house">
+            <header class="page-head">
+              <div>
+                <p class="page-kicker">Daily systems</p>
+                <h3>House</h3>
+              </div>
+              <p id="house-status" class="page-status">Loading House snapshot.</p>
+            </header>
+            <div id="house-root" class="page-root"></div>
+          </section>
+
+          <section class="page" data-page-panel="internet">
+            <header class="page-head">
+              <div>
+                <p class="page-kicker">Recovery</p>
+                <h3>Internet</h3>
+              </div>
+              <p id="internet-status" class="page-status">Loading Internet health.</p>
+            </header>
+            <div id="internet-root" class="page-root"></div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div id="oracle-launcher" class="oracle-launcher">
+      <button
+        id="oracle-launcher-toggle"
+        class="oracle-launcher__toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="oracle-launcher-panel"
+      >
+        <span class="material-symbols-outlined">auto_awesome</span>
+        <span class="oracle-launcher__toggle-label">Ask Oracle</span>
+      </button>
+
+      <section id="oracle-launcher-panel" class="oracle-launcher__panel" aria-label="Oracle interaction panel">
+        <div class="oracle-launcher__head">
+          <div>
+            <p class="card-kicker">Oracle</p>
+            <h4>Speak or type</h4>
+          </div>
+          <button id="oracle-launcher-close" class="ghost-button oracle-launcher__close" type="button" aria-label="Close Oracle panel">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <p id="oracle-launcher-status" class="oracle-launcher__status">Ask Oracle from anywhere in House Mode.</p>
+        <div id="oracle-launcher-reply" class="oracle-launcher__reply is-hidden"></div>
+        <form id="oracle-launcher-form" class="oracle-launcher__form">
+          <input id="oracle-launcher-input" class="oracle-launcher__input" type="text" placeholder="Turn on the reading room light" autocomplete="off">
+          <div class="oracle-launcher__actions">
+            <button id="oracle-launcher-mic" class="action-button--secondary" type="button">
+              <span class="material-symbols-outlined">mic</span>
+              <span>Mic</span>
+            </button>
+            <button id="oracle-launcher-send" class="action-button" type="submit">
+              <span class="material-symbols-outlined">arrow_upward</span>
+              <span>Send</span>
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <script src="./app.js?v=31" type="module"></script>
+  </body>
+</html>

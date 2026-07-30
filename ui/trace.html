@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Oracle System Mode - Trace</title>
+    <link rel="stylesheet" href="/ui/assets/fonts/oracle-fonts.css?v=1">
+    <link rel="stylesheet" href="./system.css?v=4">
+    <link rel="stylesheet" href="./app.css?v=8">
+  </head>
+  <body data-page="trace">
+    <div class="system-shell system-shell-tools">
+      <aside class="system-rail system-rail-tools">
+        <div class="system-rail__brand">
+          <div>
+            <p class="system-kicker">System Oracle</p>
+            <h1>Oracle</h1>
+            <p class="system-subcopy">Operator tools</p>
+          </div>
+        </div>
+
+        <nav class="system-rail__nav" aria-label="System pages">
+          <a class="system-link" href="./">
+            <span class="material-symbols-outlined">dashboard</span>
+            <span>Overview</span>
+          </a>
+          <a class="system-link" href="./">
+            <span class="material-symbols-outlined">analytics</span>
+            <span>Activity</span>
+          </a>
+          <a class="system-link" href="./">
+            <span class="material-symbols-outlined">settings_input_component</span>
+            <span>Control</span>
+          </a>
+          <a class="system-link" href="./">
+            <span class="material-symbols-outlined">account_tree</span>
+            <span>Orchestration</span>
+          </a>
+          <a class="system-link is-active" href="./trace.html">
+            <span class="material-symbols-outlined">conversion_path</span>
+            <span>Trace</span>
+          </a>
+          <a class="system-link" href="./logs.html">
+            <span class="material-symbols-outlined">list_alt</span>
+            <span>Logs</span>
+          </a>
+        </nav>
+
+        <div class="system-rail__footer">
+          <a class="system-switch" href="/ui/">
+            <span class="material-symbols-outlined">home</span>
+            <span>Switch to House Mode</span>
+          </a>
+        </div>
+      </aside>
+
+      <div class="system-canvas">
+        <header class="system-topbar">
+          <div>
+            <p class="system-kicker">Operator tool</p>
+            <h2>Trace</h2>
+          </div>
+          <div class="system-topbar__meta">
+            <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to light theme">
+              <span id="theme-toggle-icon" class="material-symbols-outlined">light_mode</span>
+            </button>
+          </div>
+        </header>
+
+        <main class="single-column single-column-tools">
+          <section class="panel panel-command panel-operator-dark">
+            <div class="panel-head">
+              <div>
+                <h2>Command trace</h2>
+                <p class="status">Inspect one Oracle command deeply without making Trace the whole System surface.</p>
+              </div>
+              <button id="trace-show-current" class="ghost" type="button" disabled>Show Everything</button>
+            </div>
+            <form id="trace-form" class="stack">
+              <label>
+                <span>Command Text</span>
+                <textarea id="trace-text" rows="4" placeholder="turn on the kitchen lights"></textarea>
+              </label>
+              <div class="row row-triple">
+                <label>
+                  <span>Satellite Source</span>
+                  <select id="trace-source-select">
+                    <option value="__custom__">Custom source...</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Typed Source</span>
+                  <input id="trace-source" type="text" placeholder="satellite-example">
+                </label>
+                <label>
+                  <span>Session ID</span>
+                  <input id="trace-session" type="text" placeholder="optional-session-id">
+                </label>
+              </div>
+              <div class="actions">
+                <button id="trace-route-only" type="button">Route Only</button>
+                <button id="trace-send" type="submit">Execute</button>
+              </div>
+            </form>
+
+            <div class="result-grid">
+              <div>
+                <h3>Route Preview</h3>
+                <pre id="trace-route-preview" class="code-block">No route preview yet.</pre>
+              </div>
+              <div>
+                <h3>Latest Raw Response</h3>
+                <pre id="trace-latest-raw" class="code-block">No command executed yet.</pre>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel panel-operator-dark">
+            <div class="panel-head">
+              <h2>Recent Commands</h2>
+              <button id="trace-clear-history" class="ghost" type="button">Clear</button>
+            </div>
+            <div id="trace-history" class="history-list"></div>
+          </section>
+
+          <section class="panel panel-trace-detail panel-operator-dark">
+            <div class="panel-head">
+              <h2>Show Everything</h2>
+              <p id="trace-summary-status" class="status">No command selected.</p>
+            </div>
+
+            <section id="trace-summary" class="summary-strip"></section>
+
+            <div class="trace-grid">
+              <section id="trace-section-request" class="trace-card"></section>
+              <section id="trace-section-route" class="trace-card"></section>
+              <section id="trace-section-dispatch" class="trace-card"></section>
+              <section id="trace-section-result" class="trace-card"></section>
+              <section id="trace-section-reply" class="trace-card"></section>
+              <section id="trace-section-session" class="trace-card trace-wide"></section>
+              <section id="trace-section-playback" class="trace-card trace-wide"></section>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div id="oracle-launcher" class="oracle-launcher">
+      <button
+        id="oracle-launcher-toggle"
+        class="oracle-launcher__toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="oracle-launcher-panel"
+      >
+        <span class="material-symbols-outlined">auto_awesome</span>
+        <span class="oracle-launcher__toggle-label">Ask Oracle</span>
+      </button>
+
+      <section id="oracle-launcher-panel" class="oracle-launcher__panel" aria-label="Oracle interaction panel">
+        <div class="oracle-launcher__head">
+          <div>
+            <p class="system-kicker">Oracle</p>
+            <h4>Speak or type</h4>
+          </div>
+          <button id="oracle-launcher-close" class="admin-button--secondary oracle-launcher__close" type="button" aria-label="Close Oracle panel">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <p id="oracle-launcher-status" class="oracle-launcher__status">Ask Oracle without leaving the operator tools.</p>
+        <div id="oracle-launcher-reply" class="oracle-launcher__reply is-hidden"></div>
+        <form id="oracle-launcher-form" class="oracle-launcher__form">
+          <input id="oracle-launcher-input" class="oracle-launcher__input" type="text" placeholder="Check the house status" autocomplete="off">
+          <div class="oracle-launcher__actions">
+            <button id="oracle-launcher-mic" class="admin-button--secondary" type="button">
+              <span class="material-symbols-outlined">mic</span>
+              <span>Mic</span>
+            </button>
+            <button id="oracle-launcher-send" class="admin-button" type="submit">
+              <span class="material-symbols-outlined">arrow_upward</span>
+              <span>Send</span>
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <script src="./app.js?v=10" type="module"></script>
+  </body>
+</html>

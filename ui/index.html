@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Oracle System Mode</title>
+    <link rel="stylesheet" href="/ui/assets/fonts/oracle-fonts.css?v=1">
+    <link rel="stylesheet" href="./system.css?v=7">
+  </head>
+  <body>
+    <div class="system-shell">
+      <aside class="system-rail">
+        <div class="system-rail__brand">
+          <div>
+            <p class="system-kicker">System Oracle</p>
+            <h1>Oracle</h1>
+            <p class="system-subcopy">System Mode / Home OS</p>
+          </div>
+          <button
+            id="admin-mobile-nav-toggle"
+            class="system-rail__toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="admin-nav"
+            aria-label="Toggle system navigation"
+          >
+            <span class="material-symbols-outlined">menu</span>
+          </button>
+        </div>
+
+        <nav id="admin-nav" class="system-rail__nav" aria-label="System pages">
+          <button class="system-link is-active" type="button" data-admin-page="overview">
+            <span class="material-symbols-outlined">dashboard</span>
+            <span>Overview</span>
+          </button>
+          <button class="system-link" type="button" data-admin-page="activity">
+            <span class="material-symbols-outlined">analytics</span>
+            <span>Activity</span>
+          </button>
+          <button class="system-link" type="button" data-admin-page="control">
+            <span class="material-symbols-outlined">settings_input_component</span>
+            <span>Control</span>
+          </button>
+          <button class="system-link" type="button" data-admin-page="network">
+            <span class="material-symbols-outlined">hub</span>
+            <span>Network</span>
+          </button>
+          <button class="system-link" type="button" data-admin-page="orchestration">
+            <span class="material-symbols-outlined">account_tree</span>
+            <span>Orchestration</span>
+          </button>
+          <button class="system-link" type="button" data-admin-page="suggestions">
+            <span class="material-symbols-outlined">rule_settings</span>
+            <span>Suggestions</span>
+          </button>
+          <button class="system-link" type="button" data-admin-page="trace">
+            <span class="material-symbols-outlined">conversion_path</span>
+            <span>Trace</span>
+          </button>
+          <button class="system-link" type="button" data-admin-page="logs">
+            <span class="material-symbols-outlined">list_alt</span>
+            <span>Logs</span>
+          </button>
+        </nav>
+
+        <div class="system-rail__footer">
+          <a class="system-switch" href="/ui/">
+            <span class="material-symbols-outlined">home</span>
+            <span>Switch to House Mode</span>
+          </a>
+        </div>
+      </aside>
+
+      <div class="system-canvas">
+        <header class="system-topbar">
+          <div>
+            <p class="system-kicker">System depth</p>
+            <h2 id="admin-page-title">Overview</h2>
+          </div>
+          <div class="system-topbar__meta">
+            <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to light theme">
+              <span id="theme-toggle-icon" class="material-symbols-outlined">light_mode</span>
+            </button>
+          </div>
+        </header>
+
+        <div id="system-feedback" class="system-feedback is-hidden" aria-live="polite"></div>
+
+        <main class="system-pages">
+          <section class="system-page is-active" data-admin-panel="overview">
+            <header class="system-page-head">
+              <div>
+                <p class="system-kicker">System home</p>
+                <h3>Overview</h3>
+              </div>
+              <p id="overview-status" class="system-status">Loading overview.</p>
+            </header>
+            <div id="overview-root" class="system-root"></div>
+          </section>
+
+          <section class="system-page" data-admin-panel="activity">
+            <header class="system-page-head">
+              <div>
+                <p class="system-kicker">Structured runtime</p>
+                <h3>Activity</h3>
+              </div>
+              <p id="activity-status" class="system-status">Loading activity.</p>
+            </header>
+            <div id="activity-root" class="system-root"></div>
+          </section>
+
+          <section class="system-page" data-admin-panel="control">
+            <header class="system-page-head">
+              <div>
+                <p class="system-kicker">Overrides</p>
+                <h3>Control</h3>
+              </div>
+              <p id="control-status" class="system-status">Loading control surface.</p>
+            </header>
+            <div id="control-root" class="system-root"></div>
+          </section>
+
+          <section class="system-page" data-admin-panel="network">
+            <header class="system-page-head">
+              <div>
+                <p class="system-kicker">Inventory and evidence</p>
+                <h3>Network</h3>
+              </div>
+              <p id="network-status" class="system-status">Loading network status.</p>
+            </header>
+            <div id="network-root" class="system-root"></div>
+          </section>
+
+          <section class="system-page" data-admin-panel="orchestration">
+            <header class="system-page-head">
+              <div>
+                <p class="system-kicker">Runbooks and routines</p>
+                <h3>Orchestration</h3>
+              </div>
+              <p id="orchestration-status" class="system-status">Loading orchestration view.</p>
+            </header>
+            <div id="orchestration-root" class="system-root"></div>
+          </section>
+
+          <section class="system-page" data-admin-panel="suggestions">
+            <header class="system-page-head">
+              <div>
+                <p class="system-kicker">OpenClaw advisory inbox</p>
+                <h3>Suggestions</h3>
+              </div>
+              <p id="suggestions-status" class="system-status">Loading suggestions.</p>
+            </header>
+            <div id="suggestions-root" class="system-root"></div>
+          </section>
+
+          <section class="system-page" data-admin-panel="trace">
+            <header class="system-page-head">
+              <div>
+                <p class="system-kicker">Operator tool</p>
+                <h3>Trace</h3>
+              </div>
+              <p class="system-status">Detailed command inspection without leaving System Mode.</p>
+            </header>
+            <div class="system-root">
+              <div class="system-card tool-frame-card">
+                <iframe
+                  id="trace-frame"
+                  class="tool-frame"
+                  src="./trace.html"
+                  title="Oracle Trace"
+                  loading="lazy"
+                ></iframe>
+              </div>
+            </div>
+          </section>
+
+          <section class="system-page" data-admin-panel="logs">
+            <header class="system-page-head">
+              <div>
+                <p class="system-kicker">Operator tool</p>
+                <h3>Logs</h3>
+              </div>
+              <p class="system-status">Raw log tail stays available inside the System shell.</p>
+            </header>
+            <div class="system-root">
+              <div class="system-card tool-frame-card">
+                <iframe
+                  id="logs-frame"
+                  class="tool-frame"
+                  src="./logs.html"
+                  title="Oracle Logs"
+                  loading="lazy"
+                ></iframe>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div id="oracle-launcher" class="oracle-launcher">
+      <button
+        id="oracle-launcher-toggle"
+        class="oracle-launcher__toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="oracle-launcher-panel"
+      >
+        <span class="material-symbols-outlined">auto_awesome</span>
+        <span class="oracle-launcher__toggle-label">Ask Oracle</span>
+      </button>
+
+      <section id="oracle-launcher-panel" class="oracle-launcher__panel" aria-label="Oracle interaction panel">
+        <div class="oracle-launcher__head">
+          <div>
+            <p class="system-kicker">Oracle</p>
+            <h4>Speak or type</h4>
+          </div>
+          <button id="oracle-launcher-close" class="admin-button--secondary oracle-launcher__close" type="button" aria-label="Close Oracle panel">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <p id="oracle-launcher-status" class="oracle-launcher__status">Oracle voice interaction stays on the voice API.</p>
+        <div id="oracle-launcher-reply" class="oracle-launcher__reply is-hidden"></div>
+        <form id="oracle-launcher-form" class="oracle-launcher__form">
+          <input id="oracle-launcher-input" class="oracle-launcher__input" type="text" placeholder="What can you do right now?" autocomplete="off">
+          <div class="oracle-launcher__actions">
+            <button id="oracle-launcher-mic" class="admin-button--secondary" type="button">
+              <span class="material-symbols-outlined">mic</span>
+              <span>Mic</span>
+            </button>
+            <button id="oracle-launcher-send" class="admin-button" type="submit">
+              <span class="material-symbols-outlined">arrow_upward</span>
+              <span>Send</span>
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <script src="./system.js?v=29" type="module"></script>
+  </body>
+</html>
