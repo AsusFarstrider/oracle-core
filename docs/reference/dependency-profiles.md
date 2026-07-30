@@ -29,6 +29,21 @@ System packages, shared libraries, devices, models, external executables, and
 provider services remain governed by their installation-profile declarations
 and host preflight. They are not hidden inside these Python lock identities.
 
+## Conditional local-playback facility
+
+The provider-free `minimal-brain` profile does not require a multimedia player.
+Deployments that enable Oracle's satellite-local long-form playback facility
+must provide one validated compatible executable: either `ffplay` or `mpv`.
+Those executables are alternative mandatory host dependencies for that enabled
+facility, not universal Oracle dependencies.
+
+Installation-profile preflight must discover and validate the selected player
+before declaring local playback ready. A paused long-form session may be
+constructed without a player because it launches no process; actual playback,
+resume, and seek resolve and validate the selected executable at their execution
+boundary. A disabled local-playback facility requires neither executable and
+their absence must not make the minimal Brain unhealthy.
+
 ## Clean-core test classification
 
 Every promoted file matching `tests/test_*.py` is a required clean-core test;

@@ -224,7 +224,7 @@ def _restart_from_position(state: dict[str, Any], position_seconds: float, *, pl
 
 
 def _build_state(manifest: dict[str, Any], *, player_bin: str, position_seconds: float) -> dict[str, Any]:
-    resolved_player_bin = _resolve_player_bin(player_bin)
+    requested_player_bin = str(player_bin or "").strip() or "auto"
     return {
         "playback_id": str(manifest.get("playback_id", "")).strip(),
         "session_id": str(manifest.get("session_id", "")).strip(),
@@ -236,17 +236,19 @@ def _build_state(manifest: dict[str, Any], *, player_bin: str, position_seconds:
         "pid": None,
         "started_monotonic": None,
         "manifest": manifest,
-        "player_bin": resolved_player_bin,
+        "player_bin": requested_player_bin,
     }
 
 
 def _start_player(state: dict[str, Any]) -> None:
+    requested_player_bin = str(state.get("player_bin") or "").strip() or "auto"
+    resolved_player_bin = _resolve_player_bin(requested_player_bin)
+    player_command = _build_player_command(resolved_player_bin)
+    state["player_bin"] = resolved_player_bin
     manifest = dict(state.get("manifest") or {})
     position_seconds = float(state.get("position_seconds") or 0)
     playlist_text = _build_ffconcat(manifest, position_seconds)
     PLAYLIST_PATH.write_text(playlist_text, encoding="utf-8")
-    player_bin = str(state.get("player_bin") or "")
-    player_command = _build_player_command(player_bin)
     with LOG_PATH.open("ab") as log_handle:
         process = subprocess.Popen(
             player_command + [str(PLAYLIST_PATH)],
@@ -572,7 +574,12 @@ def _print_json(payload: dict[str, Any]) -> None:
 def _resolve_player_bin(player_bin: str) -> str:
     requested = str(player_bin or "").strip()
     if requested and requested != "auto":
-        return requested
+        if _player_basename(requested) not in _SUPPORTED_PLAYER_BASENAMES:
+            raise SystemExit(f"Unsupported long-form player binary: {requested}")
+        resolved = which(requested)
+        if resolved:
+            return resolved
+        raise SystemExit(f"Configured long-form player was not found or is not executable: {requested}")
 
     for candidate in ("ffplay", "mpv"):
         resolved = which(candidate)

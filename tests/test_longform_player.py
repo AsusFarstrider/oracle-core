@@ -238,16 +238,146 @@ class LongformPlayerTests(unittest.TestCase):
             with patch.object(longform_player, "_ensure_state_dir"), \
                  patch.object(longform_player, "_stop_existing_process", return_value=[]), \
                  patch.object(longform_player, "_save_state") as mock_save, \
-                 patch.object(longform_player, "_start_player") as mock_start, \
+                 patch.object(longform_player, "which", side_effect=AssertionError("player discovery is not allowed")) as mock_which, \
+                 patch.object(longform_player, "_build_player_command", side_effect=AssertionError("command construction is not allowed")) as mock_command, \
+                 patch.object(longform_player.subprocess, "Popen", side_effect=AssertionError("process launch is not allowed")) as mock_popen, \
                  patch.object(longform_player, "_print_json", side_effect=lambda payload: captured.append(payload)):
                 result = longform_player._cmd_play(manifest_path, player_bin="auto")
         finally:
             manifest_path.unlink(missing_ok=True)
 
         self.assertEqual(result, 0)
-        mock_start.assert_not_called()
+        mock_which.assert_not_called()
+        mock_command.assert_not_called()
+        mock_popen.assert_not_called()
         self.assertEqual(mock_save.call_args.args[0]["state"], "paused")
+        self.assertEqual(mock_save.call_args.args[0]["player_bin"], "auto")
         self.assertEqual(captured[0]["state"], "paused")
+
+    def test_cmd_play_resolves_and_persists_player_only_when_starting(self) -> None:
+        manifest = {
+            "playback_id": "book-1",
+            "session_id": "session-1",
+            "title": "Dune",
+            "author": "Frank Herbert",
+            "duration_seconds": 1000.0,
+            "start_position_seconds": 120.0,
+            "tracks": [{"url": "http://example.test/ch1.mp3"}],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path = root / "manifest.json"
+            manifest_path.write_text(__import__("json").dumps(manifest), encoding="utf-8")
+            process = type("Process", (), {"pid": 321})()
+            with patch.object(longform_player, "PLAYLIST_PATH", root / "playlist.ffconcat"), \
+                 patch.object(longform_player, "LOG_PATH", root / "player.log"), \
+                 patch.object(longform_player, "_ensure_state_dir"), \
+                 patch.object(longform_player, "_stop_existing_process", return_value=[]), \
+                 patch.object(longform_player, "which", side_effect=lambda value: "/opt/oracle-test/bin/ffplay" if value == "ffplay" else None) as mock_which, \
+                 patch.object(longform_player.subprocess, "Popen", return_value=process) as mock_popen, \
+                 patch.object(longform_player, "_save_state") as mock_save, \
+                 patch.object(longform_player, "_print_json"):
+                result = longform_player._cmd_play(manifest_path, player_bin="auto")
+
+        self.assertEqual(result, 0)
+        mock_which.assert_called_once_with("ffplay")
+        self.assertEqual(mock_popen.call_args.args[0][0], "/opt/oracle-test/bin/ffplay")
+        self.assertEqual(mock_save.call_args.args[0]["state"], "playing")
+        self.assertEqual(mock_save.call_args.args[0]["player_bin"], "/opt/oracle-test/bin/ffplay")
+
+    def test_cmd_resume_resolves_unresolved_player_selector(self) -> None:
+        state = {
+            "playback_id": "book-1",
+            "session_id": "session-1",
+            "title": "Dune",
+            "author": "Frank Herbert",
+            "duration_seconds": 1000.0,
+            "position_seconds": 120.0,
+            "state": "paused",
+            "pid": None,
+            "started_monotonic": None,
+            "manifest": {
+                "tracks": [{"url": "http://example.test/ch1.mp3"}],
+                "duration_seconds": 1000.0,
+            },
+            "player_bin": "auto",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            process = type("Process", (), {"pid": 322})()
+            with patch.object(longform_player, "PLAYLIST_PATH", root / "playlist.ffconcat"), \
+                 patch.object(longform_player, "LOG_PATH", root / "player.log"), \
+                 patch.object(longform_player, "_load_state", return_value=state), \
+                 patch.object(longform_player, "_refresh_state"), \
+                 patch.object(longform_player, "_stop_existing_process", return_value=[]), \
+                 patch.object(longform_player, "which", side_effect=lambda value: "/opt/oracle-test/bin/mpv" if value == "mpv" else None), \
+                 patch.object(longform_player.subprocess, "Popen", return_value=process), \
+                 patch.object(longform_player, "_save_state") as mock_save, \
+                 patch.object(longform_player, "_print_json"):
+                result = longform_player._cmd_resume(player_bin="auto")
+
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_save.call_args.args[0]["state"], "playing")
+        self.assertEqual(mock_save.call_args.args[0]["player_bin"], "/opt/oracle-test/bin/mpv")
+
+    def test_player_absent_immediate_play_and_resume_fail_at_execution_boundary(self) -> None:
+        manifest = {
+            "playback_id": "book-1",
+            "session_id": "session-1",
+            "duration_seconds": 1000.0,
+            "tracks": [{"url": "http://example.test/ch1.mp3"}],
+        }
+        paused_state = {
+            "playback_id": "book-1",
+            "session_id": "session-1",
+            "duration_seconds": 1000.0,
+            "position_seconds": 0.0,
+            "state": "paused",
+            "pid": None,
+            "started_monotonic": None,
+            "manifest": manifest,
+            "player_bin": "auto",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = Path(directory) / "manifest.json"
+            manifest_path.write_text(__import__("json").dumps(manifest), encoding="utf-8")
+            with patch.object(longform_player, "_ensure_state_dir"), \
+                 patch.object(longform_player, "_stop_existing_process", return_value=[]), \
+                 patch.object(longform_player, "which", return_value=None):
+                with self.assertRaisesRegex(SystemExit, "No supported long-form player found"):
+                    longform_player._cmd_play(manifest_path, player_bin="auto")
+
+            with patch.object(longform_player, "_load_state", return_value=paused_state), \
+                 patch.object(longform_player, "_refresh_state"), \
+                 patch.object(longform_player, "_stop_existing_process", return_value=[]), \
+                 patch.object(longform_player, "which", return_value=None):
+                with self.assertRaisesRegex(SystemExit, "No supported long-form player found"):
+                    longform_player._cmd_resume(player_bin="auto")
+
+    def test_supported_longform_player_command_shapes(self) -> None:
+        self.assertEqual(
+            longform_player._build_player_command("/opt/oracle-test/bin/ffplay"),
+            [
+                "/opt/oracle-test/bin/ffplay",
+                "-nodisp",
+                "-autoexit",
+                "-loglevel",
+                "error",
+                "-safe",
+                "0",
+                "-protocol_whitelist",
+                "file,http,https,tcp,tls",
+            ],
+        )
+        self.assertEqual(
+            longform_player._build_player_command("/opt/oracle-test/bin/mpv"),
+            [
+                "/opt/oracle-test/bin/mpv",
+                "--no-video",
+                "--really-quiet",
+                "--playlist",
+            ],
+        )
 
     def test_cmd_stop_fails_when_oracle_longform_processes_remain(self) -> None:
         state = {

@@ -223,7 +223,13 @@ the validated projection and code-owned host bootstrap. They are not authored
 as secret-bearing command examples.
 
 `longform_player.py` auto-detects `ffplay` or `mpv` and tracks state in `/tmp/oracle-longform-player/`.
-For predictable deployments, it is better to standardize one player package across all satellites instead of relying on ambient package differences.
+A deployment enabling satellite-local long-form playback must provide one of
+those validated executables. They are alternative mandatory dependencies for
+that enabled host facility, not dependencies of the provider-free minimal
+Brain. Paused session preparation does not require a player; actual start,
+resume, and seek resolve the selected executable when playback is attempted.
+For predictable playback-capable deployments, standardize one player package
+instead of relying on ambient package differences.
 
 Phase E guardrail:
 
