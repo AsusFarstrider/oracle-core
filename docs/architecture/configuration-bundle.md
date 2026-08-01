@@ -49,6 +49,10 @@ installed runtime store
 The reusable core owns schemas, validators, migrations, examples, and tooling.
 Its complete generic authored example is `examples/config/` and mirrors the
 fixed role layout without becoming a runtime root.
+[`examples/deployment/minimal/template.json`](../../examples/deployment/minimal/template.json)
+wraps that exact role set with the standard minimal profile, host-local ingress,
+core-pin shape, placeholder, validation, and separate-secret boundaries needed
+to initialize an isolated household deployment definition.
 The private deployment authority owns one or more explicitly isolated household
 definitions. A standard target receives only its own exact materialized
 deployment revision and separately supplied secrets; it does not require the
