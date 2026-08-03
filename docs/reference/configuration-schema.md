@@ -174,6 +174,14 @@ mechanism. The checked-in example uses package-relative paths; deployments may
 use machine paths at these owning edges, but cannot redirect the configuration
 bundle or installed store through these fields.
 
+For the fixed Stage 4 standard Debian layout, the supported values are
+`data/oracle-memory.sqlite3` and `data/alerts-state.json`. Standard runtime
+binding materializes those logical paths beneath `/srv/oracle/data`; it never
+resolves them relative to the immutable application revision. Other machine
+paths remain usable by development or custom deployments, but require a later
+explicit standard-installation storage/profile contract before they can be
+used by the supported Debian installer.
+
 The five top-level sections are present. `speech.stt`, `speech.tts`, and
 `inference.shared_backend` each require explicit `enabled`. There is no
 `speech.enabled` or `inference.enabled`. When enabled, a role selects its

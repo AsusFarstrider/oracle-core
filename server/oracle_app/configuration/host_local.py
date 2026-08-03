@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 import errno
 import json
 import os
@@ -10,8 +10,9 @@ import shutil
 import socket
 import socketserver
 import stat
+import struct
 import tempfile
-from typing import Any
+from typing import Any, Callable, Protocol
 
 from .authoring_transactions import AuthoringModeError, AuthoringMutationError
 from .generations import GenerationStoreError, _fsync_directory
@@ -39,6 +40,102 @@ class HostLocalProtocolError(ValueError):
 
 class HostLocalServiceAlreadyRunning(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class UnixPeerCredentials:
+    pid: int
+    uid: int
+    gid: int
+
+
+@dataclass(frozen=True)
+class UnixPeerIdentity:
+    credentials: UnixPeerCredentials
+    account_name: str | None
+    category: str
+
+
+class HostLocalAuthorizationError(PermissionError):
+    def __init__(self, message: str, *, peer: UnixPeerIdentity | None = None) -> None:
+        super().__init__(message)
+        self.peer = peer
+
+
+class UnixPeerAuthorizer(Protocol):
+    def authorize(self, connection: socket.socket) -> UnixPeerIdentity: ...
+
+
+class CompleteActivationCoordinator(Protocol):
+    journal_path: Path
+
+    def stage_secret_mutation(self, **kwargs: object) -> object: ...
+
+    def recover(self) -> object: ...
+
+
+def read_unix_peer_credentials(connection: socket.socket) -> UnixPeerCredentials:
+    """Read credentials asserted by the Unix kernel, never by the request."""
+
+    if not hasattr(socket, "SO_PEERCRED"):
+        raise HostLocalAuthorizationError("Kernel Unix peer credentials are unavailable.")
+    size = struct.calcsize("3i")
+    raw = connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, size)
+    pid, uid, gid = struct.unpack("3i", raw)
+    if pid <= 0 or uid < 0 or gid < 0:
+        raise HostLocalAuthorizationError("Kernel Unix peer credentials are invalid.")
+    return UnixPeerCredentials(pid=pid, uid=uid, gid=gid)
+
+
+class StandardUnixPeerAuthorizer:
+    """Authorize the ratified service/root/operator identities from SO_PEERCRED."""
+
+    def __init__(
+        self,
+        *,
+        service_account: str = "oracle",
+        operator_group: str = "oracle-admin",
+        credential_reader: Callable[[socket.socket], UnixPeerCredentials] = read_unix_peer_credentials,
+    ) -> None:
+        self.service_account = service_account
+        self.operator_group = operator_group
+        self.credential_reader = credential_reader
+
+    def authorize(self, connection: socket.socket) -> UnixPeerIdentity:
+        import grp
+        import pwd
+
+        credentials = self.credential_reader(connection)
+        try:
+            account = pwd.getpwuid(credentials.uid)
+        except KeyError as exc:
+            peer = UnixPeerIdentity(credentials, None, "unauthorized")
+            raise HostLocalAuthorizationError("Unix peer account is unknown.", peer=peer) from exc
+        if credentials.uid == 0:
+            return UnixPeerIdentity(credentials, account.pw_name, "root")
+        try:
+            service = pwd.getpwnam(self.service_account)
+        except KeyError as exc:
+            peer = UnixPeerIdentity(credentials, account.pw_name, "unauthorized")
+            raise HostLocalAuthorizationError(
+                "Oracle service account is unavailable.", peer=peer
+            ) from exc
+        if credentials.uid == service.pw_uid:
+            return UnixPeerIdentity(credentials, account.pw_name, "oracle_service")
+        try:
+            operator = grp.getgrnam(self.operator_group)
+            groups = os.getgrouplist(account.pw_name, account.pw_gid)
+        except KeyError as exc:
+            peer = UnixPeerIdentity(credentials, account.pw_name, "unauthorized")
+            raise HostLocalAuthorizationError(
+                "Oracle operator group is unavailable.", peer=peer
+            ) from exc
+        if operator.gr_gid in groups:
+            return UnixPeerIdentity(credentials, account.pw_name, "oracle_operator")
+        peer = UnixPeerIdentity(credentials, account.pw_name, "unauthorized")
+        raise HostLocalAuthorizationError(
+            "Unix peer is not authorized for Oracle administration.", peer=peer
+        )
 
 
 class ServicePresenceLock(AbstractContextManager["ServicePresenceLock"]):
@@ -80,8 +177,14 @@ class ServicePresenceLock(AbstractContextManager["ServicePresenceLock"]):
 
 
 class HostLocalDispatcher:
-    def __init__(self, service: ConfigurationService) -> None:
+    def __init__(
+        self,
+        service: ConfigurationService,
+        *,
+        activation_coordinator: CompleteActivationCoordinator | None = None,
+    ) -> None:
         self.service = service
+        self.activation_coordinator = activation_coordinator
 
     def dispatch(self, request: object) -> dict[str, object]:
         try:
@@ -193,20 +296,33 @@ class HostLocalDispatcher:
         return self._transaction_result(result)
 
     def _mutate_secret(self, payload: dict[str, object]) -> dict[str, object]:
-        if self.service.authoring_root is None:
+        if self.activation_coordinator is None and self.service.authoring_root is None:
             raise AuthoringModeError("Secret mutation requires a bootstrap authoring root.")
         operation = self._required_string(payload, "secret_operation")
         value = payload.get("value")
         if value is not None and not isinstance(value, str):
             raise HostLocalProtocolError("Secret value must be text or null.")
-        result = self.service.mutate_secret(
-            self.service.authoring_root,
-            operation=operation,  # type: ignore[arg-type]
-            logical_id=self._required_string(payload, "logical_id"),
-            value=value,
-            expected_secret_generation_id=self._required_string(payload, "expected_secret_generation_id"),
-            actor="host_local_cli",
-        )
+        arguments = {
+            "operation": operation,
+            "logical_id": self._required_string(payload, "logical_id"),
+            "value": value,
+            "expected_secret_generation_id": self._required_string(
+                payload, "expected_secret_generation_id"
+            ),
+            "actor": "host_local_cli",
+        }
+        if self.activation_coordinator is not None:
+            staged = self.activation_coordinator.stage_secret_mutation(**arguments)
+            result = staged.mutation  # type: ignore[attr-defined]
+            output = self._secret_result(result)
+            output.update(
+                complete_activation_transaction_id=staged.transaction_id,  # type: ignore[attr-defined]
+                previous_complete_activation_id=staged.previous_activation.activation_id,  # type: ignore[attr-defined]
+                staged_complete_activation_id=staged.candidate_activation.activation_id,  # type: ignore[attr-defined]
+                restart_required=True,
+            )
+            return output
+        result = self.service.mutate_secret(self.service.authoring_root, **arguments)  # type: ignore[arg-type]
         return self._secret_result(result)
 
     @staticmethod
@@ -219,10 +335,20 @@ class HostLocalDispatcher:
             previous_secret_generation_id=result.previous_secret_generation_id,
             revoked_secret_generation_id=result.revoked_secret_generation_id,
             pruned_secret_generation_ids=list(result.pruned_secret_generation_ids),
+            retirement_pending=result.retirement_pending,
         )
         return output
 
     def _recover(self) -> dict[str, object]:
+        complete_activation_id: str | None = None
+        if (
+            self.activation_coordinator is not None
+            and (
+                self.activation_coordinator.journal_path.exists()
+                or self.activation_coordinator.journal_path.is_symlink()
+            )
+        ):
+            complete_activation_id = self.activation_coordinator.recover().activation_id  # type: ignore[attr-defined]
         selections = self.service.recover_selection_transactions()
         authoring: tuple[str, ...] = ()
         secrets: tuple[str, ...] = ()
@@ -237,6 +363,7 @@ class HostLocalDispatcher:
             "selection_operation_ids": list(selections),
             "authoring_transaction_ids": list(authoring),
             "secret_transaction_ids": list(secrets),
+            "complete_activation_id": complete_activation_id,
         }
 
     def _runtime_cutover(self, payload: dict[str, object]) -> dict[str, object]:
@@ -439,6 +566,18 @@ class HostLocalDispatcher:
 
 class _RequestHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
+        try:
+            peer = self.server.authorize_connection(self.connection)  # type: ignore[attr-defined]
+        except HostLocalAuthorizationError as exc:
+            response = {
+                "format": HOST_LOCAL_PROTOCOL_FORMAT,
+                "ok": False,
+                "error": {"code": "unauthorized_peer", "message": str(exc)},
+            }
+            self.server.audit_connection(exc.peer, None, response)  # type: ignore[attr-defined]
+            self.wfile.write(json.dumps(response, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n")
+            return
+        request: object = None
         data = self.rfile.readline(MAX_REQUEST_BYTES + 1)
         if len(data) > MAX_REQUEST_BYTES or not data.endswith(b"\n"):
             response = {
@@ -452,11 +591,37 @@ class _RequestHandler(socketserver.StreamRequestHandler):
             except (UnicodeDecodeError, json.JSONDecodeError):
                 request = None
             response = self.server.dispatcher.dispatch(request)  # type: ignore[attr-defined]
-        self.wfile.write(json.dumps(response, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n")
+        operation = request.get("operation") if isinstance(request, dict) else None
+        self.server.audit_connection(  # type: ignore[attr-defined]
+            peer,
+            operation if isinstance(operation, str) else None,
+            response,
+        )
+        self.wfile.write(
+            json.dumps(
+                response,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            + b"\n"
+        )
+        self.wfile.flush()
+        self.server.request_restart_if_required(response)  # type: ignore[attr-defined]
 
 
 class HostLocalConfigurationServer(socketserver.UnixStreamServer):
-    def __init__(self, socket_path: Path, service: ConfigurationService) -> None:
+    def __init__(
+        self,
+        socket_path: Path,
+        service: ConfigurationService,
+        *,
+        peer_authorizer: UnixPeerAuthorizer | None = None,
+        expected_socket_group_gid: int | None = None,
+        activation_coordinator: CompleteActivationCoordinator | None = None,
+        authorization_audit: Callable[[dict[str, object]], None] | None = None,
+        restart_request: Callable[[], None] | None = None,
+    ) -> None:
         if not hasattr(socket, "AF_UNIX"):
             raise OSError("Unix-domain sockets are unavailable on this platform.")
         requested = Path(socket_path)
@@ -467,21 +632,92 @@ class HostLocalConfigurationServer(socketserver.UnixStreamServer):
             raise HostLocalProtocolError(
                 "Host-local socket parent must be owned by the service user and not writable by group or others."
             )
+        if peer_authorizer is not None:
+            if expected_socket_group_gid is None:
+                raise HostLocalProtocolError(
+                    "Standard host-local authorization requires the Oracle operator group identity."
+                )
+            if (
+                parent_stat.st_gid != expected_socket_group_gid
+                or not parent_stat.st_mode & stat.S_ISGID
+                or not parent_stat.st_mode & stat.S_IXGRP
+            ):
+                raise HostLocalProtocolError(
+                    "Standard host-local socket runtime directory must inherit the Oracle operator group."
+                )
         self.socket_path = parent / requested.name
-        self.dispatcher = HostLocalDispatcher(service)
+        self.peer_authorizer = peer_authorizer
+        self.authorization_audit = authorization_audit
+        self.restart_request = restart_request
+        self.dispatcher = HostLocalDispatcher(
+            service,
+            activation_coordinator=activation_coordinator,
+        )
         self._presence = ServicePresenceLock(service.store.root)
         self._presence.__enter__()
         try:
             self._prepare_socket_path()
-            previous_umask = os.umask(0o177)
+            previous_umask = os.umask(0o117 if peer_authorizer is not None else 0o177)
             try:
                 super().__init__(str(self.socket_path), _RequestHandler)
-                self.socket_path.chmod(0o600)
+                self.socket_path.chmod(0o660 if peer_authorizer is not None else 0o600)
+                if (
+                    peer_authorizer is not None
+                    and self.socket_path.stat().st_gid != expected_socket_group_gid
+                ):
+                    raise HostLocalProtocolError(
+                        "Host-local socket did not inherit the configured Oracle operator group."
+                    )
             finally:
                 os.umask(previous_umask)
         except BaseException:
-            self._presence.__exit__(None, None, None)
+            try:
+                if hasattr(self, "socket"):
+                    socketserver.UnixStreamServer.server_close(self)
+                try:
+                    mode = self.socket_path.lstat().st_mode
+                except FileNotFoundError:
+                    pass
+                else:
+                    if stat.S_ISSOCK(mode):
+                        self.socket_path.unlink()
+            finally:
+                self._presence.__exit__(None, None, None)
             raise
+
+    def authorize_connection(self, connection: socket.socket) -> UnixPeerIdentity | None:
+        if self.peer_authorizer is None:
+            return None
+        return self.peer_authorizer.authorize(connection)
+
+    def audit_connection(
+        self,
+        peer: UnixPeerIdentity | None,
+        operation: str | None,
+        response: dict[str, object],
+    ) -> None:
+        if self.authorization_audit is None:
+            return
+        record: dict[str, object] = {
+            "operation": operation,
+            "result": "accepted" if response.get("ok") is True else "rejected",
+        }
+        if peer is not None:
+            record.update(
+                peer_uid=peer.credentials.uid,
+                peer_pid=peer.credentials.pid,
+                peer_gid=peer.credentials.gid,
+                peer_account=peer.account_name,
+                peer_category=peer.category,
+            )
+        self.authorization_audit(record)
+
+    def request_restart_if_required(self, response: dict[str, object]) -> None:
+        if self.restart_request is None or response.get("ok") is not True:
+            return
+        result = response.get("result")
+        if isinstance(result, dict) and result.get("restart_required") is True:
+            self.restart_request()
 
     def server_close(self) -> None:
         try:

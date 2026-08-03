@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Mapping
+from urllib.parse import urlsplit
 
 from .effective import EffectiveConfig
 from .household_runtime_settings import HouseholdRuntimeSettings
-from .models import SatelliteCapabilities, SatellitesConfiguration
+from .models import SatelliteCapabilities, SatelliteConfiguration, SatellitesConfiguration
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,7 @@ class SatelliteBrainEdgeSettings:
     source_id: str | None
     platform: str | None
     capabilities: SatelliteCapabilities | None
+    ui_trusted_peer_addresses: frozenset[str]
     projection_activation_id: str | None
     control_service_base_url: str | None
     control_service_credential_secret: str | None
@@ -91,6 +93,7 @@ class SatelliteFleetRuntimeSettings:
                 source_id=source_id,
                 platform=satellite.platform,
                 capabilities=satellite.capabilities,
+                ui_trusted_peer_addresses=_ui_trusted_peer_addresses(satellite),
                 projection_activation_id=projection_activation_id,
                 control_service_base_url=control_base_url,
                 control_service_credential_secret=control_secret_id,
@@ -120,6 +123,17 @@ class SatelliteFleetRuntimeSettings:
         satellite_id = self.enabled_satellite_ids_by_source.get(str(source_id or "").strip())
         return self.satellite(satellite_id)
 
+    def source_for_ui_peer(
+        self,
+        claimed_source_id: str | None,
+        peer_address: str | None,
+    ) -> str | None:
+        satellite = self.satellite_for_source(claimed_source_id)
+        peer = str(peer_address or "").strip()
+        if satellite is None or peer not in satellite.ui_trusted_peer_addresses:
+            return None
+        return satellite.source_id
+
     def control_target_for_source(self, source_id: str | None) -> SatelliteBrainEdgeSettings | None:
         satellite = self.satellite_for_source(source_id)
         if (
@@ -130,3 +144,15 @@ class SatelliteFleetRuntimeSettings:
         ):
             return None
         return satellite
+
+
+def _ui_trusted_peer_addresses(satellite: SatelliteConfiguration) -> frozenset[str]:
+    ui = satellite.ui
+    control_service = satellite.control_service
+    if ui is None or not ui.enabled or control_service is None:
+        return frozenset()
+    base_url = str(control_service.base_url or "").strip()
+    if not base_url:
+        return frozenset()
+    hostname = urlsplit(base_url).hostname
+    return frozenset({hostname}) if hostname else frozenset()

@@ -22,6 +22,22 @@ EXAMPLE_ROOT = REPO_ROOT / "examples" / "config"
 
 
 class ConfigurationGenerationTests(unittest.TestCase):
+    def test_standard_split_store_keeps_secret_lifecycle_out_of_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = GenerationStore(root / "configuration", secret_root=root / "secrets")
+            store.initialize("example-home")
+            config, secret = store.install_candidate(inspect_candidate(EXAMPLE_ROOT))
+            activation = store.create_activation(config.generation_id, secret.generation_id)
+
+            self.assertTrue((store.root / "config-generations" / config.generation_id).is_dir())
+            self.assertTrue((store.root / "activations" / activation.generation_id).is_dir())
+            self.assertTrue((store.secret_root / "secret-generations" / secret.generation_id).is_dir())
+            self.assertTrue((store.secret_root / "secret-status" / f"{secret.generation_id}.json").is_file())
+            self.assertFalse((store.root / "secret-generations").exists())
+            self.assertFalse((store.root / "secret-status").exists())
+            self.assertEqual(store.secret_transactions_root, root / "secrets" / "transactions")
+
     def test_installs_immutable_generation_chain_and_atomically_selects_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "store"

@@ -171,6 +171,11 @@ class RequiredConfigurationModelTests(unittest.TestCase):
         model = validate_required_role("satellites.yaml", payload)
         self.assertTrue(model.satellites[0].ui.enabled)
 
+        del satellite["control_service"]["base_url"]
+        with self.assertRaisesRegex(ValidationError, "host-local request identity"):
+            validate_required_role("satellites.yaml", payload)
+        satellite["control_service"]["base_url"] = "http://example-satellite.invalid:8021"
+
         satellite["capabilities"]["music_playback"] = True
         del satellite["control_service"]["base_url"]
         with self.assertRaisesRegex(ValidationError, "control-service URL"):

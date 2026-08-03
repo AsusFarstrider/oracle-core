@@ -26,6 +26,7 @@ from .calendar_runtime import CanonicalCalendarExecution
 from .weather_runtime import CanonicalWeatherExecution
 from .network_runtime import CanonicalNetworkExecution
 from .suggestions.canonical import CanonicalSuggestionsExecution
+from .runtime_paths import validate_standard_storage_settings
 
 
 BRAIN_APPLICATION_COMPOSITION_STATE_KEY = "brain_application_composition"
@@ -84,14 +85,27 @@ class CanonicalBrainApplicationComposition:
     ) -> CanonicalBrainApplicationComposition:
         if startup.mode != "canonical":
             raise ValueError("Canonical Brain composition requires canonical startup authority.")
-        if startup.effective_config is None or startup.service_settings is None:
+        if startup.effective_config is None or (
+            startup.service_settings is None and startup.installation_layout is None
+        ):
             raise ValueError("Canonical Brain startup lacks its installed configuration inputs.")
 
         runtime = BrainEffectiveRuntimeSettings.from_effective_config(startup.effective_config)
+        if startup.installation_layout is not None:
+            validate_standard_storage_settings(
+                runtime.brain.memory_storage.database_path,
+                runtime.brain.alert_storage.state_path,
+            )
         core_consumers = BrainCoreRuntimeConsumers.from_runtime_settings(runtime.brain)
-        projection_resolver = SatelliteProjectionResolver(
-            GenerationStore(startup.service_settings.store_root)
-        )
+        if startup.installation_layout is not None:
+            projection_store = GenerationStore(
+                startup.installation_layout.configuration,
+                secret_root=startup.installation_layout.secrets,
+            )
+        else:
+            assert startup.service_settings is not None
+            projection_store = GenerationStore(startup.service_settings.store_root)
+        projection_resolver = SatelliteProjectionResolver(projection_store)
         audiobook_execution = (
             CanonicalAudiobookExecution(
                 runtime.audiobooks,

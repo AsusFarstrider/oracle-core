@@ -26,6 +26,7 @@ from .generations import (
     _fsync_directory,
     _json_bytes,
     _read_json,
+    _atomic_replace,
     _write_new,
 )
 from .loader import AuthoredRevisionConflict, LoadedBundle, assert_authored_revision, snapshot_candidate
@@ -759,9 +760,12 @@ class ConfigurationService:
         value: str | None,
         expected_secret_generation_id: str,
         actor: Actor,
+        retirement: Literal["immediate", "pending"] = "immediate",
     ) -> SecretMutationResult:
         self._validate_actor(actor)
         self._validate_secret_mutation(operation, logical_id, value)
+        if retirement not in {"immediate", "pending"}:
+            raise ValueError("Secret retirement mode is unsupported.")
         with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
             resolved_root = Path(root).resolve(strict=True)
             self._recover_configured_authoring_locked(actor=actor)
@@ -823,11 +827,18 @@ class ConfigurationService:
                     secret_logical_id=logical_id,
                     revoked_secret_generation_id=current.secrets.generation_id,
                 )
-                self.store.revoke_secret_generation(
-                    current.secrets.generation_id,
-                    replaced_by=new_secret.generation_id,
-                )
-                pruned = self.store.prune_revoked_secret_values(retain=1)
+                if retirement == "pending":
+                    self.store.begin_secret_retirement(
+                        current.secrets.generation_id,
+                        replaced_by=new_secret.generation_id,
+                    )
+                    pruned = ()
+                else:
+                    self.store.revoke_secret_generation(
+                        current.secrets.generation_id,
+                        replaced_by=new_secret.generation_id,
+                    )
+                    pruned = self.store.prune_revoked_secret_values(retain=1)
                 self._secret_transactions.cleanup(transaction)
             except SelectionCommittedAuditPending:
                 raise
@@ -843,6 +854,7 @@ class ConfigurationService:
                 pruned_secret_generation_ids=pruned,
                 audit_event_id=event_id,
                 logical_id=logical_id,
+                retirement_pending=retirement == "pending",
             )
 
     def recover_secret_transactions(self, root: Path, *, actor: Actor = "service") -> tuple[str, ...]:
@@ -850,6 +862,78 @@ class ConfigurationService:
         with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
             self._recover_selection_transactions_locked()
             return self._recover_secret_transactions_locked(root=Path(root).resolve(strict=True), actor=actor)
+
+    def finalize_pending_secret_mutation(
+        self,
+        *,
+        previous_secret_generation_id: str,
+        selected_secret_generation_id: str,
+    ) -> tuple[str, ...]:
+        """Finalize retirement only after the assembled activation is healthy."""
+
+        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+            current = self.store.load_selected()
+            self._assert_secret_generation(selected_secret_generation_id, current.secrets.generation_id)
+            self.store.finalize_secret_retirement(
+                previous_secret_generation_id,
+                replaced_by=selected_secret_generation_id,
+            )
+            return self.store.prune_revoked_secret_values(retain=1)
+
+    def restore_pending_secret_mutation(
+        self,
+        companion_root: Path,
+        *,
+        previous_activation_generation_id: str,
+        previous_secret_generation_id: str,
+        failed_secret_generation_id: str,
+        previous_satellite_projection_activation_ids: Mapping[str, str],
+        actor: Actor = "service",
+    ) -> SelectedActivation:
+        """Restore one pre-verification secret/config selection after failure."""
+
+        self._validate_actor(actor)
+        root = Path(companion_root).resolve(strict=True)
+        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+            current = self.store.load_selected()
+            if current.secrets.generation_id == previous_secret_generation_id:
+                previous_snapshot = current.secrets.snapshot
+                _atomic_replace(root / "secrets.env", previous_snapshot._companion_bytes())
+                failed_status = self.store.secret_generation_status(failed_secret_generation_id)
+                if failed_status["state"] != "revoked":
+                    self.store.revoke_secret_generation(
+                        failed_secret_generation_id,
+                        replaced_by=previous_secret_generation_id,
+                    )
+                    self.store.prune_revoked_secret_values(retain=1)
+                return current
+            self._assert_secret_generation(failed_secret_generation_id, current.secrets.generation_id)
+            self.store.restore_pending_secret_retirement(
+                previous_secret_generation_id,
+                replaced_by=failed_secret_generation_id,
+            )
+            previous = self.store._resolve_activation(previous_activation_generation_id)
+            if previous.secrets.generation_id != previous_secret_generation_id:
+                raise GenerationIntegrityError(
+                    "Pending secret recovery activation does not bind the prior secret generation."
+                )
+            _atomic_replace(
+                root / "secrets.env",
+                previous.secrets.snapshot._companion_bytes(),
+            )
+            selected, _event_id = self._commit_selection(
+                operation="rollback",
+                actor=actor,
+                previous=current,
+                activation_generation_id=previous_activation_generation_id,
+                satellite_projection_activation_ids=previous_satellite_projection_activation_ids,
+            )
+            self.store.revoke_secret_generation(
+                failed_secret_generation_id,
+                replaced_by=previous_secret_generation_id,
+            )
+            self.store.prune_revoked_secret_values(retain=1)
+            return selected
 
     def _recover_authoring_transactions_locked(
         self,
@@ -957,7 +1041,7 @@ class ConfigurationService:
                     self.store.discard_activation(new_activation_id)
             new_secret_id = transaction["new_secret_generation_id"]
             if isinstance(new_secret_id, str):
-                secret_path = self.store.root / "secret-generations" / new_secret_id
+                secret_path = self.store.secret_root / "secret-generations" / new_secret_id
                 if secret_path.exists():
                     self.store.discard_secret_generation(new_secret_id)
             outcome = "recovered_rollback"

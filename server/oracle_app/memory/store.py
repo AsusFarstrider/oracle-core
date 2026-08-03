@@ -5,11 +5,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from oracle_app.runtime_paths import RUNTIME_PATHS
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = REPO_ROOT / "data"
-DB_PATH = DATA_DIR / "oracle-memory.sqlite3"
-PROVISIONAL_SUGGESTIONS_DB_PATH = DATA_DIR / "openclaw_suggestions.sqlite3"
+
+DATA_DIR = RUNTIME_PATHS.data
+DB_PATH = RUNTIME_PATHS.memory_database
+PROVISIONAL_SUGGESTIONS_DB_PATH = RUNTIME_PATHS.provisional_suggestions_database
 
 
 def connect(db_path: Path | None = None) -> sqlite3.Connection:

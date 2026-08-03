@@ -48,6 +48,17 @@ class CoreArtifactTests(unittest.TestCase):
         self.assertEqual(verified, built)
         self.assertEqual({item["mode"] for item in verified["inventory"]}, {"100644", "100755", "120000"})
 
+    def test_extract_verified_leaves_the_exact_payload_without_transport_metadata(self) -> None:
+        output = Path(self.temporary.name) / "core.tar"
+        destination = Path(self.temporary.name) / "extracted"
+        built = core_artifact.build(self.repo, "HEAD", output)
+        extracted = core_artifact.extract_verified(output, destination)
+        self.assertEqual(extracted, built)
+        self.assertEqual(core_artifact._tree_identity(destination), built["core_git_tree"])
+        self.assertFalse((destination / "manifest.json").exists())
+        with self.assertRaisesRegex(core_artifact.ArtifactError, "already exists"):
+            core_artifact.extract_verified(output, destination)
+
     def test_verify_rejects_path_escape_before_extraction(self) -> None:
         output = Path(self.temporary.name) / "unsafe.tar"
         manifest = {"format_version": 1, "artifact_kind": "oracle-core", "core_commit": "0" * 40, "core_git_tree": "0" * 40, "inventory": []}

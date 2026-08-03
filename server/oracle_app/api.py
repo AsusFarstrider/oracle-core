@@ -83,6 +83,7 @@ from .network_control_results import (
 )
 from .network_control_local_restart import safe_complete_pending_local_host_restart
 from .network_control_local_service_restart import safe_complete_pending_local_service_restart
+from .installation_runtime import finalize_verified_startup
 from .version import CORE_VERSION
 from .notifications.external_worker import external_delivery_worker_loop
 from .home_automation import home_automation_scheduler_loop
@@ -332,6 +333,32 @@ async def lifespan(_app: FastAPI):
             },
         )
         safe_complete_pending_local_service_restart()
+        verified_standard_activation = None
+        try:
+            if startup.installation_layout is not None:
+                if health().status != "ok":
+                    raise RuntimeError("Standard Brain health did not reach ready state.")
+                verified_standard_activation = finalize_verified_startup(
+                    startup_composition.runtime.effective_config.activation_generation_id,
+                    startup.installation_layout,
+                )
+                if verified_standard_activation is not None:
+                    safe_record_event(
+                        "standard_activation_verified",
+                        severity="info",
+                        source_id="brain",
+                        domain="system",
+                        status="ok",
+                        payload={
+                            "activation_id": verified_standard_activation.activation_id,
+                            "configuration_activation_id": (
+                                startup_composition.runtime.effective_config.activation_generation_id
+                            ),
+                        },
+                    )
+        except BaseException:
+            configuration_host_local_runtime.stop()
+            raise
         background_tasks: list[asyncio.Task[None]] = []
         if startup_composition.routine_execution is not None:
             background_tasks.append(
@@ -1393,6 +1420,7 @@ def _canonical_http_request_source(
         resolved = composition.request_source_resolver.resolve(
             claimed_source_id=payload_source,
             credential=credential,
+            peer_address=request.client.host if request.client is not None else None,
         )
     except RequestSourceAuthenticationError as exc:
         raise _canonical_request_authentication_error() from exc

@@ -59,6 +59,7 @@ class SecretMutationResult:
     pruned_secret_generation_ids: tuple[str, ...]
     audit_event_id: str
     logical_id: str
+    retirement_pending: bool = False
 
 
 class SecretTransactionJournal:
@@ -77,7 +78,7 @@ class SecretTransactionJournal:
     ) -> dict[str, object]:
         resolved_root, target, previous_exists = self._companion_target(root)
         transaction_id = f"secret_tx_{secrets.token_hex(16)}"
-        transaction_directory = self.store.root / "transactions" / transaction_id
+        transaction_directory = self.store.secret_transactions_root / transaction_id
         transaction_directory.mkdir(mode=0o700)
         staged_path = target.parent / f".secrets-{secrets.token_hex(16)}.tmp"
         transaction: dict[str, object] = {
@@ -108,7 +109,7 @@ class SecretTransactionJournal:
         return transaction
 
     def write(self, transaction: dict[str, object]) -> None:
-        transaction_directory = self.store.root / "transactions" / str(transaction["transaction_id"])
+        transaction_directory = self.store.secret_transactions_root / str(transaction["transaction_id"])
         journal = transaction_directory / "journal.json"
         if journal.exists():
             _atomic_replace(journal, _json_bytes(transaction))
@@ -128,9 +129,9 @@ class SecretTransactionJournal:
 
     def pending(self, *, root: Path) -> tuple[dict[str, object], ...]:
         pending: list[dict[str, object]] = []
-        transactions = self.store.root / "transactions"
+        transactions = self.store.secret_transactions_root
         for directory in sorted(transactions.glob("secret_tx_*")):
-            if directory.is_symlink() or not directory.resolve(strict=True).is_relative_to(self.store.root):
+            if directory.is_symlink() or not directory.resolve(strict=True).is_relative_to(self.store.secret_root):
                 raise GenerationStoreError("Secret transaction directory escapes the installed store.")
             if not (directory / "journal.json").exists():
                 for child in directory.iterdir():
@@ -158,7 +159,7 @@ class SecretTransactionJournal:
 
     def restore_companion(self, transaction: dict[str, object]) -> None:
         target = Path(str(transaction["target_path"]))
-        journal_directory = self.store.root / "transactions" / str(transaction["transaction_id"])
+        journal_directory = self.store.secret_transactions_root / str(transaction["transaction_id"])
         if bool(transaction["previous_exists"]):
             backup = journal_directory / "previous.env"
             if backup.exists():
@@ -178,7 +179,7 @@ class SecretTransactionJournal:
             staged.unlink()
         except FileNotFoundError:
             pass
-        directory = self.store.root / "transactions" / str(transaction["transaction_id"])
+        directory = self.store.secret_transactions_root / str(transaction["transaction_id"])
         if directory.exists():
             for child in directory.iterdir():
                 child.unlink()

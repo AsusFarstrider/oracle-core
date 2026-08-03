@@ -12,6 +12,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+import shutil
 
 
 FORMAT_VERSION = 1
@@ -248,7 +249,7 @@ def _tree_identity(root: Path) -> str:
     return walk(root).hex()
 
 
-def verify(archive_path: Path) -> dict[str, object]:
+def _verify_into(archive_path: Path, root: Path) -> dict[str, object]:
     with tarfile.open(archive_path, "r:") as archive:
         members = archive.getmembers()
         names: set[str] = set()
@@ -285,45 +286,61 @@ def verify(archive_path: Path) -> dict[str, object]:
         actual_names = {name[len(PAYLOAD_PREFIX):] for name in names if name.startswith(PAYLOAD_PREFIX)}
         if actual_names != set(declared):
             raise ArtifactError("archive payload does not match declared inventory")
-        with tempfile.TemporaryDirectory(prefix="oracle-core-artifact-") as temp:
-            root = Path(temp)
-            for path, item in declared.items():
-                relative = _safe_relative(path)
-                member = archive.getmember(PAYLOAD_PREFIX + path)
-                destination = root.joinpath(*relative.parts)
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                if member.issym():
-                    if item.get("type") != "symlink" or item.get("mode") != "120000" or item.get("target") != member.linkname:
-                        raise ArtifactError(f"symlink inventory mismatch: {path}")
-                    destination.symlink_to(member.linkname)
-                    content = member.linkname.encode("utf-8", "surrogateescape")
-                else:
-                    extracted = archive.extractfile(member)
-                    if extracted is None:
-                        raise ArtifactError(f"unreadable payload member: {path}")
-                    content = extracted.read()
-                    expected_mode = "100755" if member.mode & 0o111 else "100644"
-                    if item.get("type") != "file" or item.get("mode") != expected_mode:
-                        raise ArtifactError(f"file inventory mismatch: {path}")
-                    destination.write_bytes(content)
-                    destination.chmod(0o755 if expected_mode == "100755" else 0o644)
-                if item.get("sha256") != hashlib.sha256(content).hexdigest():
-                    raise ArtifactError(f"content hash mismatch: {path}")
-            if kind == "oracle-core":
-                tree = _tree_identity(root)
-                if tree != manifest.get("core_git_tree"):
-                    raise ArtifactError(f"Git tree mismatch: expected {manifest.get('core_git_tree')}, got {tree}")
+        for path, item in declared.items():
+            relative = _safe_relative(path)
+            member = archive.getmember(PAYLOAD_PREFIX + path)
+            destination = root.joinpath(*relative.parts)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if member.issym():
+                if item.get("type") != "symlink" or item.get("mode") != "120000" or item.get("target") != member.linkname:
+                    raise ArtifactError(f"symlink inventory mismatch: {path}")
+                destination.symlink_to(member.linkname)
+                content = member.linkname.encode("utf-8", "surrogateescape")
             else:
-                deployment = manifest.get("deployment")
-                if not isinstance(deployment, dict):
-                    raise ArtifactError("household artifact lacks deployment identity")
-                basis = {**deployment, "entries": [{"destination" if key == "path" else key: value for key, value in item.items()} for item in inventory]}
-                if _household_revision(basis) != manifest.get("deployment_revision"):
-                    raise ArtifactError("household deployment revision mismatch")
-                core = deployment.get("core")
-                if not isinstance(core, dict) or core.get("commit") != manifest.get("required_core_commit") or core.get("git_tree") != manifest.get("required_core_git_tree"):
-                    raise ArtifactError("household core pin metadata mismatch")
+                extracted = archive.extractfile(member)
+                if extracted is None:
+                    raise ArtifactError(f"unreadable payload member: {path}")
+                content = extracted.read()
+                expected_mode = "100755" if member.mode & 0o111 else "100644"
+                if item.get("type") != "file" or item.get("mode") != expected_mode:
+                    raise ArtifactError(f"file inventory mismatch: {path}")
+                destination.write_bytes(content)
+                destination.chmod(0o755 if expected_mode == "100755" else 0o644)
+            if item.get("sha256") != hashlib.sha256(content).hexdigest():
+                raise ArtifactError(f"content hash mismatch: {path}")
+        if kind == "oracle-core":
+            tree = _tree_identity(root)
+            if tree != manifest.get("core_git_tree"):
+                raise ArtifactError(f"Git tree mismatch: expected {manifest.get('core_git_tree')}, got {tree}")
+        else:
+            deployment = manifest.get("deployment")
+            if not isinstance(deployment, dict):
+                raise ArtifactError("household artifact lacks deployment identity")
+            basis = {**deployment, "entries": [{"destination" if key == "path" else key: value for key, value in item.items()} for item in inventory]}
+            if _household_revision(basis) != manifest.get("deployment_revision"):
+                raise ArtifactError("household deployment revision mismatch")
+            core = deployment.get("core")
+            if not isinstance(core, dict) or core.get("commit") != manifest.get("required_core_commit") or core.get("git_tree") != manifest.get("required_core_git_tree"):
+                raise ArtifactError("household core pin metadata mismatch")
     return manifest
+
+
+def extract_verified(archive_path: Path, destination: Path) -> dict[str, object]:
+    """Safely materialize one verified payload into a new disposable directory."""
+
+    if destination.exists() or destination.is_symlink():
+        raise ArtifactError(f"verified extraction destination already exists: {destination}")
+    destination.mkdir(parents=True, mode=0o700)
+    try:
+        return _verify_into(archive_path, destination)
+    except BaseException:
+        shutil.rmtree(destination, ignore_errors=True)
+        raise
+
+
+def verify(archive_path: Path) -> dict[str, object]:
+    with tempfile.TemporaryDirectory(prefix="oracle-core-artifact-") as temp:
+        return _verify_into(archive_path, Path(temp))
 
 
 def verify_pair(core_archive: Path, household_archive: Path) -> dict[str, object]:

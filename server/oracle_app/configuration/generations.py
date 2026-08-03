@@ -167,16 +167,30 @@ def _require_exact_mapping(value: Any, fields: set[str], *, artifact: str) -> di
 
 
 class GenerationStore:
-    def __init__(self, root: Path, *, supported_schema_versions: frozenset[int] = frozenset({1})) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        secret_root: Path | None = None,
+        supported_schema_versions: frozenset[int] = frozenset({1}),
+    ) -> None:
         self.root = Path(root).resolve()
+        self.secret_root = self.root if secret_root is None else Path(secret_root).resolve()
         self.supported_schema_versions = supported_schema_versions
+
+    @property
+    def secret_transactions_root(self) -> Path:
+        return self.secret_root / "transactions"
 
     def initialize(self, bundle_id: str) -> None:
         if _BUNDLE_ID.fullmatch(bundle_id) is None:
             raise GenerationStoreError("Store bundle lineage must use a canonical bundle ID.")
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        for name in ("config-generations", "secret-generations", "secret-status", "activations", "transactions"):
+        for name in ("config-generations", "activations", "transactions"):
             (self.root / name).mkdir(mode=0o700, exist_ok=True)
+        self.secret_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for name in ("secret-generations", "secret-status", "transactions"):
+            (self.secret_root / name).mkdir(mode=0o700, exist_ok=True)
         binding = self.root / "store.json"
         expected = {"format": STORE_FORMAT, "bundle_id": bundle_id}
         if binding.exists():
@@ -260,7 +274,9 @@ class GenerationStore:
     def install_secrets(self, snapshot: SecretSnapshot) -> SecretGeneration:
         self._require_initialized()
         generation_id = _new_id("secret")
-        directory = self._create_generation_directory("secret-generations", generation_id)
+        directory = self._create_generation_directory(
+            "secret-generations", generation_id, base=self.secret_root
+        )
         values = {logical_id: snapshot.resolve(logical_id) for logical_id in sorted(snapshot.present_ids)}
         if not all(_LOGICAL_SECRET_ID.fullmatch(key) is not None and isinstance(value, str) for key, value in values.items()):
             self._remove_incomplete(directory)
@@ -274,7 +290,7 @@ class GenerationStore:
             "revoked_at": None,
             "replaced_by": None,
         }
-        status_path = self.root / "secret-status" / f"{generation_id}.json"
+        status_path = self.secret_root / "secret-status" / f"{generation_id}.json"
         status_created = False
         try:
             _write_new(directory / "secrets.json", _json_bytes(values), mode=0o600)
@@ -503,7 +519,9 @@ class GenerationStore:
         )
 
     def load_secrets(self, generation_id: str) -> SecretGeneration:
-        directory = self._generation_directory("secret-generations", generation_id, _SECRET_GENERATION_ID)
+        directory = self._generation_directory(
+            "secret-generations", generation_id, _SECRET_GENERATION_ID, base=self.secret_root
+        )
         metadata = _require_exact_mapping(
             _read_json(directory / "metadata.json"),
             {"format", "generation_id"},
@@ -530,6 +548,10 @@ class GenerationStore:
         )
 
     def revoke_secret_generation(self, generation_id: str, *, replaced_by: str) -> None:
+        self.begin_secret_retirement(generation_id, replaced_by=replaced_by)
+        self.finalize_secret_retirement(generation_id, replaced_by=replaced_by)
+
+    def begin_secret_retirement(self, generation_id: str, *, replaced_by: str) -> None:
         current = self.load_selected()
         if current.secrets.generation_id == generation_id:
             raise GenerationStoreError("Cannot revoke the currently selected secret generation.")
@@ -539,24 +561,47 @@ class GenerationStore:
         if replacement.state != "available":
             raise SecretGenerationRevokedError("Replacement secret generation is not activatable.")
         status = self._load_secret_status(generation_id)
-        if status["state"] == "revoked":
+        if status["state"] in {"retirement_pending", "revoked"}:
             if status["replaced_by"] != replaced_by:
                 raise GenerationIntegrityError("Secret generation has conflicting revocation metadata.")
             return
         status.update(
-            state="revoked",
-            revoked_at=datetime.now(UTC).isoformat(),
+            state="retirement_pending",
+            revoked_at=None,
             replaced_by=replaced_by,
         )
-        _atomic_replace(self.root / "secret-status" / f"{generation_id}.json", _json_bytes(status))
+        _atomic_replace(self.secret_root / "secret-status" / f"{generation_id}.json", _json_bytes(status))
+
+    def finalize_secret_retirement(self, generation_id: str, *, replaced_by: str) -> None:
+        current = self.load_selected()
+        if current.secrets.generation_id != replaced_by:
+            raise GenerationStoreError("Secret retirement replacement must remain selected.")
+        status = self._load_secret_status(generation_id)
+        if status["state"] == "revoked":
+            if status["replaced_by"] != replaced_by:
+                raise GenerationIntegrityError("Secret generation has conflicting revocation metadata.")
+            return
+        if status["state"] != "retirement_pending" or status["replaced_by"] != replaced_by:
+            raise GenerationStoreError("Secret generation is not pending retirement by this replacement.")
+        status.update(state="revoked", revoked_at=datetime.now(UTC).isoformat())
+        _atomic_replace(self.secret_root / "secret-status" / f"{generation_id}.json", _json_bytes(status))
+
+    def restore_pending_secret_retirement(self, generation_id: str, *, replaced_by: str) -> None:
+        status = self._load_secret_status(generation_id)
+        if status["state"] == "available":
+            return
+        if status["state"] != "retirement_pending" or status["replaced_by"] != replaced_by:
+            raise GenerationStoreError("Only a matching pending secret retirement can be restored.")
+        status.update(state="available", revoked_at=None, replaced_by=None)
+        _atomic_replace(self.secret_root / "secret-status" / f"{generation_id}.json", _json_bytes(status))
 
     def prune_revoked_secret_values(self, *, retain: int = 1) -> tuple[str, ...]:
         if retain < 0:
             raise ValueError("Retained revoked secret generation count cannot be negative.")
         statuses: list[dict[str, Any]] = []
-        status_directory = self.root / "secret-status"
+        status_directory = self.secret_root / "secret-status"
         for path in status_directory.glob("secret_*.json"):
-            if path.is_symlink() or not path.resolve(strict=True).is_relative_to(self.root):
+            if path.is_symlink() or not path.resolve(strict=True).is_relative_to(self.secret_root):
                 raise GenerationIntegrityError("Secret lifecycle status escapes the installed store.")
             status = self._load_secret_status(path.stem)
             if status["state"] == "revoked" and status["raw_present"]:
@@ -565,7 +610,7 @@ class GenerationStore:
         pruned: list[str] = []
         for status in statuses[retain:]:
             generation_id = status["generation_id"]
-            raw_path = self.root / "secret-generations" / generation_id / "secrets.json"
+            raw_path = self.secret_root / "secret-generations" / generation_id / "secrets.json"
             try:
                 raw_path.unlink()
             except FileNotFoundError:
@@ -597,14 +642,16 @@ class GenerationStore:
             activation = self.load_activation(activation_directory.name)
             if activation.secret_generation_id == generation_id:
                 raise GenerationStoreError("Cannot discard a secret generation referenced by an activation.")
-        directory = self._generation_directory("secret-generations", generation_id, _SECRET_GENERATION_ID)
+        directory = self._generation_directory(
+            "secret-generations", generation_id, _SECRET_GENERATION_ID, base=self.secret_root
+        )
         self._remove_incomplete(directory)
         try:
-            (self.root / "secret-status" / f"{generation_id}.json").unlink()
+            (self.secret_root / "secret-status" / f"{generation_id}.json").unlink()
         except FileNotFoundError:
             pass
         _fsync_directory(directory.parent)
-        _fsync_directory(self.root / "secret-status")
+        _fsync_directory(self.secret_root / "secret-status")
 
     def load_activation(self, generation_id: str) -> ActivationGeneration:
         directory = self._generation_directory("activations", generation_id, _ACTIVATION_ID)
@@ -633,14 +680,14 @@ class GenerationStore:
         if not isinstance(generation_id, str) or _SECRET_GENERATION_ID.fullmatch(generation_id) is None:
             raise GenerationIntegrityError("Secret generation identifier is invalid.")
         status = _require_exact_mapping(
-            _read_json(self.root / "secret-status" / f"{generation_id}.json"),
+            _read_json(self.secret_root / "secret-status" / f"{generation_id}.json"),
             {"format", "generation_id", "state", "raw_present", "revoked_at", "replaced_by"},
             artifact="secret generation status",
         )
         valid = (
             status["format"] == SECRET_STATUS_FORMAT
             and status["generation_id"] == generation_id
-            and status["state"] in {"available", "revoked"}
+            and status["state"] in {"available", "retirement_pending", "revoked"}
             and isinstance(status["raw_present"], bool)
             and (status["revoked_at"] is None or isinstance(status["revoked_at"], str))
             and (status["replaced_by"] is None or isinstance(status["replaced_by"], str))
@@ -649,6 +696,10 @@ class GenerationStore:
             raise GenerationIntegrityError("Secret generation lifecycle status is invalid.")
         if status["state"] == "available" and (status["revoked_at"] is not None or status["replaced_by"] is not None):
             raise GenerationIntegrityError("Available secret generation carries revocation metadata.")
+        if status["state"] == "retirement_pending" and (
+            status["revoked_at"] is not None or status["replaced_by"] is None
+        ):
+            raise GenerationIntegrityError("Pending secret retirement has invalid lifecycle metadata.")
         if status["state"] == "revoked" and (status["revoked_at"] is None or status["replaced_by"] is None):
             raise GenerationIntegrityError("Revoked secret generation lacks revocation metadata.")
         if status["replaced_by"] is not None and _SECRET_GENERATION_ID.fullmatch(status["replaced_by"]) is None:
@@ -674,25 +725,40 @@ class GenerationStore:
         if not isinstance(schema_version, int) or schema_version not in self.supported_schema_versions:
             raise GenerationCompatibilityError("Configuration schema is incompatible with this Oracle runtime.")
 
-    def _create_generation_directory(self, collection: str, generation_id: str) -> Path:
+    def _create_generation_directory(
+        self,
+        collection: str,
+        generation_id: str,
+        *,
+        base: Path | None = None,
+    ) -> Path:
         if _GENERATION_ID.fullmatch(generation_id) is None:
             raise GenerationStoreError("Invalid generation identifier.")
-        parent = self.root / collection
+        confined_root = self.root if base is None else base
+        parent = confined_root / collection
         parent.mkdir(mode=0o700, exist_ok=True)
-        if parent.is_symlink() or not parent.resolve(strict=True).is_relative_to(self.root):
+        if parent.is_symlink() or not parent.resolve(strict=True).is_relative_to(confined_root):
             raise GenerationIntegrityError("Generation collection escapes the installed store.")
         directory = parent / generation_id
         directory.mkdir(mode=0o700)
         return directory
 
-    def _generation_directory(self, collection: str, generation_id: str, pattern: re.Pattern[str]) -> Path:
+    def _generation_directory(
+        self,
+        collection: str,
+        generation_id: str,
+        pattern: re.Pattern[str],
+        *,
+        base: Path | None = None,
+    ) -> Path:
         if not isinstance(generation_id, str) or pattern.fullmatch(generation_id) is None:
             raise GenerationIntegrityError("Generation identifier is not path-safe or has the wrong type.")
-        directory = self.root / collection / generation_id
+        confined_root = self.root if base is None else base
+        directory = confined_root / collection / generation_id
         if (
             not directory.is_dir()
             or directory.is_symlink()
-            or not directory.resolve(strict=True).is_relative_to(self.root)
+            or not directory.resolve(strict=True).is_relative_to(confined_root)
         ):
             raise GenerationIntegrityError("Generation directory is missing or not a confined real directory.")
         return directory

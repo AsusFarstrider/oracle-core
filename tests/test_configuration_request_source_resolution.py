@@ -20,6 +20,7 @@ from oracle_app.schemas import UiContextStartRequest
 class CanonicalRequestSourceResolverTests(unittest.TestCase):
     def test_uncredentialed_ingress_receives_unassociated_ephemeral_source(self) -> None:
         runtime = MagicMock()
+        runtime.satellites.source_for_ui_peer.return_value = None
         projections = MagicMock()
 
         resolved = CanonicalRequestSourceResolver(runtime, projections).resolve(
@@ -31,7 +32,31 @@ class CanonicalRequestSourceResolverTests(unittest.TestCase):
         self.assertEqual(resolved.kind, "ephemeral")
         self.assertEqual(resolved.authentication, "none")
         runtime.satellites.satellite_for_source.assert_not_called()
+        runtime.satellites.source_for_ui_peer.assert_called_once_with(
+            "living_room_voice",
+            None,
+        )
         runtime.access.authenticate_source_credential.assert_not_called()
+        projections.authenticate_activation.assert_not_called()
+
+    def test_uncredentialed_satellite_ui_peer_establishes_stable_source(self) -> None:
+        runtime = MagicMock()
+        runtime.satellites.source_for_ui_peer.return_value = "living_room_voice"
+        projections = MagicMock()
+
+        resolved = CanonicalRequestSourceResolver(runtime, projections).resolve(
+            claimed_source_id="living_room_voice",
+            credential=None,
+            peer_address="192.0.2.20",
+        )
+
+        self.assertEqual(resolved.request_source_id, "living_room_voice")
+        self.assertTrue(resolved.stable)
+        self.assertEqual(resolved.authentication, "satellite_ui_peer")
+        runtime.satellites.source_for_ui_peer.assert_called_once_with(
+            "living_room_voice",
+            "192.0.2.20",
+        )
         projections.authenticate_activation.assert_not_called()
 
     def test_satellite_claim_is_authenticated_against_applied_activation(self) -> None:

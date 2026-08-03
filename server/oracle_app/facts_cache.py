@@ -5,17 +5,17 @@ import json
 import logging
 import time
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from oracle_app.configuration.domain_models import StaticFactsProvider, WikipediaFactsProvider
 from oracle_app.configuration.information_runtime_settings import FactsRuntimeSettings
 from oracle_app.schemas import FactsProviderRequest, FactsProviderResult, FactsRetrievalInfo
+from oracle_app.runtime_paths import RUNTIME_PATHS
 
 
 logger = logging.getLogger("oracle-brain.facts")
 
-FACTS_CACHE_PATH = Path(__file__).resolve().parents[2] / "data" / "facts-cache.json"
+FACTS_CACHE_PATH = RUNTIME_PATHS.facts_cache
 FACTS_CACHE_VERSION = 1
 _CACHEABLE_STATUSES = {"answered", "evidence_only", "no_result"}
 

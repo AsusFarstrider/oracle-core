@@ -9,12 +9,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
+from oracle_app.runtime_paths import RUNTIME_PATHS
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = REPO_ROOT / "data"
-DB_PATH = DATA_DIR / "oracle-memory.sqlite3"
-LAST_PACKET_PATH = DATA_DIR / "last_openclaw_packet.json"
-LAST_RESPONSE_PATH = DATA_DIR / "last_openclaw_response.json"
+
+DATA_DIR = RUNTIME_PATHS.data
+DB_PATH = RUNTIME_PATHS.memory_database
+LAST_PACKET_PATH = RUNTIME_PATHS.last_suggestions_packet
+LAST_RESPONSE_PATH = RUNTIME_PATHS.last_suggestions_response
 
 
 def utc_now_iso() -> str:

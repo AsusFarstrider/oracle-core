@@ -153,6 +153,7 @@ _JSON_ENV_SPECS = (
 )
 
 _KNOWN_BRAIN_ENV_NAMES = {
+    "ORACLE_STANDARD_INSTALLATION",
     "ORACLE_CONFIG_AUTHORING_MODE",
     "ORACLE_CONFIG_BUNDLE_ROOT",
     "ORACLE_CONFIG_SOCKET_PATH",
@@ -489,6 +490,7 @@ def build_brain_config_report() -> list[dict[str, Any]]:
     )
 
     for env_name in (
+        "ORACLE_STANDARD_INSTALLATION",
         "ORACLE_CONFIG_AUTHORING_MODE",
         "ORACLE_CONFIG_BUNDLE_ROOT",
         "ORACLE_CONFIG_SOCKET_PATH",

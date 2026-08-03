@@ -1,9 +1,10 @@
 # Standard Debian Brain Service
 
-> **Stage 4 target contract:** this document records the approved standard
-> service design. The `/srv/oracle` launcher, administration interface,
-> activation lifecycle, and recovery commands are not operationally supported
-> until their implementation and clean-host evidence are complete.
+> **Stage 4 implementation status:** the complete-selector entrypoint,
+> administration transport, restart handshake, and bounded recovery helper now
+> exist in reusable source. They are not operationally supported until the
+> remaining runtime-path and installer work plus clean-host evidence are
+> complete.
 
 ## Purpose
 
@@ -66,6 +67,38 @@ Oracle uses restart-based activation:
 On required verification failure, recovery restores the previous complete
 activation selector, restarts, verifies it, and records the result. Explicit
 rollback uses the same complete-record mechanism.
+
+The standard unit uses `Restart=always`; an explicit systemd stop still remains
+stopped. Before serving, the entrypoint records the exact selected activation
+in the boot-lifetime runtime directory. After an online activation response is
+flushed, Oracle signals its own process with `SIGTERM`, allowing Uvicorn's
+existing graceful shutdown to quiesce work. The unit then restarts through the
+new `selection/active` target.
+
+One unprivileged `ExecStopPost` command compares the stopped-process marker to
+the pending candidate. The prior process exiting for the planned transition
+does not trigger rollback. A candidate that exits before verification—or before
+it can record its marker—restores the complete previous-known-good activation.
+The helper can modify only Oracle activation, configuration, secret, selection,
+and control state; it does not call systemctl, sudo, a package manager, or a
+general host command.
+
+The implementation files are:
+
+- `server/app_standard.py`;
+- `server/oracle_app/installation_runtime.py`;
+- `scripts/oracle-standard-lifecycle.py`;
+- `scripts/oracle-brain-standard.service`.
+
+Standard mode also binds every built-in writable runtime default away from the
+selected immutable application revision. Memory, alerts, restart checkpoints,
+and retained Suggestions records use `/srv/oracle/data`; Home Assistant,
+facts, TTS, Python, and library caches use `/srv/oracle/cache`; temporary work
+uses `/srv/oracle/tmp`. The fixed service environment redirects Python bytecode,
+XDG/Hugging Face caches, and host temporary APIs to those lifecycle surfaces.
+Source-tree development defaults remain unchanged. Standard startup
+fails when the canonical Memory or alert path contradicts the supported managed
+data location instead of silently writing elsewhere.
 
 ## Operations
 

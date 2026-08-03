@@ -10,7 +10,9 @@ import subprocess
 import sys
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 from oracle_app.configuration import (
     ConfigurationService,
@@ -18,11 +20,16 @@ from oracle_app.configuration import (
     HOST_LOCAL_PROTOCOL_FORMAT,
     HostLocalConfigurationClient,
     HostLocalConfigurationServer,
+    HostLocalAuthorizationError,
     HostLocalDispatcher,
     HostLocalProtocolError,
     HostLocalServiceAlreadyRunning,
     SelectionCommittedAuditPending,
+    StandardUnixPeerAuthorizer,
+    UnixPeerCredentials,
+    UnixPeerIdentity,
     candidate_role_text,
+    read_unix_peer_credentials,
     snapshot_candidate,
 )
 
@@ -33,6 +40,173 @@ EXAMPLE_ROOT = REPO_ROOT / "examples" / "config"
 
 @unittest.skipUnless(hasattr(socket, "AF_UNIX") and os.name != "nt", "Unix-domain socket required")
 class ConfigurationHostLocalTests(unittest.TestCase):
+    def test_kernel_peer_credentials_describe_the_connecting_process(self) -> None:
+        left, right = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            credentials = read_unix_peer_credentials(left)
+        finally:
+            left.close()
+            right.close()
+        self.assertEqual(credentials.pid, os.getpid())
+        self.assertEqual(credentials.uid, os.geteuid())
+        self.assertEqual(credentials.gid, os.getegid())
+
+    def test_standard_authorizer_uses_kernel_uid_and_system_group_membership(self) -> None:
+        connection = mock.Mock(spec=socket.socket)
+        reader = mock.Mock(return_value=UnixPeerCredentials(pid=42, uid=1200, gid=1200))
+        authorizer = StandardUnixPeerAuthorizer(credential_reader=reader)
+        with (
+            mock.patch("pwd.getpwuid", return_value=SimpleNamespace(pw_name="operator", pw_gid=1200)),
+            mock.patch("pwd.getpwnam", return_value=SimpleNamespace(pw_uid=900)),
+            mock.patch("grp.getgrnam", return_value=SimpleNamespace(gr_gid=1900)),
+            mock.patch("os.getgrouplist", return_value=[1200, 1900]),
+        ):
+            authorized = authorizer.authorize(connection)
+        self.assertEqual(authorized.category, "oracle_operator")
+        self.assertEqual(authorized.credentials, reader.return_value)
+        reader.assert_called_once_with(connection)
+
+    def test_standard_authorizer_accepts_service_and_root_but_rejects_other_users(self) -> None:
+        connection = mock.Mock(spec=socket.socket)
+        authorizer = StandardUnixPeerAuthorizer(
+            credential_reader=lambda _connection: UnixPeerCredentials(pid=7, uid=900, gid=900)
+        )
+        with (
+            mock.patch("pwd.getpwuid", return_value=SimpleNamespace(pw_name="oracle", pw_gid=900)),
+            mock.patch("pwd.getpwnam", return_value=SimpleNamespace(pw_uid=900)),
+        ):
+            self.assertEqual(authorizer.authorize(connection).category, "oracle_service")
+
+        authorizer = StandardUnixPeerAuthorizer(
+            credential_reader=lambda _connection: UnixPeerCredentials(pid=8, uid=0, gid=0)
+        )
+        with mock.patch("pwd.getpwuid", return_value=SimpleNamespace(pw_name="root", pw_gid=0)):
+            self.assertEqual(authorizer.authorize(connection).category, "root")
+
+        authorizer = StandardUnixPeerAuthorizer(
+            credential_reader=lambda _connection: UnixPeerCredentials(pid=9, uid=1201, gid=1201)
+        )
+        with (
+            mock.patch("pwd.getpwuid", return_value=SimpleNamespace(pw_name="other", pw_gid=1201)),
+            mock.patch("pwd.getpwnam", return_value=SimpleNamespace(pw_uid=900)),
+            mock.patch("grp.getgrnam", return_value=SimpleNamespace(gr_gid=1900)),
+            mock.patch("os.getgrouplist", return_value=[1201]),
+            self.assertRaises(HostLocalAuthorizationError),
+        ):
+            authorizer.authorize(connection)
+
+    def test_standard_socket_rejects_unauthorized_peer_before_dispatch(self) -> None:
+        class RejectAll:
+            def authorize(self, _connection):
+                raise HostLocalAuthorizationError("not an Oracle operator")
+
+        with self._environment() as (_bundle, _store, service, socket_path):
+            service.status = mock.Mock(side_effect=AssertionError("dispatcher must not run"))
+            socket_path.parent.mkdir(mode=0o700, parents=True)
+            socket_path.parent.chmod(0o2750)
+            server = HostLocalConfigurationServer(
+                socket_path,
+                service,
+                peer_authorizer=RejectAll(),
+                expected_socket_group_gid=os.getegid(),
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            try:
+                thread.start()
+                response = HostLocalConfigurationClient(socket_path).request(
+                    {"operation": "status", "uid": 0}
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+            self.assertEqual(response["error"]["code"], "unauthorized_peer")
+            service.status.assert_not_called()
+
+    def test_standard_socket_is_group_scoped_and_audits_kernel_peer_identity(self) -> None:
+        peer = UnixPeerIdentity(
+            UnixPeerCredentials(pid=321, uid=1200, gid=1200),
+            "operator",
+            "oracle_operator",
+        )
+
+        class AcceptOperator:
+            def authorize(self, _connection):
+                return peer
+
+        with self._environment() as (bundle, _store, service, socket_path):
+            self._activate(bundle, service)
+            audits: list[dict[str, object]] = []
+            socket_path.parent.mkdir(mode=0o700, parents=True)
+            socket_path.parent.chmod(0o2750)
+            server = HostLocalConfigurationServer(
+                socket_path,
+                service,
+                peer_authorizer=AcceptOperator(),
+                expected_socket_group_gid=os.getegid(),
+                authorization_audit=audits.append,
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            try:
+                self.assertEqual(stat.S_IMODE(socket_path.stat().st_mode), 0o660)
+                thread.start()
+                response = HostLocalConfigurationClient(socket_path).request({"operation": "status"})
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+            self.assertTrue(response["ok"])
+            self.assertEqual(audits, [{
+                "operation": "status",
+                "result": "accepted",
+                "peer_uid": 1200,
+                "peer_pid": 321,
+                "peer_gid": 1200,
+                "peer_account": "operator",
+                "peer_category": "oracle_operator",
+            }])
+
+    def test_restart_request_runs_only_after_restart_required_response(self) -> None:
+        peer = UnixPeerIdentity(
+            UnixPeerCredentials(pid=321, uid=1200, gid=1200),
+            "operator",
+            "oracle_operator",
+        )
+
+        class AcceptOperator:
+            def authorize(self, _connection):
+                return peer
+
+        with self._environment() as (bundle, _store, service, socket_path):
+            self._activate(bundle, service)
+            socket_path.parent.mkdir(mode=0o700, parents=True)
+            socket_path.parent.chmod(0o2750)
+            restart_requested = threading.Event()
+            server = HostLocalConfigurationServer(
+                socket_path,
+                service,
+                peer_authorizer=AcceptOperator(),
+                expected_socket_group_gid=os.getegid(),
+                restart_request=restart_requested.set,
+            )
+            server.dispatcher.dispatch = lambda _request: {
+                "format": HOST_LOCAL_PROTOCOL_FORMAT,
+                "ok": True,
+                "result": {"restart_required": True},
+            }
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            try:
+                thread.start()
+                response = HostLocalConfigurationClient(socket_path).request(
+                    {"operation": "mutate_secret"}
+                )
+                self.assertTrue(response["ok"])
+                self.assertTrue(restart_requested.wait(1.0))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
     def test_socket_is_filesystem_protected_and_presence_locked(self) -> None:
         with self._environment() as (bundle, store, service, socket_path):
             self._activate(bundle, service)

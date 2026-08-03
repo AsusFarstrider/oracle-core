@@ -16,8 +16,15 @@ from oracle_app.configuration import (
     HostLocalConfigurationClient,
     arm_runtime_cutover,
     inspect_candidate,
+    load_standard_installation_effective_config,
     resolve_brain_configuration_startup,
     start_brain_configuration_host_local_runtime,
+)
+from oracle_app.installation import (
+    ActivationRequest,
+    InstallationLayout,
+    publish_activation,
+    select_activation,
 )
 
 
@@ -64,6 +71,63 @@ class ConfigurationBootstrapSettingsTests(unittest.TestCase):
             startup = resolve_brain_configuration_startup(values)
             self.assertEqual(startup.mode, "canonical")
             self.assertIsNotNone(startup.effective_config)
+
+    def test_standard_installation_activation_is_the_configuration_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            layout = InstallationLayout(Path(temporary) / "oracle")
+            for directory in layout.required_directories():
+                directory.mkdir(parents=True, exist_ok=True)
+            store = GenerationStore(layout.configuration, secret_root=layout.secrets)
+            store.initialize("example-home")
+            bundle = Path(temporary) / "bundle"
+            shutil.copytree(EXAMPLE_ROOT, bundle)
+            config, secret = store.install_candidate(inspect_candidate(bundle))
+            activation = store.create_activation(config.generation_id, secret.generation_id)
+            store._replace_selected_pointer(  # noqa: SLF001 - exact startup-boundary setup
+                activation.generation_id,
+                operation_id="selection_op_11111111111111111111111111111111",
+                selection_revision=1,
+                satellite_projection_activation_ids={},
+            )
+            arm_runtime_cutover(store, store.load_selected(), actor="host_local_cli")
+            request = self._installation_request(activation.generation_id)
+            self._install_component_directories(layout, request)
+            selected = publish_activation(layout, request)
+            select_activation(layout, "active", selected)
+
+            effective = load_standard_installation_effective_config(layout)
+            self.assertEqual(effective.activation_generation_id, activation.generation_id)
+
+            second = store.create_activation(config.generation_id, secret.generation_id)
+            store._replace_selected_pointer(  # noqa: SLF001 - disagreement canary
+                second.generation_id,
+                operation_id="selection_op_22222222222222222222222222222222",
+                selection_revision=2,
+                satellite_projection_activation_ids={},
+            )
+            with self.assertRaisesRegex(Exception, "disagrees with the complete installation activation"):
+                load_standard_installation_effective_config(layout)
+
+    @staticmethod
+    def _installation_request(configuration_activation_id: str) -> ActivationRequest:
+        return ActivationRequest(
+            core_commit="1" * 40,
+            core_git_tree="2" * 40,
+            application_revision_identity="core-tree-" + "2" * 40,
+            python_environment_identity="python-env-" + "3" * 64,
+            household_deployment_revision="oracle-household-deployment-v1:sha256:" + "4" * 64,
+            configuration_activation_identity=configuration_activation_id,
+            service_definition_identity="systemd-unit-" + "5" * 64,
+        )
+
+    @staticmethod
+    def _install_component_directories(layout: InstallationLayout, request: ActivationRequest) -> None:
+        for path in (
+            layout.revisions / request.application_revision_identity,
+            layout.environments / request.python_environment_identity,
+            layout.deployments / request.household_deployment_revision,
+        ):
+            path.mkdir()
 
     def test_absent_bootstrap_is_disabled_without_creating_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

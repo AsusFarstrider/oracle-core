@@ -302,6 +302,15 @@ class SatelliteConfiguration(ConfigurationModel):
                 raise ValueError("Voice- or playback-capable satellites require a local control-service client URL.")
             if self.capabilities.display and (self.ui is None or not self.ui.enabled):
                 raise ValueError("Display-capable satellites require enabled UI configuration.")
+            if (
+                self.capabilities.display
+                and self.ui is not None
+                and self.ui.enabled
+                and (self.control_service is None or self.control_service.base_url is None)
+            ):
+                raise ValueError(
+                    "Enabled satellite UI requires a Brain-reachable control-service address for host-local request identity."
+                )
             if not self.capabilities.display and self.ui is not None and self.ui.enabled:
                 raise ValueError("Enabled UI requires the satellite display capability.")
             if not self.capabilities.voice and self.wake is not None and self.wake.enabled:

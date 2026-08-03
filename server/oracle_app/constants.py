@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .runtime_paths import RUNTIME_PATHS
+
 
 HOME_KEYWORDS = (
     "turn on",
@@ -134,14 +136,10 @@ DEFAULT_WEATHER_TIMEOUT_SECONDS = 8
 DEFAULT_WEATHER_STALE_AFTER_SECONDS = 900
 DEFAULT_FORECAST_TIMEOUT_SECONDS = 8
 
-CACHE_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "home-assistant-cache.json"
-ALERTS_STATE_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "alerts-state.json"
-NETWORK_LOCAL_RESTART_STATE_PATH = (
-    Path(__file__).resolve().parent.parent.parent / "data" / "network-local-restart.json"
-)
-NETWORK_LOCAL_SERVICE_RESTART_STATE_PATH = (
-    Path(__file__).resolve().parent.parent.parent / "data" / "network-local-service-restart.json"
-)
+CACHE_PATH = RUNTIME_PATHS.home_assistant_cache
+ALERTS_STATE_PATH = RUNTIME_PATHS.alerts_state
+NETWORK_LOCAL_RESTART_STATE_PATH = RUNTIME_PATHS.local_host_restart_state
+NETWORK_LOCAL_SERVICE_RESTART_STATE_PATH = RUNTIME_PATHS.local_service_restart_state
 SYNC_SCRIPT_PATH = (
     Path(__file__).resolve().parent.parent.parent / "scripts" / "sync-home-assistant.py"
 )

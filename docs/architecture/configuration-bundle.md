@@ -398,9 +398,20 @@ claimed source only to select the applied fleet candidate. Satellite proof is
 checked against the exact projection activation recorded in the running
 Brain's `EffectiveConfig`, not a newer desired selection followed by projection
 delivery. Invalid presented credentials return `401`; missing credentials
-produce an unassociated `ephemeral_http` source. A missing ephemeral session is
-replaced with a fresh server-generated session before ordinary session
-resolution.
+normally produce an unassociated `ephemeral_http` source.
+
+An enabled on-device satellite UI is the narrow exception. Its claimed source
+becomes stable only when the direct HTTP socket peer matches the host in that
+satellite's canonical Brain-facing `control_service.base_url`. The comparison
+does not trust forwarded-client headers, browser-supplied host claims, room or
+user association, or the source string by itself. This makes the satellite
+record establish the UI-to-source link automatically and gives every process on
+that satellite host the same local-device trust boundary. An enabled display
+therefore requires a Brain-reachable control-service address. A nonmatching
+browser remains `ephemeral_http`.
+
+A missing ephemeral session is replaced with a fresh server-generated session
+before ordinary session resolution.
 
 This adapter is used by context-bearing HTTP routes. Internal callers without
 authenticated ingress are assigned an unassociated internal ephemeral source.

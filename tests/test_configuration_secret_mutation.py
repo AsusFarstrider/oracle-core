@@ -28,6 +28,79 @@ EXAMPLE_ROOT = REPO_ROOT / "examples" / "config"
 
 
 class ConfigurationSecretMutationTests(unittest.TestCase):
+    def test_pending_secret_retirement_can_finalize_or_restore_before_health_approval(self) -> None:
+        with self._environment() as (bundle, store, service):
+            initial = self._activate(bundle, service)
+            replacement = store.install_secrets(
+                initial.selected.secrets.snapshot._with_value("TOKEN", "replacement")
+            )
+            replacement_activation = store.create_activation(
+                initial.selected.config.generation_id, replacement.generation_id
+            )
+            store._replace_selected_pointer(  # noqa: SLF001 - lifecycle primitive setup
+                replacement_activation.generation_id,
+                operation_id="selection_op_33333333333333333333333333333333",
+                selection_revision=initial.selected.selection_revision + 1,
+                satellite_projection_activation_ids={},
+            )
+
+            old_id = initial.selected.secrets.generation_id
+            store.begin_secret_retirement(old_id, replaced_by=replacement.generation_id)
+            self.assertEqual(store.secret_generation_status(old_id)["state"], "retirement_pending")
+            store.restore_pending_secret_retirement(old_id, replaced_by=replacement.generation_id)
+            self.assertEqual(store.secret_generation_status(old_id)["state"], "available")
+
+            store.begin_secret_retirement(old_id, replaced_by=replacement.generation_id)
+            store.finalize_secret_retirement(old_id, replaced_by=replacement.generation_id)
+            self.assertEqual(store.secret_generation_status(old_id)["state"], "revoked")
+
+    def test_pending_mutation_retains_prior_secret_until_activation_verification(self) -> None:
+        with self._environment() as (bundle, store, service):
+            initial = self._activate(bundle, service)
+            old_id = initial.selected.secrets.generation_id
+
+            result = service.mutate_secret(
+                bundle,
+                operation="create_secret",
+                logical_id="TOKEN",
+                value="candidate",
+                expected_secret_generation_id=old_id,
+                actor="host_local_cli",
+                retirement="pending",
+            )
+
+            self.assertTrue(result.retirement_pending)
+            self.assertEqual(result.pruned_secret_generation_ids, ())
+            self.assertEqual(store.secret_generation_status(old_id)["state"], "retirement_pending")
+            self.assertTrue(
+                (store.secret_root / "secret-generations" / old_id / "secrets.json").is_file()
+            )
+            self.assertEqual(tuple(store.secret_transactions_root.iterdir()), ())
+
+    def test_split_store_keeps_secret_generations_and_transactions_under_secret_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = root / "authored"
+            shutil.copytree(EXAMPLE_ROOT, bundle)
+            store = GenerationStore(root / "configuration", secret_root=root / "secrets")
+            store.initialize("example-home")
+            service = ConfigurationService(store)
+            initial = self._activate(bundle, service)
+
+            result = self._mutate(
+                bundle, service, initial, "create_secret", "EXAMPLE_TOKEN", "value"
+            )
+
+            self.assertTrue(
+                (store.secret_root / "secret-generations" / result.secret_generation_id).is_dir()
+            )
+            self.assertEqual(tuple(store.secret_transactions_root.iterdir()), ())
+            self.assertFalse((store.root / "secret-generations").exists())
+            self.assertEqual(
+                tuple(path.name for path in (store.root / "transactions").iterdir()),
+                (),
+            )
+
     def test_create_is_write_only_and_activates_only_a_new_secret_pair(self) -> None:
         with self._environment() as (bundle, store, service):
             before = self._activate(bundle, service)

@@ -46,7 +46,11 @@ class EffectiveConfig:
             raise KeyError(f"Role {path!r} is not present in this effective configuration.") from exc
 
 
-def load_effective_config(store: GenerationStore) -> EffectiveConfig:
+def load_effective_config(
+    store: GenerationStore,
+    *,
+    required_activation_generation_id: str | None = None,
+) -> EffectiveConfig:
     """Load and revalidate exactly one selected installed generation.
 
     This function reads only the installed generation store. It never opens the
@@ -54,6 +58,13 @@ def load_effective_config(store: GenerationStore) -> EffectiveConfig:
     """
 
     selected = store.load_selected()
+    if (
+        required_activation_generation_id is not None
+        and selected.activation.generation_id != required_activation_generation_id
+    ):
+        raise GenerationIntegrityError(
+            "Selected configuration pointer disagrees with the complete installation activation."
+        )
     configuration = selected.config.configuration
     if set(configuration) != {"kind", "schema_version", "bundle_id", "roles"}:
         raise GenerationIntegrityError("Selected configuration envelope has an invalid shape.")

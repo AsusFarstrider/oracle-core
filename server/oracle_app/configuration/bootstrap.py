@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import grp
 import os
 from pathlib import Path
 import threading
 from typing import Mapping
 
+from ..installation import InstallationLayout, load_selected_activation
+from ..installation_control import create_standard_host_local_control_server
+from ..installation_runtime import STANDARD_RUNTIME_DIRECTORY, schedule_graceful_process_restart
 from .effective import EffectiveConfig, load_effective_config
 from .generations import GenerationStore
 from .host_local import HostLocalConfigurationServer
@@ -21,6 +25,9 @@ CONFIGURATION_BOOTSTRAP_ENV_NAMES = frozenset(
         "ORACLE_CONFIG_STORE_ROOT",
     }
 )
+STANDARD_INSTALLATION_ENV = "ORACLE_STANDARD_INSTALLATION"
+
+
 class ConfigurationBootstrapError(ValueError):
     pass
 
@@ -30,12 +37,23 @@ class BrainConfigurationStartup:
     mode: str
     service_settings: ConfigurationBootstrapSettings | None
     effective_config: EffectiveConfig | None
+    installation_layout: InstallationLayout | None = None
 
 
 def resolve_brain_configuration_startup(
     environment: Mapping[str, str] | None = None,
+    *,
+    standard_layout: InstallationLayout | None = None,
 ) -> BrainConfigurationStartup:
     values = os.environ if environment is None else environment
+    if values.get(STANDARD_INSTALLATION_ENV) == "1":
+        layout = standard_layout or InstallationLayout()
+        return BrainConfigurationStartup(
+            "canonical",
+            None,
+            load_standard_installation_effective_config(layout),
+            layout,
+        )
     settings = ConfigurationBootstrapSettings.from_environment(values)
     if settings is None:
         raise ConfigurationBootstrapError(
@@ -49,6 +67,34 @@ def resolve_brain_configuration_startup(
             "Canonical runtime has not been armed for this configuration store."
         )
     return BrainConfigurationStartup("canonical", settings, load_effective_config(store))
+
+
+def load_standard_installation_effective_config(
+    layout: InstallationLayout = InstallationLayout(),
+) -> EffectiveConfig:
+    """Load the configuration chosen by one complete standard activation.
+
+    The configuration store pointer supplies transaction revision and satellite
+    projection metadata, but it cannot select a different activation from the
+    complete installation record.
+    """
+
+    installed = load_selected_activation(layout)
+    activation_id = installed.record.get("configuration_activation_identity")
+    if not isinstance(activation_id, str):
+        raise ConfigurationBootstrapError(
+            "Complete installation activation lacks a configuration activation identity."
+        )
+    store = GenerationStore(layout.configuration, secret_root=layout.secrets)
+    store.validate_initialized()
+    if not runtime_cutover_required(store):
+        raise ConfigurationBootstrapError(
+            "Canonical runtime has not been armed for this configuration store."
+        )
+    return load_effective_config(
+        store,
+        required_activation_generation_id=activation_id,
+    )
 
 
 @dataclass(frozen=True)
@@ -161,18 +207,90 @@ class BrainConfigurationHostLocalRuntime:
                 thread.join(timeout=5.0)
 
 
+class StandardBrainConfigurationHostLocalRuntime:
+    def __init__(
+        self,
+        layout: InstallationLayout,
+        *,
+        runtime_directory: Path = STANDARD_RUNTIME_DIRECTORY,
+    ) -> None:
+        self.layout = layout
+        self.runtime_directory = Path(runtime_directory)
+        self._server: HostLocalConfigurationServer | None = None
+        self._thread: threading.Thread | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return True
+
+    def start(self) -> StandardBrainConfigurationHostLocalRuntime:
+        if self._server is not None:
+            return self
+        store = GenerationStore(
+            self.layout.configuration,
+            secret_root=self.layout.secrets,
+        )
+        store.validate_initialized()
+        service = ConfigurationService(store, authoring_mode="external_read_only")
+        service.recover_selection_transactions()
+        service.recover_secret_transactions(self.layout.secrets, actor="service")
+        try:
+            operator_gid = grp.getgrnam("oracle-admin").gr_gid
+        except KeyError as exc:
+            raise ConfigurationBootstrapError(
+                "Standard Oracle operator group is unavailable."
+            ) from exc
+        server = create_standard_host_local_control_server(
+            self.layout,
+            service,
+            socket_path=self.runtime_directory / "control.sock",
+            operator_group_gid=operator_gid,
+            restart_request=schedule_graceful_process_restart,
+        )
+        thread = threading.Thread(
+            target=server.serve_forever,
+            name="oracle-standard-control",
+            daemon=True,
+        )
+        try:
+            thread.start()
+        except BaseException:
+            server.server_close()
+            raise
+        self._server = server
+        self._thread = thread
+        return self
+
+    def stop(self) -> None:
+        server = self._server
+        thread = self._thread
+        self._server = None
+        self._thread = None
+        if server is None:
+            return
+        try:
+            server.shutdown()
+        finally:
+            server.server_close()
+            if thread is not None:
+                thread.join(timeout=5.0)
+
+
 def start_brain_configuration_host_local_runtime(
     environment: Mapping[str, str] | None = None,
     *,
     startup: BrainConfigurationStartup | None = None,
-) -> BrainConfigurationHostLocalRuntime:
+) -> BrainConfigurationHostLocalRuntime | StandardBrainConfigurationHostLocalRuntime:
     if startup is not None and environment is not None:
         raise ConfigurationBootstrapError(
             "Host-local configuration startup accepts either resolved startup or environment, not both."
         )
-    runtime = BrainConfigurationHostLocalRuntime(
-        startup.service_settings
-        if startup is not None
-        else ConfigurationBootstrapSettings.from_environment(environment)
-    )
+    if startup is not None and startup.installation_layout is not None:
+        runtime = StandardBrainConfigurationHostLocalRuntime(startup.installation_layout)
+    else:
+        runtime = BrainConfigurationHostLocalRuntime(
+            startup.service_settings
+            if startup is not None
+            else ConfigurationBootstrapSettings.from_environment(environment)
+        )
     return runtime.start()

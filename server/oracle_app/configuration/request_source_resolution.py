@@ -21,7 +21,12 @@ class RequestSourceAuthenticationError(PermissionError):
 class ResolvedRequestSource:
     request_source_id: str
     kind: Literal["stable", "ephemeral"]
-    authentication: Literal["satellite_credential", "source_credential", "none"]
+    authentication: Literal[
+        "satellite_credential",
+        "satellite_ui_peer",
+        "source_credential",
+        "none",
+    ]
 
     @property
     def stable(self) -> bool:
@@ -40,10 +45,21 @@ class CanonicalRequestSourceResolver:
         *,
         claimed_source_id: str | None,
         credential: str | None,
+        peer_address: str | None = None,
     ) -> ResolvedRequestSource:
         claimed = str(claimed_source_id or "").strip()
         presented = str(credential or "").strip()
         if not presented:
+            ui_source = self.runtime.satellites.source_for_ui_peer(
+                claimed,
+                peer_address,
+            )
+            if ui_source is not None:
+                return ResolvedRequestSource(
+                    request_source_id=ui_source,
+                    kind="stable",
+                    authentication="satellite_ui_peer",
+                )
             return ResolvedRequestSource(
                 request_source_id=EPHEMERAL_HTTP_SOURCE_ID,
                 kind="ephemeral",

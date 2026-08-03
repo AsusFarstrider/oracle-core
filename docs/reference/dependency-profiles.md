@@ -20,6 +20,16 @@ artifact hashes. Regenerate locks with `pip==25.3` and `pip-tools==7.5.2` under
 the profile's declared Python baseline using
 `--allow-unsafe --strip-extras --generate-hashes`.
 
+The standard Debian builder constructs a native environment directly at its
+final identity path because native `venv` script shebangs are not relocatable.
+An explicit incomplete-build marker prevents that candidate from being reused
+or selected before validation. Successful construction requires exact locked
+package comparison, `pip check`, an interpreter-identity recheck, and a complete
+environment-tree integrity hash; only then is the marker replaced by the
+immutable environment record and the tree made read-only. A matching marked
+interruption is safely discarded and rebuilt. An unmarked or identity-mismatched
+partial tree fails closed for explicit repair.
+
 The wake-satellite profile is retained reusable functionality, not part of the
 provider-free Stage 4 Brain installation. Its separate interpreter constraint
 does not change the standard minimal Brain contract or certify the satellite as

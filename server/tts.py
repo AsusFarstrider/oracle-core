@@ -7,12 +7,14 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from oracle_app.runtime_paths import RUNTIME_PATHS
+
 
 class TtsError(RuntimeError):
     pass
 
 
-PREGENERATED_DIR = Path(__file__).resolve().parent.parent / "data" / "tts-cache"
+PREGENERATED_DIR = RUNTIME_PATHS.tts_cache
 PREGENERATED_PHRASES = {
     "done.": "done.wav",
     "ok.": "ok.wav",

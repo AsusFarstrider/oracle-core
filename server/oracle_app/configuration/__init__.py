@@ -247,13 +247,18 @@ from .service import (
 )
 from .host_local import (
     HOST_LOCAL_PROTOCOL_FORMAT,
+    HostLocalAuthorizationError,
     HostLocalConfigurationClient,
     HostLocalConfigurationServer,
     HostLocalDispatcher,
     HostLocalProtocolError,
     HostLocalServiceAlreadyRunning,
     ServicePresenceLock,
+    StandardUnixPeerAuthorizer,
+    UnixPeerCredentials,
+    UnixPeerIdentity,
     candidate_role_text,
+    read_unix_peer_credentials,
 )
 from .selection_transactions import (
     SELECTION_TRANSACTION_FORMAT,
@@ -269,10 +274,13 @@ from .transition_validation import (
 )
 from .bootstrap import (
     CONFIGURATION_BOOTSTRAP_ENV_NAMES,
+    STANDARD_INSTALLATION_ENV,
     BrainConfigurationHostLocalRuntime,
     BrainConfigurationStartup,
     ConfigurationBootstrapError,
     ConfigurationBootstrapSettings,
+    StandardBrainConfigurationHostLocalRuntime,
+    load_standard_installation_effective_config,
     resolve_brain_configuration_startup,
     start_brain_configuration_host_local_runtime,
 )
@@ -295,6 +303,7 @@ __all__ = [
     "BundleValidationError",
     "CandidateInspection",
     "CONFIGURATION_BOOTSTRAP_ENV_NAMES",
+    "STANDARD_INSTALLATION_ENV",
     "AccessConfiguration",
     "AUTHORED_REVISION_PREFIX",
     "AuthoredCandidateSnapshot",
@@ -312,6 +321,7 @@ __all__ = [
     "ConfigurationCanonicalizationError",
     "ConfigurationBootstrapError",
     "ConfigurationBootstrapSettings",
+    "load_standard_installation_effective_config",
     "ConfigGeneration",
     "GenerationCompatibilityError",
     "EffectiveConfig",
@@ -342,6 +352,7 @@ __all__ = [
     "GenerationStoreError",
     "HouseholdConfiguration",
     "HOST_LOCAL_PROTOCOL_FORMAT",
+    "HostLocalAuthorizationError",
     "HostLocalConfigurationClient",
     "HostLocalConfigurationServer",
     "HostLocalDispatcher",
@@ -349,6 +360,11 @@ __all__ = [
     "HostLocalServiceAlreadyRunning",
     "BrainConfigurationHostLocalRuntime",
     "BrainConfigurationStartup",
+    "StandardBrainConfigurationHostLocalRuntime",
+    "StandardUnixPeerAuthorizer",
+    "UnixPeerCredentials",
+    "UnixPeerIdentity",
+    "read_unix_peer_credentials",
     "LoadedBundle",
     "NormalizedBundle",
     "ProvenanceEntry",

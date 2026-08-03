@@ -42,7 +42,14 @@ class SatelliteFleetRuntimeSettingsTests(unittest.TestCase):
         self.assertIsNotNone(satellite)
         self.assertEqual(satellite.source_id, "living_room_voice")  # type: ignore[union-attr]
         self.assertEqual(satellite.projection_activation_id, PROJECTION_ACTIVATION_ID)  # type: ignore[union-attr]
-        self.assertEqual(satellite.control_service_base_url, "http://living-room.invalid:8021")  # type: ignore[union-attr]
+        self.assertEqual(satellite.control_service_base_url, "http://192.0.2.20:8021")  # type: ignore[union-attr]
+        self.assertEqual(satellite.ui_trusted_peer_addresses, frozenset({"192.0.2.20"}))  # type: ignore[union-attr]
+        self.assertEqual(
+            settings.source_for_ui_peer("living_room_voice", "192.0.2.20"),
+            "living_room_voice",
+        )
+        self.assertIsNone(settings.source_for_ui_peer("living_room_voice", "192.0.2.21"))
+        self.assertIsNone(settings.source_for_ui_peer("unknown_source", "192.0.2.20"))
         self.assertFalse(hasattr(satellite, "brain_client_base_url"))
         self.assertFalse(hasattr(satellite, "brain_client_credential"))
         self.assertFalse(hasattr(satellite, "enrollment_credential"))
@@ -146,7 +153,7 @@ class SatelliteFleetRuntimeSettingsTests(unittest.TestCase):
                         "credential_secret": "LIVING_ROOM_BRAIN_CREDENTIAL",
                     },
                     "control_service": {
-                        "base_url": "http://living-room.invalid:8021",
+                        "base_url": "http://192.0.2.20:8021",
                         "local_client_url": "http://127.0.0.1:8021",
                         "credential_secret": "LIVING_ROOM_CONTROL_CREDENTIAL",
                     },

@@ -36,6 +36,12 @@ Stable sources are listed explicitly and authenticated through their configured
 ingress. An authenticated ingress may assign an ephemeral source identity, but
 it is non-fixed, roomless, and has no household configuration entry.
 
+An enabled satellite's on-device UI may establish that satellite source through
+the canonical host-local peer rule: the direct HTTP peer must match the host in
+the satellite's configured Brain-facing control-service URL. This is a
+host-level satellite trust boundary, not authority derived from a request body
+or forwarded-client header.
+
 An arbitrary client-supplied source string never creates an implicit source or
 receives an association.
 
