@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -35,26 +34,7 @@ from installation_staging import (
     stage_artifact_pair,
     validate_python_environment,
 )
-from oracle_app.configuration import inspect_candidate, snapshot_candidate
-from oracle_app.installation import InstallationLayout, load_selected_activation
-from oracle_app.installation_assembly import (
-    InitialAssemblyError,
-    InitialAssemblyRequest,
-    assemble_initial_activation,
-)
-from oracle_app.installation_systemd import (
-    STANDARD_UNIT_PATH,
-    StandardSystemdError,
-    build_initial_activation_plan,
-    build_systemd_install_plan,
-    fail_initial_activation,
-    finalize_initial_activation,
-    install_systemd_unit,
-    load_initial_activation_transaction,
-    mark_initial_service_started,
-    mark_initial_verification_passed,
-    prepare_initial_activation,
-)
+from oracle_app.installation_identity import environment_directory_name
 
 
 OUTPUT_FORMAT = "oracle-admin-output-v1"
@@ -69,6 +49,96 @@ OPERATOR_GROUP = "oracle-admin"
 SERVICE_HOME = "/nonexistent"
 SERVICE_SHELL = "/usr/sbin/nologin"
 MAINTENANCE_LOCK = Path("/run/lock/oracle-installation.lock")
+
+
+def inspect_candidate(*args: object, **kwargs: object):
+    from oracle_app.configuration import inspect_candidate as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def snapshot_candidate(*args: object, **kwargs: object):
+    from oracle_app.configuration import snapshot_candidate as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def InstallationLayout(*args: object, **kwargs: object):  # noqa: N802 - lazy class-compatible factory
+    from oracle_app.installation import InstallationLayout as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def load_selected_activation(*args: object, **kwargs: object):
+    from oracle_app.installation import load_selected_activation as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def InitialAssemblyRequest(*args: object, **kwargs: object):  # noqa: N802 - lazy class-compatible factory
+    from oracle_app.installation_assembly import InitialAssemblyRequest as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def assemble_initial_activation(*args: object, **kwargs: object):
+    from oracle_app.installation_assembly import assemble_initial_activation as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def build_systemd_install_plan(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import build_systemd_install_plan as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def install_systemd_unit(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import install_systemd_unit as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def build_initial_activation_plan(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import build_initial_activation_plan as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def prepare_initial_activation(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import prepare_initial_activation as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def mark_initial_service_started(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import mark_initial_service_started as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def mark_initial_verification_passed(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import mark_initial_verification_passed as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def finalize_initial_activation(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import finalize_initial_activation as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def fail_initial_activation(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import fail_initial_activation as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def load_initial_activation_transaction(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import load_initial_activation_transaction as implementation
+
+    return implementation(*args, **kwargs)
 
 
 def _json_bytes(value: object) -> bytes:
@@ -122,15 +192,54 @@ def _debian_architecture() -> str:
     return value or platform.machine().lower()
 
 
-def _python_capabilities() -> dict[str, object]:
-    return {
-        "executable": sys.executable,
-        "implementation": platform.python_implementation(),
-        "version": platform.python_version(),
-        "abi": getattr(sys, "abiflags", ""),
-        "venv_module": importlib.util.find_spec("venv") is not None,
-        "ensurepip_module": importlib.util.find_spec("ensurepip") is not None,
-    }
+def _host_python_candidate() -> Path | None:
+    """Discover a host interpreter independently of the CLI launch environment."""
+
+    debian_default = Path("/usr/bin/python3")
+    if debian_default.is_file():
+        return debian_default
+    discovered = shutil.which("python3")
+    return Path(discovered) if discovered else None
+
+
+def _python_capabilities(interpreter: Path | None = None) -> dict[str, object]:
+    selected = interpreter or _host_python_candidate()
+    if selected is None:
+        return {
+            "executable": None,
+            "implementation": None,
+            "version": None,
+            "abi": None,
+            "venv_module": False,
+            "ensurepip_module": False,
+        }
+    probe = (
+        "import importlib.util,json,platform,sysconfig;"
+        "print(json.dumps({'implementation':platform.python_implementation(),"
+        "'version':platform.python_version(),'abi':sysconfig.get_config_var('SOABI') or '',"
+        "'venv_module':importlib.util.find_spec('venv') is not None,"
+        "'ensurepip_module':importlib.util.find_spec('ensurepip') is not None}))"
+    )
+    try:
+        completed = subprocess.run(
+            [str(selected), "-c", probe],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+        )
+        facts = json.loads(completed.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
+        return {
+            "executable": str(selected),
+            "implementation": None,
+            "version": None,
+            "abi": None,
+            "venv_module": False,
+            "ensurepip_module": False,
+        }
+    return {"executable": str(selected), **facts}
 
 
 def _storage_probe(root: Path) -> dict[str, object]:
@@ -383,11 +492,13 @@ def platform_preflight(root: Path = STANDARD_ROOT) -> dict[str, object]:
     version_id = release.get("VERSION_ID", "")
     os_major = version_id.split(".", 1)[0] if version_id else ""
     architecture = _debian_architecture()
+    host_python = _host_python_candidate()
     commands = {
         name: shutil.which(name)
         for name in ("apt-get", "dpkg", "python3", "sha256sum", "sudo", "systemctl", "tar")
     }
-    python = _python_capabilities()
+    commands["python3"] = str(host_python) if host_python is not None else None
+    python = _python_capabilities(host_python)
     supported = (
         release.get("ID") == SUPPORTED_OS_ID
         and os_major == SUPPORTED_OS_MAJOR
@@ -401,7 +512,9 @@ def platform_preflight(root: Path = STANDARD_ROOT) -> dict[str, object]:
     systemd_running = Path("/run/systemd/system").is_dir()
     if commands["systemctl"] is not None and not systemd_running:
         blockers.append({"code": "systemd_not_running", "detail": "systemd is required as the service lifecycle authority"})
-    if python["implementation"] != "CPython" or sys.version_info[:2] != (3, 13):
+    version_parts = str(python["version"] or "").split(".")
+    compatible_version = len(version_parts) >= 2 and version_parts[:2] == ["3", "13"]
+    if python["implementation"] != "CPython" or not compatible_version:
         blockers.append(
             {
                 "code": "compatible_python_missing",
@@ -520,7 +633,7 @@ def artifact_preflight(core_archive: Path, household_archive: Path) -> dict[str,
     required_core_paths = {
         "LICENSE", "README.md", "scripts/core_artifact.py", "scripts/installation_staging.py",
         "scripts/oracle-admin.py", "server/oracle_app/installation_assembly.py",
-        "server/oracle_app/installation_systemd.py",
+        "server/oracle_app/installation_identity.py", "server/oracle_app/installation_systemd.py",
     }
     if "core" in manifests:
         actual = {str(item.get("path")) for item in manifests["core"].get("inventory", []) if isinstance(item, dict)}
@@ -804,7 +917,12 @@ def build_initial_assembly_plan(
         deployment_identity = str(pair["deployment_revision"])
         application = root / "revisions" / application_identity
         deployment = root / "deployments" / deployment_identity
-        environment = root / "environments" / environment_identity
+        try:
+            environment_name = environment_directory_name(environment_identity)
+        except ValueError as exc:
+            blockers.append({"code": "staged_environment_identity_invalid", "detail": str(exc)})
+            environment_name = "invalid-environment-identity"
+        environment = root / "environments" / environment_name
         configuration = pair.get("configuration")
         configuration_root = configuration.get("root") if isinstance(configuration, dict) else None
         authored_revision = configuration.get("authored_revision") if isinstance(configuration, dict) else None
@@ -996,7 +1114,7 @@ def build_service_install_preflight(*, root: Path = STANDARD_ROOT) -> dict[str, 
         blockers.append({"code": "standard_service_already_enabled", "detail": "oracle-brain.service"})
     try:
         exact = build_systemd_install_plan(InstallationLayout(root))
-    except (OSError, ValueError, StandardSystemdError) as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         blockers.append({"code": "systemd_install_plan_invalid", "detail": str(exc)})
     else:
         basis = {
@@ -1073,7 +1191,7 @@ def build_activation_preflight(*, root: Path = STANDARD_ROOT) -> dict[str, objec
     plan = None
     try:
         plan = build_initial_activation_plan(InstallationLayout(root))
-    except (OSError, ValueError, StandardSystemdError) as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         blockers.append({"code": "initial_activation_plan_invalid", "detail": str(exc)})
     return {
         "format": OUTPUT_FORMAT,
@@ -1421,9 +1539,52 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parser().parse_args(argv)
+_BOOTSTRAP_COMMANDS = frozenset({"preflight", "stage-plan", "stage"})
+_ASSEMBLY_COMMANDS = frozenset({"assemble-plan", "assemble"})
+
+
+def _managed_environment_for_command(args: argparse.Namespace, *, root: Path = STANDARD_ROOT) -> Path | None:
+    if args.command in _BOOTSTRAP_COMMANDS:
+        return None
+    if args.command in _ASSEMBLY_COMMANDS:
+        name = environment_directory_name(args.environment_identity)
+        environment = root / "environments" / name
+    else:
+        selected = load_selected_activation(InstallationLayout(root), "staged")
+        environment = (selected.directory / "environment").resolve(strict=True)
     try:
+        expected_parent = (root / "environments").resolve(strict=True)
+        resolved = environment.resolve(strict=True)
+    except OSError as exc:
+        raise RuntimeError("the selected immutable Python environment is unavailable") from exc
+    if resolved.parent != expected_parent or resolved != expected_parent / resolved.name:
+        raise RuntimeError("the selected immutable Python environment escapes managed storage")
+    return resolved
+
+
+def _reexecute_post_staging_command(
+    args: argparse.Namespace,
+    argv: list[str],
+    *,
+    root: Path = STANDARD_ROOT,
+) -> None:
+    environment = _managed_environment_for_command(args, root=root)
+    if environment is None or Path(sys.prefix).resolve() == environment:
+        return
+    interpreter = environment / "bin" / "python"
+    if not interpreter.is_file():
+        raise RuntimeError("the selected immutable Python environment interpreter is unavailable")
+    os.execv(
+        str(interpreter),
+        [str(interpreter), str(Path(__file__).resolve()), *argv],
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = parser().parse_args(raw_argv)
+    try:
+        _reexecute_post_staging_command(args, raw_argv)
         if args.command == "preflight":
             result = build_install_preflight(args.core_artifact, args.household_artifact)
         elif args.command == "stage-plan":
@@ -1456,7 +1617,7 @@ def main(argv: list[str] | None = None) -> int:
             result = execute_initial_activation(args.approved_plan)
         else:
             result = recover_initial_activation()
-    except (ArtifactError, InitialAssemblyError, InstallationStagingError, StandardSystemdError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+    except (ArtifactError, InstallationStagingError, OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         failure = {
             "format": OUTPUT_FORMAT,
             "command": args.command,

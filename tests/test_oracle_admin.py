@@ -43,6 +43,7 @@ class OracleAdminPreflightTests(unittest.TestCase):
         oracle_app = self.repo / "server" / "oracle_app"
         oracle_app.mkdir(parents=True)
         (oracle_app / "installation_assembly.py").write_text("# fixture\n", encoding="utf-8")
+        (oracle_app / "installation_identity.py").write_text("# fixture\n", encoding="utf-8")
         (oracle_app / "installation_systemd.py").write_text("# fixture\n", encoding="utf-8")
         self._git("add", "-A")
         self._git("commit", "-q", "-m", "fixture")
@@ -162,6 +163,68 @@ class OracleAdminPreflightTests(unittest.TestCase):
         self.assertEqual(result["blockers"], [])
         self.assertIn("dependency_acquisition_required", {item["code"] for item in result["findings"]})
 
+    def test_platform_preflight_uses_discovered_host_python_not_cli_interpreter(self) -> None:
+        selected = Path("/usr/bin/python3")
+        facts = {
+            "executable": str(selected),
+            "implementation": "CPython",
+            "version": "3.13.5",
+            "abi": "cpython-313-x86_64-linux-gnu",
+            "venv_module": True,
+            "ensurepip_module": True,
+        }
+        with (
+            mock.patch.object(oracle_admin, "_host_python_candidate", return_value=selected),
+            mock.patch.object(oracle_admin, "_python_capabilities", return_value=facts) as capabilities,
+            mock.patch.object(oracle_admin, "_os_release", return_value={"ID": "debian", "VERSION_ID": "13"}),
+            mock.patch.object(oracle_admin, "_debian_architecture", return_value="amd64"),
+            mock.patch.object(oracle_admin.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}"),
+        ):
+            result = oracle_admin.platform_preflight(self.root / "oracle")
+        capabilities.assert_called_once_with(selected)
+        self.assertEqual(result["python"]["executable"], "/usr/bin/python3")
+
+    def test_bootstrap_commands_start_without_site_packages(self) -> None:
+        missing_core = self.root / "missing-core.tar"
+        missing_household = self.root / "missing-household.tar"
+        for command in ("preflight", "stage-plan", "stage"):
+            argv = [
+                os.fspath(Path(os.sys.executable)),
+                "-S",
+                os.fspath(ROOT / "scripts" / "oracle-admin.py"),
+                "--json",
+                command,
+                "--core-artifact",
+                os.fspath(missing_core),
+                "--household-artifact",
+                os.fspath(missing_household),
+            ]
+            if command == "stage":
+                argv.extend(["--approved-plan", "oracle-operation-plan-v1:sha256:" + "0" * 64])
+            completed = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.assertNotIn("ModuleNotFoundError", completed.stderr)
+            result = json.loads(completed.stdout)
+            self.assertEqual(result["command"], command)
+
+    def test_post_staging_assembly_reexecutes_through_exact_environment(self) -> None:
+        identity = "oracle-python-environment-v1:sha256:" + "6" * 64
+        root = self.root / "managed"
+        environment = root / "environments" / ("environment-" + "6" * 64)
+        interpreter = environment / "bin" / "python"
+        interpreter.parent.mkdir(parents=True)
+        interpreter.write_text("", encoding="utf-8")
+        args = SimpleNamespace(command="assemble-plan", environment_identity=identity)
+        argv = ["assemble-plan", "--environment-identity", identity]
+        with (
+            mock.patch.object(oracle_admin.sys, "prefix", str(self.root / "bootstrap")),
+            mock.patch.object(oracle_admin.os, "execv") as execute,
+        ):
+            oracle_admin._reexecute_post_staging_command(args, argv, root=root)
+        execute.assert_called_once_with(
+            str(interpreter),
+            [str(interpreter), str((ROOT / "scripts" / "oracle-admin.py").resolve()), *argv],
+        )
+
     def test_standard_layout_plan_has_only_ratified_lifecycle_roots(self) -> None:
         root = self.root / "oracle"
         plan = oracle_admin.standard_layout_plan(root)
@@ -223,7 +286,7 @@ class OracleAdminPreflightTests(unittest.TestCase):
         (installation / "revisions" / application_identity).mkdir(parents=True)
         deployment = installation / "deployments" / deployment_identity
         (deployment / "configuration").mkdir(parents=True)
-        environment = installation / "environments" / environment_identity
+        environment = installation / "environments" / ("environment-" + "7" * 64)
         environment.mkdir(parents=True)
         (environment / "oracle-environment.json").write_text(
             json.dumps({"environment_identity": environment_identity}), encoding="utf-8"

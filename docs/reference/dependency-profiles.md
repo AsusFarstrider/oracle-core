@@ -21,7 +21,12 @@ the profile's declared Python baseline using
 `--allow-unsafe --strip-extras --generate-hashes`.
 
 The standard Debian builder constructs a native environment directly at its
-final identity path because native `venv` script shebangs are not relocatable.
+final managed path because native `venv` script shebangs are not relocatable.
+The complete semantic identity remains
+`oracle-python-environment-v1:sha256:<digest>`; its deterministic filesystem
+name is `environment-<digest>`, avoiding platform-reserved path characters
+without weakening the recorded identity. Activation records bind the complete
+semantic identity and resolve it through that one validated mapping.
 An explicit incomplete-build marker prevents that candidate from being reused
 or selected before validation. Successful construction requires exact locked
 package comparison, `pip check`, an interpreter-identity recheck, and a complete
@@ -29,6 +34,13 @@ environment-tree integrity hash; only then is the marker replaced by the
 immutable environment record and the tree made read-only. A matching marked
 interruption is safely discarded and rebuilt. An unmarked or identity-mismatched
 partial tree fails closed for explicit repair.
+
+The staged `oracle-admin` bootstrap commands `preflight`, `stage-plan`, and
+`stage` load only Oracle's standard-library bootstrap modules and run with the
+explicitly discovered host interpreter. After staging, administration commands
+re-execute through the exact validated immutable environment selected by the
+requested environment identity or staged complete activation. The host Python
+package environment remains untouched.
 
 The wake-satellite profile is retained reusable functionality, not part of the
 provider-free Stage 4 Brain installation. Its separate interpreter constraint

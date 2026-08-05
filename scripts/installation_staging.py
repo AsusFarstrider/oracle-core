@@ -21,10 +21,13 @@ from core_artifact import (
     _tree_identity,
     extract_verified,
 )
+from oracle_app.installation_identity import (
+    ENVIRONMENT_FORMAT,
+    ENVIRONMENT_PREFIX,
+    environment_directory_name,
+)
 
 
-ENVIRONMENT_FORMAT = "oracle-python-environment-v1"
-ENVIRONMENT_PREFIX = f"{ENVIRONMENT_FORMAT}:sha256:"
 ENVIRONMENT_BUILD_MARKER = ".oracle-environment-building.json"
 SUPPORTED_PROFILE_LOCKS = {"minimal-brain": Path("server/requirements.lock")}
 
@@ -301,7 +304,7 @@ def build_python_environment(
     lock = application / relative_lock
     record = environment_record(interpreter, profile, lock)
     identity = str(record["environment_identity"])
-    destination = environments / identity
+    destination = environments / environment_directory_name(identity)
     if destination.is_dir() and not destination.is_symlink():
         marker = destination / ENVIRONMENT_BUILD_MARKER
         identity_record = destination / "oracle-environment.json"
@@ -373,6 +376,6 @@ def validate_python_environment(
         raise InstallationStagingError("Python environment is absent or unsafe")
     environment_python = environment / ("Scripts/python.exe" if platform.system() == "Windows" else "bin/python")
     expected = environment_record(environment_python, profile, application / relative_lock)
-    if expected["environment_identity"] != environment.name:
+    if environment.name != environment_directory_name(str(expected["environment_identity"])):
         raise InstallationStagingError("Python environment directory identity differs from its declared inputs")
     return _validate_environment(environment, expected, application / relative_lock)

@@ -14,6 +14,7 @@ from oracle_app.installation import (
     select_activation,
 )
 from oracle_app.installation_assembly import service_definition_identity
+from oracle_app.installation_identity import environment_directory_name
 from oracle_app.installation_systemd import (
     StandardSystemdError,
     build_initial_activation_plan,
@@ -45,7 +46,7 @@ class StandardSystemdInstallationTests(unittest.TestCase):
         environment_id = "oracle-python-environment-v1:sha256:" + "3" * 64
         deployment_id = "oracle-household-deployment-v1:sha256:" + "4" * 64
         configuration_id = "activation_" + "5" * 32
-        (self.layout.environments / environment_id).mkdir()
+        (self.layout.environments / environment_directory_name(environment_id)).mkdir()
         (self.layout.deployments / deployment_id).mkdir()
         (self.layout.configuration / "activations" / configuration_id).mkdir(parents=True)
         request = ActivationRequest(

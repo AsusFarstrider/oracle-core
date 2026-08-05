@@ -16,6 +16,8 @@ import re
 import secrets
 from typing import Mapping
 
+from .installation_identity import environment_directory_name
+
 
 STANDARD_INSTALLATION_ROOT = Path("/srv/oracle")
 ACTIVATION_FORMAT = "oracle-installation-activation-v1"
@@ -187,7 +189,7 @@ def activation_directory_name(activation_id: str) -> str:
 def _component_targets(layout: InstallationLayout, request: ActivationRequest) -> dict[str, Path]:
     return {
         "application": layout.revisions / request.application_revision_identity,
-        "environment": layout.environments / request.python_environment_identity,
+        "environment": layout.environments / environment_directory_name(request.python_environment_identity),
         "deployment": layout.deployments / request.household_deployment_revision,
         "configuration": layout.configuration / "activations" / request.configuration_activation_identity,
     }

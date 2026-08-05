@@ -26,6 +26,7 @@ from oracle_app.installation import (
     publish_activation,
     select_activation,
 )
+from oracle_app.installation_identity import environment_directory_name
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -114,7 +115,7 @@ class ConfigurationBootstrapSettingsTests(unittest.TestCase):
             core_commit="1" * 40,
             core_git_tree="2" * 40,
             application_revision_identity="core-tree-" + "2" * 40,
-            python_environment_identity="python-env-" + "3" * 64,
+            python_environment_identity="oracle-python-environment-v1:sha256:" + "3" * 64,
             household_deployment_revision="oracle-household-deployment-v1:sha256:" + "4" * 64,
             configuration_activation_identity=configuration_activation_id,
             service_definition_identity="systemd-unit-" + "5" * 64,
@@ -124,7 +125,7 @@ class ConfigurationBootstrapSettingsTests(unittest.TestCase):
     def _install_component_directories(layout: InstallationLayout, request: ActivationRequest) -> None:
         for path in (
             layout.revisions / request.application_revision_identity,
-            layout.environments / request.python_environment_identity,
+            layout.environments / environment_directory_name(request.python_environment_identity),
             layout.deployments / request.household_deployment_revision,
         ):
             path.mkdir()

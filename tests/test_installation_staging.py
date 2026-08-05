@@ -151,6 +151,10 @@ class ProtectedInstallationStagingTests(unittest.TestCase):
         changed["version"] = "3.13.6"
         third = installation_staging.environment_record(Path("/usr/bin/python3"), "minimal-brain", lock, facts=changed)
         self.assertNotEqual(first["environment_identity"], third["environment_identity"])
+        self.assertEqual(
+            installation_staging.environment_directory_name(str(first["environment_identity"])),
+            "environment-" + str(first["environment_identity"]).rsplit(":", 1)[-1],
+        )
 
     def test_environment_build_installs_hash_lock_validates_exact_set_and_publishes_once(self) -> None:
         application_result = installation_staging.stage_artifact_pair(
@@ -190,6 +194,10 @@ class ProtectedInstallationStagingTests(unittest.TestCase):
             )
         self.assertFalse(result["reused"])
         environment = Path(result["path"])
+        self.assertEqual(
+            environment.name,
+            installation_staging.environment_directory_name(str(result["environment_identity"])),
+        )
         self.assertTrue((environment / "oracle-environment.json").is_file())
         self.assertEqual((environment / "oracle-environment.json").stat().st_mode & 0o222, 0)
         commands = [call.args[0] for call in run.call_args_list]
@@ -212,16 +220,17 @@ class ProtectedInstallationStagingTests(unittest.TestCase):
 
     def test_published_environment_has_a_read_only_complete_validation_path(self) -> None:
         application = self.repo
-        environment = self.environments / (installation_staging.ENVIRONMENT_PREFIX + "8" * 64)
+        identity = installation_staging.ENVIRONMENT_PREFIX + "8" * 64
+        environment = self.environments / installation_staging.environment_directory_name(identity)
         environment.mkdir()
         with mock.patch.object(
             installation_staging,
             "environment_record",
-            return_value={"environment_identity": environment.name},
+            return_value={"environment_identity": identity},
         ), mock.patch.object(
             installation_staging,
             "_validate_environment",
-            return_value={"environment_identity": environment.name, "validated": True},
+            return_value={"environment_identity": identity, "validated": True},
         ) as validate:
             result = installation_staging.validate_python_environment(application, environment)
         self.assertTrue(result["validated"])

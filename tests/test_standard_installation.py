@@ -16,6 +16,7 @@ from oracle_app.installation import (
     publish_activation,
     select_activation,
 )
+from oracle_app.installation_identity import environment_directory_name
 
 
 class StandardInstallationActivationTests(unittest.TestCase):
@@ -29,7 +30,7 @@ class StandardInstallationActivationTests(unittest.TestCase):
             core_commit="1" * 40,
             core_git_tree="2" * 40,
             application_revision_identity="core-tree-" + "2" * 40,
-            python_environment_identity="python-env-" + "3" * 64,
+            python_environment_identity="oracle-python-environment-v1:sha256:" + "3" * 64,
             household_deployment_revision="oracle-household-deployment-v1:sha256:" + "4" * 64,
             configuration_activation_identity="activation_" + "5" * 32,
             service_definition_identity="systemd-unit-" + "6" * 64,
@@ -42,7 +43,7 @@ class StandardInstallationActivationTests(unittest.TestCase):
     def _make_components(self, request: ActivationRequest) -> None:
         for path in (
             self.layout.revisions / request.application_revision_identity,
-            self.layout.environments / request.python_environment_identity,
+            self.layout.environments / environment_directory_name(request.python_environment_identity),
             self.layout.deployments / request.household_deployment_revision,
             self.layout.configuration / "activations" / request.configuration_activation_identity,
         ):
@@ -62,7 +63,12 @@ class StandardInstallationActivationTests(unittest.TestCase):
         first = activation_record(self.request)
         second = activation_record(self.request)
         self.assertEqual(first, second)
-        changed = ActivationRequest(**{**self.request.__dict__, "python_environment_identity": "python-env-" + "7" * 64})
+        changed = ActivationRequest(
+            **{
+                **self.request.__dict__,
+                "python_environment_identity": "oracle-python-environment-v1:sha256:" + "7" * 64,
+            }
+        )
         self.assertNotEqual(first["activation_id"], activation_record(changed)["activation_id"])
 
     def test_publish_creates_immutable_record_and_confined_relative_links(self) -> None:

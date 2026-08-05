@@ -20,6 +20,7 @@ from .installation import (
     publish_activation,
     select_activation,
 )
+from .installation_identity import environment_directory_name
 
 
 class InitialAssemblyError(RuntimeError):
@@ -59,7 +60,7 @@ def assemble_initial_activation(
 
     application = layout.revisions / request.application_revision_identity
     deployment = layout.deployments / request.household_deployment_revision
-    environment = layout.environments / request.python_environment_identity
+    environment = layout.environments / environment_directory_name(request.python_environment_identity)
     for label, path in (
         ("application revision", application),
         ("household deployment", deployment),

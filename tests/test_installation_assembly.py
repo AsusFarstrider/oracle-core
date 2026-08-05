@@ -12,6 +12,7 @@ from oracle_app.installation_assembly import (
     InitialAssemblyRequest,
     assemble_initial_activation,
 )
+from oracle_app.installation_identity import environment_directory_name
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -36,7 +37,10 @@ class InitialInstallationAssemblyTests(unittest.TestCase):
             REPO_ROOT / "scripts" / "oracle-brain-standard.service",
             application / "scripts" / "oracle-brain-standard.service",
         )
-        (self.layout.environments / self.request.python_environment_identity).mkdir()
+        (
+            self.layout.environments
+            / environment_directory_name(self.request.python_environment_identity)
+        ).mkdir()
         deployment = self.layout.deployments / self.request.household_deployment_revision
         shutil.copytree(REPO_ROOT / "examples" / "config", deployment / "configuration")
 
