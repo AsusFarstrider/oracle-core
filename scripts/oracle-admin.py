@@ -20,6 +20,11 @@ import urllib.error
 import urllib.request
 from contextlib import contextmanager
 
+# The managed administration CLI executes from an immutable application
+# revision. Root can bypass its read-only mode bits, so prevent imports from
+# ever materializing bytecode beside installed source.
+sys.dont_write_bytecode = True
+
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 if str(SCRIPT_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIRECTORY))
@@ -1572,6 +1577,25 @@ def _managed_environment_for_command(args: argparse.Namespace, *, root: Path = S
     return resolved
 
 
+def _managed_application_for_command(args: argparse.Namespace, *, root: Path = STANDARD_ROOT) -> Path | None:
+    if args.command in _BOOTSTRAP_COMMANDS:
+        return None
+    if args.command in _ASSEMBLY_COMMANDS:
+        manifest = verify(args.core_artifact)
+        application = root / "revisions" / ("core-" + str(manifest["core_commit"]))
+    else:
+        selected = load_selected_activation(InstallationLayout(root), "staged")
+        application = (selected.directory / "application").resolve(strict=True)
+    try:
+        expected_parent = (root / "revisions").resolve(strict=True)
+        resolved = application.resolve(strict=True)
+    except OSError as exc:
+        raise RuntimeError("the selected immutable application revision is unavailable") from exc
+    if resolved.parent != expected_parent or resolved != expected_parent / resolved.name:
+        raise RuntimeError("the selected immutable application revision escapes managed storage")
+    return resolved
+
+
 def _reexecute_post_staging_command(
     args: argparse.Namespace,
     argv: list[str],
@@ -1579,14 +1603,20 @@ def _reexecute_post_staging_command(
     root: Path = STANDARD_ROOT,
 ) -> None:
     environment = _managed_environment_for_command(args, root=root)
-    if environment is None or Path(sys.prefix).resolve() == environment:
+    application = _managed_application_for_command(args, root=root)
+    if environment is None or application is None:
         return
     interpreter = environment / "bin" / "python"
     if not interpreter.is_file():
         raise RuntimeError("the selected immutable Python environment interpreter is unavailable")
+    script = application / "scripts" / "oracle-admin.py"
+    if script.is_symlink() or not script.is_file():
+        raise RuntimeError("the selected immutable administration CLI is unavailable")
+    if Path(sys.prefix).resolve() == environment and Path(__file__).resolve() == script:
+        return
     os.execv(
         str(interpreter),
-        [str(interpreter), str(Path(__file__).resolve()), *argv],
+        [str(interpreter), "-B", str(script), *argv],
     )
 
 

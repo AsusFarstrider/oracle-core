@@ -9,6 +9,7 @@ from unittest import mock
 from types import SimpleNamespace
 import os
 import json
+import shutil
 from contextlib import nullcontext
 
 
@@ -206,6 +207,29 @@ class OracleAdminPreflightTests(unittest.TestCase):
             result = json.loads(completed.stdout)
             self.assertEqual(result["command"], command)
 
+    def test_managed_cli_imports_do_not_create_application_bytecode(self) -> None:
+        application = self.root / "managed-application"
+        scripts = application / "scripts"
+        package = application / "server" / "oracle_app"
+        scripts.mkdir(parents=True)
+        package.mkdir(parents=True)
+        for name in ("core_artifact.py", "installation_staging.py", "oracle-admin.py"):
+            shutil.copy2(ROOT / "scripts" / name, scripts / name)
+        for name in ("__init__.py", "installation_identity.py"):
+            shutil.copy2(ROOT / "server" / "oracle_app" / name, package / name)
+        environment = dict(os.environ)
+        environment.pop("PYTHONDONTWRITEBYTECODE", None)
+        environment.pop("PYTHONPYCACHEPREFIX", None)
+        subprocess.run(
+            [os.fspath(Path(os.sys.executable)), os.fspath(scripts / "oracle-admin.py"), "--help"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+        )
+        self.assertEqual(list(application.rglob("__pycache__")), [])
+        self.assertEqual(list(application.rglob("*.pyc")), [])
+
     def test_machine_readable_output_isolates_inherited_child_stdout(self) -> None:
         program = """
 import importlib.util
@@ -240,16 +264,21 @@ print(json.dumps({"status": "ready"}))
         interpreter = environment / "bin" / "python"
         interpreter.parent.mkdir(parents=True)
         interpreter.write_text("", encoding="utf-8")
-        args = SimpleNamespace(command="assemble-plan", environment_identity=identity)
-        argv = ["assemble-plan", "--environment-identity", identity]
+        commit = "7" * 40
+        script = root / "revisions" / ("core-" + commit) / "scripts" / "oracle-admin.py"
+        script.parent.mkdir(parents=True)
+        script.write_text("# managed fixture\n", encoding="utf-8")
+        args = SimpleNamespace(command="assemble-plan", environment_identity=identity, core_artifact=self.core)
+        argv = ["assemble-plan", "--core-artifact", str(self.core), "--environment-identity", identity]
         with (
             mock.patch.object(oracle_admin.sys, "prefix", str(self.root / "bootstrap")),
+            mock.patch.object(oracle_admin, "verify", return_value={"core_commit": commit}),
             mock.patch.object(oracle_admin.os, "execv") as execute,
         ):
             oracle_admin._reexecute_post_staging_command(args, argv, root=root)
         execute.assert_called_once_with(
             str(interpreter),
-            [str(interpreter), str((ROOT / "scripts" / "oracle-admin.py").resolve()), *argv],
+            [str(interpreter), "-B", str(script), *argv],
         )
 
     def test_standard_layout_plan_has_only_ratified_lifecycle_roots(self) -> None:
