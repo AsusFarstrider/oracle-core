@@ -599,7 +599,11 @@ print(json.dumps({"status": "ready"}))
             mock.patch.object(oracle_admin, "mark_managed_verification_passed") as marked,
             mock.patch.object(oracle_admin, "finalize_managed_activation", return_value=final),
             mock.patch.object(oracle_admin, "load_selected_activation", return_value=active),
-            mock.patch.object(oracle_admin, "_write_operation_evidence", return_value=Path("/evidence")),
+            mock.patch.object(
+                oracle_admin,
+                "_write_operation_evidence",
+                return_value=Path("/evidence"),
+            ) as evidence,
             mock.patch.object(oracle_admin.subprocess, "run") as run,
         ):
             result = oracle_admin.execute_managed_activation(
@@ -616,6 +620,12 @@ print(json.dumps({"status": "ready"}))
         started.assert_called_once()
         verify.assert_called_once_with("activation_" + "3" * 32)
         marked.assert_called_once_with(mock.ANY, verification)
+        evidence.assert_called_once_with(
+            self.root / "oracle",
+            "update-results",
+            transaction["transaction_id"],
+            mock.ANY,
+        )
 
     def test_failed_managed_update_restores_and_verifies_previous_complete_activation(self) -> None:
         plan = {
@@ -658,7 +668,11 @@ print(json.dumps({"status": "ready"}))
             ),
             mock.patch.object(oracle_admin, "recover_managed_activation", return_value=recovered) as recover,
             mock.patch.object(oracle_admin, "load_selected_activation", side_effect=[candidate, previous]),
-            mock.patch.object(oracle_admin, "_write_operation_evidence", return_value=Path("/evidence")),
+            mock.patch.object(
+                oracle_admin,
+                "_write_operation_evidence",
+                return_value=Path("/evidence"),
+            ) as evidence,
             mock.patch.object(oracle_admin.subprocess, "run") as run,
         ):
             result = oracle_admin.execute_managed_activation(
@@ -679,6 +693,12 @@ print(json.dumps({"status": "ready"}))
             ],
         )
         recover.assert_called_once_with(mock.ANY, reason="RuntimeError")
+        evidence.assert_called_once_with(
+            self.root / "oracle",
+            "update-results",
+            transaction["transaction_id"],
+            mock.ANY,
+        )
 
     def test_existing_interactive_or_privileged_oracle_identity_blocks_reuse(self) -> None:
         identities = {

@@ -1794,7 +1794,7 @@ def execute_managed_activation(
         evidence_path = _write_operation_evidence(
             root,
             f"{operation}-results",
-            approved_plan,
+            str(result["transaction_id"]),
             result,
         )
     return {**result, "evidence_path": str(evidence_path)}
