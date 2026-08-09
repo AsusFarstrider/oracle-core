@@ -864,17 +864,27 @@ def execute_staging(
         dependency = _ensure_python_environment_support(locked_preflight["platform"])
         identities = ensure_standard_identities()
         layout = ensure_standard_layout(root)
+        identity_state = identities.get("identities")
+        groups = identity_state.get("groups") if isinstance(identity_state, dict) else None
+        service_group = groups.get(SERVICE_GROUP) if isinstance(groups, dict) else None
+        service_gid = service_group.get("gid") if isinstance(service_group, dict) else None
+        if not isinstance(service_gid, int) or service_gid <= 0:
+            raise RuntimeError("validated Oracle service group identity is unavailable")
         components = stage_artifact_pair(
             core_archive,
             household_archive,
             revisions=root / "revisions",
             deployments=root / "deployments",
+            owner_uid=0,
+            service_gid=service_gid,
         )
         environment = build_python_environment(
             Path(components["application_path"]),
             root / "environments",
             Path(locked_preflight["platform"]["python"]["executable"]),
             profile="minimal-brain",
+            owner_uid=0,
+            service_gid=service_gid,
         )
         evidence = {
             "format": OUTPUT_FORMAT,

@@ -445,6 +445,49 @@ class OracleAdminPreflightTests(unittest.TestCase):
         marked.assert_called_once_with(mock.ANY, verification)
         finalized.assert_called_once()
 
+    def test_failed_first_activation_uses_elevated_transaction_cleanup_without_known_good(self) -> None:
+        plan = {"identity": "oracle-initial-activation-plan-v1:sha256:" + "1" * 64}
+        transaction = {
+            "transaction_id": "initial_activation_" + "2" * 32,
+            "candidate_activation_id": "candidate-1",
+        }
+        failed = {
+            **transaction,
+            "verification": {"passed": False, "reason": "CalledProcessError"},
+        }
+        preflight = {"status": "ready", "plan": plan}
+
+        def systemctl(command, **_kwargs):
+            if command == ["systemctl", "start", "oracle-brain.service"]:
+                raise subprocess.CalledProcessError(1, command)
+            return mock.DEFAULT
+
+        with (
+            mock.patch.object(oracle_admin.os, "geteuid", return_value=0),
+            mock.patch.object(oracle_admin, "build_activation_preflight", return_value=preflight),
+            mock.patch.object(oracle_admin, "_maintenance_lock", return_value=nullcontext()),
+            mock.patch.object(oracle_admin, "_service_authority", return_value=nullcontext()),
+            mock.patch.object(oracle_admin, "prepare_initial_activation", return_value=transaction),
+            mock.patch.object(oracle_admin, "fail_initial_activation", return_value=failed) as cleanup,
+            mock.patch.object(oracle_admin, "_write_operation_evidence", return_value=Path("/evidence")),
+            mock.patch.object(oracle_admin.subprocess, "run", side_effect=systemctl) as run,
+        ):
+            result = oracle_admin.execute_initial_activation(plan["identity"], root=self.root / "oracle")
+
+        self.assertEqual(result["status"], "recovered_failed")
+        self.assertFalse(result["approved"])
+        self.assertFalse(result["previous_known_good"])
+        self.assertEqual(
+            [call.args[0] for call in run.call_args_list],
+            [
+                ["systemctl", "enable", "oracle-brain.service"],
+                ["systemctl", "start", "oracle-brain.service"],
+                ["systemctl", "stop", "oracle-brain.service"],
+                ["systemctl", "disable", "oracle-brain.service"],
+            ],
+        )
+        cleanup.assert_called_once_with(mock.ANY, reason="CalledProcessError")
+
     def test_existing_interactive_or_privileged_oracle_identity_blocks_reuse(self) -> None:
         identities = {
             "service_account": {
@@ -568,7 +611,14 @@ class OracleAdminPreflightTests(unittest.TestCase):
             mock.patch.object(oracle_admin.os, "geteuid", return_value=0),
             mock.patch.object(oracle_admin, "build_staging_preflight", return_value=preflight),
             mock.patch.object(oracle_admin, "_ensure_python_environment_support", return_value={"disposition": "reused", "package": None, "version": None}),
-            mock.patch.object(oracle_admin, "ensure_standard_identities", return_value={"created": [], "identities": {}}),
+            mock.patch.object(
+                oracle_admin,
+                "ensure_standard_identities",
+                return_value={
+                    "created": [],
+                    "identities": {"groups": {"oracle": {"gid": 902}}},
+                },
+            ),
             mock.patch.object(oracle_admin, "ensure_standard_layout", return_value={"created": [], "layout": {}}),
             mock.patch.object(oracle_admin, "stage_artifact_pair", return_value=components) as stage_pair,
             mock.patch.object(oracle_admin, "build_python_environment", return_value=environment) as build_environment,
@@ -586,7 +636,11 @@ class OracleAdminPreflightTests(unittest.TestCase):
         self.assertFalse(result["selection_changed"])
         self.assertFalse(result["service_modified"])
         self.assertEqual(stage_pair.call_count, 1)
+        self.assertEqual(stage_pair.call_args.kwargs["owner_uid"], 0)
+        self.assertEqual(stage_pair.call_args.kwargs["service_gid"], 902)
         build_environment.assert_called_once()
+        self.assertEqual(build_environment.call_args.kwargs["owner_uid"], 0)
+        self.assertEqual(build_environment.call_args.kwargs["service_gid"], 902)
 
     def test_preflight_reports_existing_or_absent_oracle_identities(self) -> None:
         with (

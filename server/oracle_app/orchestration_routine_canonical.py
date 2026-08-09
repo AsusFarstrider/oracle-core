@@ -166,7 +166,6 @@ class CanonicalRoutineExecution:
         return start_current_audiobook_for_user(
             **kwargs,
             audiobook_execution=self.audiobooks,
-            canonical_authority=True,
         )
 
     def sleep_timer(self, **kwargs: Any) -> dict[str, object]:
@@ -175,7 +174,6 @@ class CanonicalRoutineExecution:
         return set_audiobook_sleep_timer_seconds(
             **kwargs,
             audiobook_execution=self.audiobooks,
-            canonical_authority=True,
         )
 
     def state_check(

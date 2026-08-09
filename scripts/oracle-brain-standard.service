@@ -18,8 +18,8 @@ Environment=PYTHONPYCACHEPREFIX=/srv/oracle/cache/pycache
 Environment=XDG_CACHE_HOME=/srv/oracle/cache/xdg
 Environment=HF_HOME=/srv/oracle/cache/huggingface
 Environment=TMPDIR=/srv/oracle/tmp
-ExecStart=/srv/oracle/selection/active/environment/bin/python -m uvicorn app_standard:app --host 127.0.0.1 --port 8011 --timeout-graceful-shutdown 3
-ExecStopPost=/srv/oracle/selection/previous-known-good/environment/bin/python /srv/oracle/selection/previous-known-good/application/scripts/oracle-standard-lifecycle.py recover-after-exit
+ExecStart=/usr/bin/env /srv/oracle/selection/active/environment/bin/python -m uvicorn app_standard:app --host 127.0.0.1 --port 8011 --timeout-graceful-shutdown 3
+ExecStopPost=/usr/bin/env /srv/oracle/selection/previous-known-good/environment/bin/python /srv/oracle/selection/previous-known-good/application/scripts/oracle-standard-lifecycle.py recover-after-exit
 KillSignal=SIGTERM
 TimeoutStopSec=8
 Restart=always

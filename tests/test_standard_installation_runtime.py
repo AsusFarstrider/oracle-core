@@ -194,8 +194,17 @@ class StandardInstallationRuntimeTests(unittest.TestCase):
         self.assertIn("Group=oracle", unit)
         self.assertIn("Restart=always", unit)
         self.assertIn("app_standard:app", unit)
-        self.assertIn("/srv/oracle/selection/active/environment/bin/python", unit)
-        self.assertIn("oracle-standard-lifecycle.py recover-after-exit", unit)
+        self.assertIn(
+            "ExecStart=/usr/bin/env /srv/oracle/selection/active/environment/bin/python",
+            unit,
+        )
+        self.assertIn(
+            "ExecStopPost=/usr/bin/env "
+            "/srv/oracle/selection/previous-known-good/environment/bin/python "
+            "/srv/oracle/selection/previous-known-good/application/scripts/"
+            "oracle-standard-lifecycle.py recover-after-exit",
+            unit,
+        )
         self.assertNotIn("sudo", unit)
         self.assertNotIn("/home/", unit)
         entrypoint = (REPO_ROOT / "server" / "app_standard.py").read_text(encoding="utf-8")

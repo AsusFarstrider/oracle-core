@@ -202,6 +202,62 @@ class RoutineRuntimeSettingsTests(unittest.TestCase):
         wait_for_state.assert_called_once_with("light.living_room", "off")
         fetch_state.assert_called_once_with("light.living_room")
 
+    def test_canonical_audiobook_adapters_use_typed_execution_without_retired_authority_flag(self) -> None:
+        effective = self._effective_config(enabled=True)
+        audiobook_execution = CanonicalAudiobookExecution(
+            AudiobookRuntimeSettings.from_effective_config(effective),
+            satellite_control_timeout_seconds=6,
+        )
+        execution = CanonicalRoutineExecution(
+            settings=RoutineRuntimeSettings.from_effective_config(effective),
+            home_assistant=HomeAssistantRuntimeSettings.from_effective_config(effective),
+            audiobooks=audiobook_execution,
+        )
+
+        with (
+            patch(
+                "oracle_app.orchestration_routine_canonical.start_current_audiobook_for_user",
+                return_value={"ok": True},
+            ) as start_audiobook,
+            patch(
+                "oracle_app.orchestration_routine_canonical.set_audiobook_sleep_timer_seconds",
+                return_value={"ok": True},
+            ) as set_timer,
+        ):
+            execution.audiobook_start(
+                client_id="canonical-test",
+                source_id="living_room_voice",
+                user_id="resident_one",
+                defer_audible_start=False,
+                sleep_timer_seconds=60,
+            )
+            execution.sleep_timer(
+                client_id="canonical-test",
+                source_id="living_room_voice",
+                duration_seconds=60,
+            )
+
+        self.assertEqual(
+            start_audiobook.call_args.kwargs,
+            {
+                "client_id": "canonical-test",
+                "source_id": "living_room_voice",
+                "user_id": "resident_one",
+                "defer_audible_start": False,
+                "sleep_timer_seconds": 60,
+                "audiobook_execution": audiobook_execution,
+            },
+        )
+        self.assertEqual(
+            set_timer.call_args.kwargs,
+            {
+                "client_id": "canonical-test",
+                "source_id": "living_room_voice",
+                "duration_seconds": 60,
+                "audiobook_execution": audiobook_execution,
+            },
+        )
+
     def test_canonical_waiting_run_fails_closed_after_revision_change(self) -> None:
         effective = self._effective_config(enabled=True)
         execution = CanonicalRoutineExecution(

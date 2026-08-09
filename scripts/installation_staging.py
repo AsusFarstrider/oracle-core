@@ -11,6 +11,7 @@ import platform
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import tempfile
 from typing import Mapping
@@ -58,9 +59,10 @@ def _archive_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _make_read_only(root: Path) -> None:
+def _make_read_only(root: Path, *, owner_uid: int, service_gid: int) -> None:
     for path in sorted(root.rglob("*"), key=lambda value: len(value.parts), reverse=True):
         if path.is_symlink():
+            os.chown(path, owner_uid, service_gid, follow_symlinks=False)
             continue
         if path.is_dir():
             path.chmod(0o550)
@@ -68,21 +70,43 @@ def _make_read_only(root: Path) -> None:
             path.chmod(0o550 if path.stat().st_mode & 0o111 else 0o440)
         else:
             raise InstallationStagingError(f"unsupported installed entry: {path}")
+        os.chown(path, owner_uid, service_gid)
     root.chmod(0o550)
+    os.chown(root, owner_uid, service_gid)
 
 
-def _publish_tree(prepared: Path, parent: Path, identity: str) -> tuple[Path, bool]:
+def _require_immutable_permissions(root: Path, *, owner_uid: int, service_gid: int) -> None:
+    for path in (root, *sorted(root.rglob("*"))):
+        metadata = path.lstat()
+        if metadata.st_uid != owner_uid or metadata.st_gid != service_gid:
+            raise InstallationStagingError(f"installed component ownership has drifted: {path}")
+        if path.is_symlink():
+            continue
+        expected_mode = 0o550 if path.is_dir() or metadata.st_mode & stat.S_IXUSR else 0o440
+        if stat.S_IMODE(metadata.st_mode) != expected_mode:
+            raise InstallationStagingError(f"installed component mode has drifted: {path}")
+
+
+def _publish_tree(
+    prepared: Path,
+    parent: Path,
+    identity: str,
+    *,
+    owner_uid: int,
+    service_gid: int,
+) -> tuple[Path, bool]:
     if not parent.is_dir() or parent.is_symlink():
         raise InstallationStagingError(f"managed component parent is absent or unsafe: {parent}")
     destination = parent / identity
     if destination.exists() or destination.is_symlink():
         if destination.is_symlink() or not destination.is_dir():
             raise InstallationStagingError(f"installed component identity is not a directory: {identity}")
+        _require_immutable_permissions(destination, owner_uid=owner_uid, service_gid=service_gid)
         return destination, True
     staging = parent / f".staging-{identity}-{secrets.token_hex(8)}"
     try:
         shutil.copytree(prepared, staging, symlinks=True)
-        _make_read_only(staging)
+        _make_read_only(staging, owner_uid=owner_uid, service_gid=service_gid)
         _fsync_directory(staging)
         os.rename(staging, destination)
         _fsync_directory(parent)
@@ -105,6 +129,8 @@ def stage_artifact_pair(
     *,
     revisions: Path,
     deployments: Path,
+    owner_uid: int,
+    service_gid: int,
 ) -> dict[str, object]:
     """Verify both local inputs completely, then publish their immutable payloads."""
 
@@ -146,12 +172,22 @@ def stage_artifact_pair(
             if existing_deployment.is_symlink() or not existing_deployment.is_dir():
                 raise InstallationStagingError("deployment revision identity is occupied by an invalid entry")
             _require_inventory(existing_deployment, household)
-        application, application_reused = _publish_tree(disposable / "core", revisions, application_identity)
+        application, application_reused = _publish_tree(
+            disposable / "core",
+            revisions,
+            application_identity,
+            owner_uid=owner_uid,
+            service_gid=service_gid,
+        )
         _require_inventory(application, core)
         if _tree_identity(application) != core.get("core_git_tree"):
             raise InstallationStagingError("published application does not match its exact core Git tree")
         deployment, deployment_reused = _publish_tree(
-            disposable / "household", deployments, deployment_identity
+            disposable / "household",
+            deployments,
+            deployment_identity,
+            owner_uid=owner_uid,
+            service_gid=service_gid,
         )
         _require_inventory(deployment, household)
     return {
@@ -295,6 +331,8 @@ def build_python_environment(
     interpreter: Path,
     *,
     profile: str = "minimal-brain",
+    owner_uid: int,
+    service_gid: int,
 ) -> dict[str, object]:
     """Build, validate, and publish one immutable native Python environment."""
 
@@ -317,8 +355,8 @@ def build_python_environment(
                 raise InstallationStagingError("incomplete Python environment belongs to another identity")
             shutil.rmtree(destination)
         elif identity_record.is_file():
+            _require_immutable_permissions(destination, owner_uid=owner_uid, service_gid=service_gid)
             stored = _validate_environment(destination, record, lock)
-            _make_read_only(destination)
             return {**stored, "path": str(destination), "reused": True}
         else:
             raise InstallationStagingError("unmarked incomplete Python environment requires explicit repair")
@@ -351,7 +389,7 @@ def build_python_environment(
             stream.flush()
             os.fsync(stream.fileno())
         marker.unlink()
-        _make_read_only(destination)
+        _make_read_only(destination, owner_uid=owner_uid, service_gid=service_gid)
         _fsync_directory(destination)
         _fsync_directory(environments)
     except BaseException:

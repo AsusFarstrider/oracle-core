@@ -71,6 +71,20 @@ class StandardSystemdInstallationTests(unittest.TestCase):
         self.assertEqual(plan.service_definition_identity, self.activation.record["service_definition_identity"])
         self.assertFalse(self.unit.exists())
 
+    def test_unit_validation_does_not_require_unestablished_selectors(self) -> None:
+        unit = self.source_unit.read_text(encoding="utf-8")
+        self.assertFalse((self.layout.selection / "active").exists())
+        self.assertFalse((self.layout.selection / "previous-known-good").exists())
+        self.assertIn(
+            "ExecStart=/usr/bin/env /srv/oracle/selection/active/environment/bin/python",
+            unit,
+        )
+        self.assertIn(
+            "ExecStopPost=/usr/bin/env "
+            "/srv/oracle/selection/previous-known-good/environment/bin/python",
+            unit,
+        )
+
     def test_install_publishes_exact_unit_and_only_reloads_systemd(self) -> None:
         plan = build_systemd_install_plan(self.layout, unit_path=self.unit)
         commands: list[list[str]] = []
