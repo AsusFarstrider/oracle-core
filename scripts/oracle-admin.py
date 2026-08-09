@@ -1590,43 +1590,62 @@ def _reexecute_post_staging_command(
     )
 
 
+@contextmanager
+def _machine_readable_output(enabled: bool):
+    """Keep inherited operation output off stdout when JSON is requested."""
+
+    if not enabled:
+        yield
+        return
+    sys.stdout.flush()
+    saved_stdout = os.dup(1)
+    try:
+        os.dup2(2, 1)
+        yield
+        sys.stdout.flush()
+    finally:
+        os.dup2(saved_stdout, 1)
+        os.close(saved_stdout)
+
+
 def main(argv: list[str] | None = None) -> int:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     args = parser().parse_args(raw_argv)
     try:
         _reexecute_post_staging_command(args, raw_argv)
-        if args.command == "preflight":
-            result = build_install_preflight(args.core_artifact, args.household_artifact)
-        elif args.command == "stage-plan":
-            result = build_staging_preflight(args.core_artifact, args.household_artifact)
-        elif args.command == "stage":
-            result = execute_staging(
-                args.core_artifact,
-                args.household_artifact,
-                args.approved_plan,
-                allow_unsupported_platform=args.allow_unsupported_platform,
-            )
-        elif args.command == "assemble-plan":
-            result = build_initial_assembly_plan(
-                args.core_artifact, args.household_artifact, args.environment_identity
-            )
-        elif args.command == "assemble":
-            result = execute_initial_assembly(
-                args.core_artifact,
-                args.household_artifact,
-                args.environment_identity,
-                args.approved_plan,
-            )
-        elif args.command == "service-plan":
-            result = build_service_install_preflight()
-        elif args.command == "service-install":
-            result = execute_service_install(args.approved_plan)
-        elif args.command == "activate-plan":
-            result = build_activation_preflight()
-        elif args.command == "activate":
-            result = execute_initial_activation(args.approved_plan)
-        else:
-            result = recover_initial_activation()
+        with _machine_readable_output(args.json):
+            if args.command == "preflight":
+                result = build_install_preflight(args.core_artifact, args.household_artifact)
+            elif args.command == "stage-plan":
+                result = build_staging_preflight(args.core_artifact, args.household_artifact)
+            elif args.command == "stage":
+                result = execute_staging(
+                    args.core_artifact,
+                    args.household_artifact,
+                    args.approved_plan,
+                    allow_unsupported_platform=args.allow_unsupported_platform,
+                )
+            elif args.command == "assemble-plan":
+                result = build_initial_assembly_plan(
+                    args.core_artifact, args.household_artifact, args.environment_identity
+                )
+            elif args.command == "assemble":
+                result = execute_initial_assembly(
+                    args.core_artifact,
+                    args.household_artifact,
+                    args.environment_identity,
+                    args.approved_plan,
+                )
+            elif args.command == "service-plan":
+                result = build_service_install_preflight()
+            elif args.command == "service-install":
+                result = execute_service_install(args.approved_plan)
+            elif args.command == "activate-plan":
+                result = build_activation_preflight()
+            elif args.command == "activate":
+                result = execute_initial_activation(args.approved_plan)
+            else:
+                result = recover_initial_activation()
     except (ArtifactError, InstallationStagingError, OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         failure = {
             "format": OUTPUT_FORMAT,

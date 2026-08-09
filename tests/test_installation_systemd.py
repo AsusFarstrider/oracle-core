@@ -80,8 +80,12 @@ class StandardSystemdInstallationTests(unittest.TestCase):
             unit,
         )
         self.assertIn(
-            "ExecStopPost=/usr/bin/env "
-            "/srv/oracle/selection/previous-known-good/environment/bin/python",
+            "ExecStopPost=/bin/sh -c 'if [ -x "
+            "/srv/oracle/selection/previous-known-good/environment/bin/python ]",
+            unit,
+        )
+        self.assertIn(
+            "else exec /srv/oracle/selection/active/environment/bin/python",
             unit,
         )
 

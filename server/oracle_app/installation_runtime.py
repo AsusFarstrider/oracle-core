@@ -8,12 +8,12 @@ import os
 from pathlib import Path
 import signal
 import threading
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
-from .configuration.generations import GenerationStore, _atomic_replace, _fsync_directory
-from .configuration.service import ConfigurationService
 from .installation import InstallationLayout, InstalledActivation, load_selected_activation
-from .installation_control import StandardActivationCoordinator
+
+if TYPE_CHECKING:
+    from .installation_control import StandardActivationCoordinator
 
 
 STANDARD_RUNTIME_DIRECTORY = Path("/run/oracle")
@@ -33,6 +33,14 @@ class PostExitRecoveryResult:
 
 
 def _coordinator(layout: InstallationLayout) -> StandardActivationCoordinator:
+    # Keep configuration imports behind the runtime operation boundary.  The
+    # configuration bootstrap imports the restart scheduler from this module,
+    # so importing these packages while this module is still initializing
+    # creates a circular import in the real standard entrypoint.
+    from .configuration.generations import GenerationStore
+    from .configuration.service import ConfigurationService
+    from .installation_control import StandardActivationCoordinator
+
     store = GenerationStore(layout.configuration, secret_root=layout.secrets)
     store.validate_initialized()
     service = ConfigurationService(store)
@@ -54,6 +62,8 @@ def record_running_activation(
     pid: int | None = None,
 ) -> InstalledActivation:
     """Record the exact complete activation used by this process."""
+
+    from .configuration.generations import _atomic_replace
 
     selected = load_selected_activation(layout)
     runtime = Path(runtime_directory)
@@ -98,6 +108,8 @@ def load_running_activation_id(runtime_directory: Path = STANDARD_RUNTIME_DIRECT
 def remove_running_activation_marker(
     runtime_directory: Path = STANDARD_RUNTIME_DIRECTORY,
 ) -> None:
+    from .configuration.generations import _fsync_directory
+
     path = _marker_path(runtime_directory)
     try:
         path.unlink()

@@ -5,6 +5,8 @@ from pathlib import Path
 import shutil
 import signal
 import stat
+import subprocess
+import sys
 from types import SimpleNamespace
 import tempfile
 import threading
@@ -199,10 +201,14 @@ class StandardInstallationRuntimeTests(unittest.TestCase):
             unit,
         )
         self.assertIn(
-            "ExecStopPost=/usr/bin/env "
-            "/srv/oracle/selection/previous-known-good/environment/bin/python "
-            "/srv/oracle/selection/previous-known-good/application/scripts/"
-            "oracle-standard-lifecycle.py recover-after-exit",
+            "ExecStopPost=/bin/sh -c 'if [ -x "
+            "/srv/oracle/selection/previous-known-good/environment/bin/python ]",
+            unit,
+        )
+        self.assertIn(
+            "else exec /srv/oracle/selection/active/environment/bin/python "
+            "/srv/oracle/selection/active/application/scripts/"
+            "oracle-standard-lifecycle.py recover-after-exit; fi'",
             unit,
         )
         self.assertNotIn("sudo", unit)
@@ -212,6 +218,28 @@ class StandardInstallationRuntimeTests(unittest.TestCase):
             entrypoint.index("record_running_activation()"),
             entrypoint.index("from oracle_app.api import app"),
         )
+
+    def test_standard_entrypoint_import_is_clean_in_a_fresh_process(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import oracle_app.installation_runtime as runtime; "
+                    "runtime.record_running_activation = lambda: None; "
+                    "import app_standard; "
+                    "print(runtime.STANDARD_RUNTIME_DIRECTORY, "
+                    "type(app_standard.app).__name__)"
+                ),
+            ],
+            cwd=REPO_ROOT,
+            env={**os.environ, "PYTHONPATH": os.fspath(REPO_ROOT / "server")},
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "/run/oracle FastAPI")
 
     def _environment(self):
         temporary = tempfile.TemporaryDirectory()

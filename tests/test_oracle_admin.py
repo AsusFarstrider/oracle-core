@@ -206,6 +206,33 @@ class OracleAdminPreflightTests(unittest.TestCase):
             result = json.loads(completed.stdout)
             self.assertEqual(result["command"], command)
 
+    def test_machine_readable_output_isolates_inherited_child_stdout(self) -> None:
+        program = """
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+path = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("oracle_admin_output_test", path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+with module._machine_readable_output(True):
+    subprocess.run([sys.executable, "-c", "print('dependency output')"], check=True)
+print(json.dumps({"status": "ready"}))
+"""
+        completed = subprocess.run(
+            [os.fspath(Path(os.sys.executable)), "-c", program, os.fspath(ROOT / "scripts" / "oracle-admin.py")],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(json.loads(completed.stdout), {"status": "ready"})
+        self.assertIn("dependency output", completed.stderr)
+        self.assertNotIn("dependency output", completed.stdout)
+
     def test_post_staging_assembly_reexecutes_through_exact_environment(self) -> None:
         identity = "oracle-python-environment-v1:sha256:" + "6" * 64
         root = self.root / "managed"
