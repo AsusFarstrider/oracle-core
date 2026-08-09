@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import grp
 import os
 from pathlib import Path
+import stat
 import threading
 from typing import Mapping
 
@@ -240,6 +241,10 @@ class StandardBrainConfigurationHostLocalRuntime:
             raise ConfigurationBootstrapError(
                 "Standard Oracle operator group is unavailable."
             ) from exc
+        _prepare_standard_runtime_directory(
+            self.runtime_directory,
+            operator_group_gid=operator_gid,
+        )
         server = create_standard_host_local_control_server(
             self.layout,
             service,
@@ -274,6 +279,52 @@ class StandardBrainConfigurationHostLocalRuntime:
             server.server_close()
             if thread is not None:
                 thread.join(timeout=5.0)
+
+
+def _prepare_standard_runtime_directory(
+    runtime_directory: Path,
+    *,
+    operator_group_gid: int,
+) -> None:
+    """Publish the service-owned runtime directory to its operator group."""
+    path = Path(runtime_directory)
+    try:
+        initial = path.lstat()
+    except FileNotFoundError as exc:
+        raise ConfigurationBootstrapError(
+            "Standard Oracle runtime directory is unavailable."
+        ) from exc
+    if stat.S_ISLNK(initial.st_mode) or not stat.S_ISDIR(initial.st_mode):
+        raise ConfigurationBootstrapError(
+            "Standard Oracle runtime directory must be a real directory."
+        )
+    if initial.st_uid != os.geteuid():
+        raise ConfigurationBootstrapError(
+            "Standard Oracle runtime directory is not owned by the service identity."
+        )
+    permitted_groups = {os.getegid(), *os.getgroups()}
+    if operator_group_gid not in permitted_groups:
+        raise ConfigurationBootstrapError(
+            "Oracle service identity lacks the configured operator-group membership."
+        )
+    try:
+        if initial.st_gid != operator_group_gid:
+            os.chown(path, -1, operator_group_gid, follow_symlinks=False)
+        path.chmod(0o2750, follow_symlinks=False)
+    except OSError as exc:
+        raise ConfigurationBootstrapError(
+            "Standard Oracle runtime-directory access could not be established."
+        ) from exc
+    published = path.lstat()
+    if (
+        not stat.S_ISDIR(published.st_mode)
+        or published.st_uid != os.geteuid()
+        or published.st_gid != operator_group_gid
+        or stat.S_IMODE(published.st_mode) != 0o2750
+    ):
+        raise ConfigurationBootstrapError(
+            "Standard Oracle runtime-directory access did not match the operator boundary."
+        )
 
 
 def start_brain_configuration_host_local_runtime(

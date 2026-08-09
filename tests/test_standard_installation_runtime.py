@@ -169,7 +169,7 @@ class StandardInstallationRuntimeTests(unittest.TestCase):
 
     def test_standard_control_runtime_uses_split_store_and_group_socket(self) -> None:
         with self._environment() as (layout, runtime, _bundle, _store, _coordinator, _initial):
-            runtime.chmod(0o2750)
+            runtime.chmod(0o0750)
             control = StandardBrainConfigurationHostLocalRuntime(
                 layout,
                 runtime_directory=runtime,
@@ -183,6 +183,7 @@ class StandardInstallationRuntimeTests(unittest.TestCase):
                     socket_path = runtime / "control.sock"
                     self.assertTrue(stat.S_ISSOCK(socket_path.stat().st_mode))
                     self.assertEqual(stat.S_IMODE(socket_path.stat().st_mode), 0o660)
+                    self.assertEqual(stat.S_IMODE(runtime.stat().st_mode), 0o2750)
                     self.assertTrue(control.enabled)
                 finally:
                     control.stop()
@@ -194,6 +195,8 @@ class StandardInstallationRuntimeTests(unittest.TestCase):
         )
         self.assertIn("User=oracle", unit)
         self.assertIn("Group=oracle", unit)
+        self.assertIn("SupplementaryGroups=oracle-admin", unit)
+        self.assertNotIn("ExecStartPre=", unit)
         self.assertIn("Restart=always", unit)
         self.assertIn("app_standard:app", unit)
         self.assertIn(

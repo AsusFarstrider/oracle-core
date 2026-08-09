@@ -9,6 +9,7 @@ from unittest import mock
 from types import SimpleNamespace
 import os
 import json
+import pwd
 import shutil
 from contextlib import nullcontext
 
@@ -29,6 +30,7 @@ class OracleAdminPreflightTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
+        self.operator_account = pwd.getpwuid(os.getuid()).pw_name
         self.repo = self.root / "repo"
         self.repo.mkdir()
         self._git("init", "-q", "-b", "main")
@@ -202,6 +204,8 @@ class OracleAdminPreflightTests(unittest.TestCase):
             ]
             if command == "stage":
                 argv.extend(["--approved-plan", "oracle-operation-plan-v1:sha256:" + "0" * 64])
+            if command in {"stage-plan", "stage"}:
+                argv.extend(["--operator-account", self.operator_account])
             completed = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self.assertNotIn("ModuleNotFoundError", completed.stderr)
             result = json.loads(completed.stdout)
@@ -309,11 +313,20 @@ print(json.dumps({"status": "ready"}))
 
     def test_staging_plan_is_distinct_and_excludes_activation_and_service_mutation(self) -> None:
         with mock.patch.object(oracle_admin, "platform_preflight", return_value=self._supported_platform()):
-            result = oracle_admin.build_staging_preflight(self.core, self.household, root=self.root / "oracle")
+            result = oracle_admin.build_staging_preflight(
+                self.core,
+                self.household,
+                self.operator_account,
+                root=self.root / "oracle",
+            )
         self.assertEqual(result["status"], "ready")
         self.assertEqual(result["plan"]["operation"], "stage-installation-foundation")
         self.assertIn("activation creation", result["plan"]["excluded"])
         self.assertIn("systemd installation", result["plan"]["excluded"])
+        self.assertEqual(
+            result["plan"]["operator_enrollment"]["name"],
+            self.operator_account,
+        )
         self.assertFalse(result["mutation_performed"])
 
     def test_staging_plan_rejects_profiles_outside_bounded_minimal_brain_slice(self) -> None:
@@ -328,7 +341,12 @@ print(json.dumps({"status": "ready"}))
             "blockers": [],
         }
         with mock.patch.object(oracle_admin, "build_install_preflight", return_value=base):
-            result = oracle_admin.build_staging_preflight(self.core, self.household, root=self.root / "oracle")
+            result = oracle_admin.build_staging_preflight(
+                self.core,
+                self.household,
+                self.operator_account,
+                root=self.root / "oracle",
+            )
         self.assertEqual(result["status"], "blocked")
         self.assertIn("unsupported_staging_profile_set", {item["code"] for item in result["blockers"]})
 
@@ -640,8 +658,71 @@ print(json.dumps({"status": "ready"}))
             mock.patch.object(oracle_admin, "ensure_standard_identities") as identities,
         ):
             with self.assertRaisesRegex(RuntimeError, "stale"):
-                oracle_admin.execute_staging(self.core, self.household, "wrong", root=self.root / "oracle")
+                oracle_admin.execute_staging(
+                    self.core,
+                    self.household,
+                    self.operator_account,
+                    "wrong",
+                    root=self.root / "oracle",
+                )
         identities.assert_not_called()
+
+    def test_operator_enrollment_is_explicit_bounded_and_verified(self) -> None:
+        account = SimpleNamespace(pw_uid=1000, pw_gid=1000)
+        primary = SimpleNamespace(gr_name="users", gr_gid=1000, gr_mem=[])
+        operator_before = SimpleNamespace(gr_name="oracle-admin", gr_gid=988, gr_mem=[])
+        operator_after = SimpleNamespace(gr_name="oracle-admin", gr_gid=988, gr_mem=["lukas"])
+        with (
+            mock.patch.object(oracle_admin.os, "geteuid", return_value=0),
+            mock.patch.object(oracle_admin.pwd, "getpwnam", return_value=account),
+            mock.patch.object(
+                oracle_admin.grp,
+                "getgrall",
+                side_effect=[[primary, operator_before], [primary, operator_after]],
+            ),
+            mock.patch.object(oracle_admin.grp, "getgrnam", return_value=operator_before),
+            mock.patch.object(oracle_admin.subprocess, "run") as run,
+        ):
+            result = oracle_admin.ensure_operator_membership("lukas")
+
+        run.assert_called_once_with(
+            ["usermod", "--append", "--groups", "oracle-admin", "lukas"],
+            check=True,
+        )
+        self.assertEqual(result["disposition"], "added")
+        self.assertEqual(result["account"], "lukas")
+
+    def test_staging_plan_rejects_missing_or_privileged_operator_account(self) -> None:
+        base = {
+            "format": "oracle-admin-output-v1",
+            "command": "preflight",
+            "status": "ready",
+            "mutation_performed": False,
+            "platform": self._supported_platform(),
+            "artifacts": {"archives": {}, "pair": {"installation_profiles": ["minimal-brain"]}},
+            "plan": {},
+            "blockers": [],
+        }
+        for account, probe, expected in (
+            ("missing", {"name": "missing", "existing": None}, "operator_account_unavailable"),
+            (
+                "root",
+                {"name": "root", "existing": {"uid": 0, "primary_gid": 0, "groups": ["root"]}},
+                "operator_account_unsafe",
+            ),
+        ):
+            with (
+                self.subTest(account=account),
+                mock.patch.object(oracle_admin, "build_install_preflight", return_value=base),
+                mock.patch.object(oracle_admin, "_operator_account_probe", return_value=probe),
+            ):
+                result = oracle_admin.build_staging_preflight(
+                    self.core,
+                    self.household,
+                    account,
+                    root=self.root / "oracle",
+                )
+            self.assertIn(expected, {item["code"] for item in result["blockers"]})
 
     def test_maintenance_lock_rejects_concurrent_mutation(self) -> None:
         lock = self.root / "oracle-installation.lock"
@@ -676,6 +757,16 @@ print(json.dumps({"status": "ready"}))
                 },
             ),
             mock.patch.object(oracle_admin, "ensure_standard_layout", return_value={"created": [], "layout": {}}),
+            mock.patch.object(
+                oracle_admin,
+                "ensure_operator_membership",
+                return_value={
+                    "account": self.operator_account,
+                    "uid": os.getuid(),
+                    "group": "oracle-admin",
+                    "disposition": "added",
+                },
+            ) as enroll_operator,
             mock.patch.object(oracle_admin, "stage_artifact_pair", return_value=components) as stage_pair,
             mock.patch.object(oracle_admin, "build_python_environment", return_value=environment) as build_environment,
             mock.patch.object(oracle_admin, "_write_staging_evidence", return_value=self.root / "evidence.json"),
@@ -683,6 +774,7 @@ print(json.dumps({"status": "ready"}))
             result = oracle_admin.execute_staging(
                 self.core,
                 self.household,
+                self.operator_account,
                 identity,
                 root=self.root / "oracle",
                 lock_path=self.root / "oracle-installation.lock",
@@ -692,6 +784,7 @@ print(json.dumps({"status": "ready"}))
         self.assertFalse(result["selection_changed"])
         self.assertFalse(result["service_modified"])
         self.assertEqual(stage_pair.call_count, 1)
+        enroll_operator.assert_called_once_with(self.operator_account)
         self.assertEqual(stage_pair.call_args.kwargs["owner_uid"], 0)
         self.assertEqual(stage_pair.call_args.kwargs["service_gid"], 902)
         build_environment.assert_called_once()

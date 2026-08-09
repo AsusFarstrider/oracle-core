@@ -18,10 +18,34 @@ from oracle_app.health import (
     check_stt_health,
     check_tts_health,
 )
-from oracle_app.health_routes import health_ollama_http, health_stt_http, health_tts_http
+from oracle_app.health_routes import (
+    canonical_health,
+    health_ollama_http,
+    health_stt_http,
+    health_tts_http,
+)
 
 
 class CanonicalCoreHealthTests(unittest.TestCase):
+    def test_aggregate_health_uses_canonical_authority(self) -> None:
+        composition = SimpleNamespace(
+            runtime=SimpleNamespace(
+                home_assistant=SimpleNamespace(enabled=True),
+                brain=SimpleNamespace(inference=SimpleNamespace(enabled=False)),
+            )
+        )
+        with (
+            patch("oracle_app.health_routes.get_home_assistant_settings") as legacy_home,
+            patch("oracle_app.health_routes.get_ollama_settings") as legacy_ollama,
+        ):
+            response = canonical_health(composition)
+
+        self.assertEqual(response.status, "ok")
+        self.assertTrue(response.home_assistant_configured)
+        self.assertFalse(response.ollama_configured)
+        legacy_home.assert_not_called()
+        legacy_ollama.assert_not_called()
+
     def test_disabled_canonical_providers_are_intentionally_unavailable(self) -> None:
         disabled_inference = SimpleNamespace(
             enabled=False,

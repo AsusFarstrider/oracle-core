@@ -6,10 +6,9 @@ After=network.target
 Type=simple
 User=oracle
 Group=oracle
+SupplementaryGroups=oracle-admin
 RuntimeDirectory=oracle
 RuntimeDirectoryMode=0750
-ExecStartPre=+/usr/bin/chgrp oracle-admin /run/oracle
-ExecStartPre=+/usr/bin/chmod 2750 /run/oracle
 WorkingDirectory=/srv/oracle/selection/active/application/server
 Environment=ORACLE_STANDARD_INSTALLATION=1
 Environment=PYTHONUNBUFFERED=1

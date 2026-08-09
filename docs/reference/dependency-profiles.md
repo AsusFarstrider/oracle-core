@@ -42,6 +42,12 @@ re-execute through the exact validated immutable environment selected by the
 requested environment identity or staged complete activation. The host Python
 package environment remains untouched.
 
+`stage-plan` and `stage` also require one explicit existing local operator
+account. The approved staging plan records that exact account and the elevated
+operation adds it to `oracle-admin` only after creating and validating the
+Oracle identities. No login account is enrolled merely because it invoked the
+installer or has sudo eligibility.
+
 The wake-satellite profile is retained reusable functionality, not part of the
 provider-free Stage 4 Brain installation. Its separate interpreter constraint
 does not change the standard minimal Brain contract or certify the satellite as

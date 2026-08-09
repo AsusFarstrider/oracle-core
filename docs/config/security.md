@@ -42,7 +42,10 @@ boot-lifetime runtime directory with the declared service-owner/operator-group
 boundary before the control plane accepts requests. The socket is removed and
 safely recreated across service restart and reboot; stale socket files are not
 trusted. The socket path and service presence lock are bootstrap/deployment
-state. Brain bootstrap recovers durable transactions before binding the socket,
+state. Systemd supplies the service with the narrowly scoped `oracle-admin`
+supplementary group; the unprivileged service publishes its own runtime
+directory to that group and validates the exact boundary before binding.
+Brain bootstrap recovers durable transactions before binding the socket,
 and partial or invalid bootstrap fails startup. Resolved authored and installed
 configuration trees cannot overlap, and the socket cannot live under authored
 input.

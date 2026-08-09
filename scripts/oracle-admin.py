@@ -440,6 +440,58 @@ def ensure_standard_identities() -> dict[str, object]:
     return {"created": created, "identities": after, "password_locked": True}
 
 
+def _operator_account_probe(account_name: str) -> dict[str, object]:
+    try:
+        account = pwd.getpwnam(account_name)
+    except KeyError:
+        return {"name": account_name, "existing": None}
+    memberships = sorted(
+        group.gr_name
+        for group in grp.getgrall()
+        if account_name in group.gr_mem or group.gr_gid == account.pw_gid
+    )
+    return {
+        "name": account_name,
+        "existing": {
+            "uid": account.pw_uid,
+            "primary_gid": account.pw_gid,
+            "groups": memberships,
+        },
+    }
+
+
+def ensure_operator_membership(account_name: str) -> dict[str, object]:
+    """Explicitly enroll one existing local account as an Oracle operator."""
+    if os.geteuid() != 0:
+        raise RuntimeError("operator enrollment requires an explicitly elevated oracle-admin invocation")
+    before = _operator_account_probe(account_name)
+    account = before["existing"]
+    if account is None:
+        raise RuntimeError("requested Oracle operator account does not exist")
+    if account_name in {"root", SERVICE_ACCOUNT} or account["uid"] == 0:
+        raise RuntimeError("root and the Oracle service identity cannot be enrolled as human operators")
+    try:
+        grp.getgrnam(OPERATOR_GROUP)
+    except KeyError as exc:
+        raise RuntimeError("Oracle operator group is unavailable") from exc
+    disposition = "reused"
+    if OPERATOR_GROUP not in account["groups"]:
+        subprocess.run(
+            ["usermod", "--append", "--groups", OPERATOR_GROUP, account_name],
+            check=True,
+        )
+        disposition = "added"
+    after = _operator_account_probe(account_name)
+    if after["existing"] is None or OPERATOR_GROUP not in after["existing"]["groups"]:
+        raise RuntimeError("Oracle operator enrollment could not be verified")
+    return {
+        "account": account_name,
+        "uid": after["existing"]["uid"],
+        "group": OPERATOR_GROUP,
+        "disposition": disposition,
+    }
+
+
 def ensure_standard_layout(root: Path = STANDARD_ROOT) -> dict[str, object]:
     if os.geteuid() != 0:
         raise RuntimeError("protected layout creation requires an explicitly elevated oracle-admin invocation")
@@ -705,6 +757,7 @@ def build_install_preflight(core_archive: Path, household_archive: Path, *, root
 def build_staging_preflight(
     core_archive: Path,
     household_archive: Path,
+    operator_account: str,
     *,
     root: Path = STANDARD_ROOT,
 ) -> dict[str, object]:
@@ -714,6 +767,22 @@ def build_staging_preflight(
     host = result["platform"]
     artifacts = result["artifacts"]
     blockers = list(result["blockers"])
+    operator = _operator_account_probe(operator_account)
+    operator_identity = operator["existing"]
+    if operator_identity is None:
+        blockers.append(
+            {
+                "code": "operator_account_unavailable",
+                "detail": operator_account,
+            }
+        )
+    elif operator_account in {"root", SERVICE_ACCOUNT} or operator_identity["uid"] == 0:
+        blockers.append(
+            {
+                "code": "operator_account_unsafe",
+                "detail": operator_account,
+            }
+        )
     requested_profiles = artifacts["pair"].get("installation_profiles", []) if artifacts["pair"] else []
     if requested_profiles != ["minimal-brain"]:
         blockers.append(
@@ -733,6 +802,17 @@ def build_staging_preflight(
             "python": host["python"],
         },
         "current_identities": host["oracle_identities"],
+        "operator_enrollment": {
+            **operator,
+            "required_group": OPERATOR_GROUP,
+            "disposition": (
+                "unavailable"
+                if operator_identity is None
+                else "reused"
+                if OPERATOR_GROUP in operator_identity["groups"]
+                else "add"
+            ),
+        },
         "current_layout_state": host["installation_root"]["layout_state"],
         "artifacts": {kind: {"sha256": value["sha256"]} for kind, value in artifacts["archives"].items()},
         "target": artifacts["pair"],
@@ -741,6 +821,7 @@ def build_staging_preflight(
         "mutations": [
             "acquire python3-venv only when validated environment construction requires it",
             "create or validate the oracle service identity and oracle/oracle-admin groups",
+            f"explicitly enroll {operator_account} in oracle-admin",
             "create or reconcile the protected Oracle lifecycle layout",
             "stage exact immutable application and household deployment revisions",
             "construct or reuse the exact immutable minimal-brain Python environment",
@@ -845,6 +926,7 @@ def _maintenance_lock(path: Path = MAINTENANCE_LOCK):
 def execute_staging(
     core_archive: Path,
     household_archive: Path,
+    operator_account: str,
     approved_plan: str,
     *,
     root: Path = STANDARD_ROOT,
@@ -853,7 +935,12 @@ def execute_staging(
 ) -> dict[str, object]:
     if os.geteuid() != 0:
         raise RuntimeError("staging requires an explicitly elevated oracle-admin invocation")
-    preflight = build_staging_preflight(core_archive, household_archive, root=root)
+    preflight = build_staging_preflight(
+        core_archive,
+        household_archive,
+        operator_account,
+        root=root,
+    )
     if preflight["status"] != "ready":
         raise RuntimeError("staging preflight is blocked")
     plan = preflight["plan"]
@@ -863,11 +950,17 @@ def execute_staging(
         raise RuntimeError("experimental platform staging requires explicit acknowledgement")
 
     with _maintenance_lock(lock_path):
-        locked_preflight = build_staging_preflight(core_archive, household_archive, root=root)
+        locked_preflight = build_staging_preflight(
+            core_archive,
+            household_archive,
+            operator_account,
+            root=root,
+        )
         if locked_preflight["status"] != "ready" or locked_preflight["plan"]["identity"] != approved_plan:
             raise RuntimeError("approved plan assumptions changed before the operation lock was acquired")
         dependency = _ensure_python_environment_support(locked_preflight["platform"])
         identities = ensure_standard_identities()
+        operator_enrollment = ensure_operator_membership(operator_account)
         layout = ensure_standard_layout(root)
         identity_state = identities.get("identities")
         groups = identity_state.get("groups") if isinstance(identity_state, dict) else None
@@ -900,6 +993,7 @@ def execute_staging(
             "platform_support_status": locked_preflight["platform"]["support_status"],
             "dependency": dependency,
             "identities_created": identities["created"],
+            "operator_enrollment": operator_enrollment,
             "layout_paths_created": layout["created"],
             "components": components,
             "environment": environment,
@@ -1530,9 +1624,11 @@ def parser() -> argparse.ArgumentParser:
     stage_plan = commands.add_parser("stage-plan", help="Plan protected component staging without mutation")
     stage_plan.add_argument("--core-artifact", type=Path, required=True)
     stage_plan.add_argument("--household-artifact", type=Path, required=True)
+    stage_plan.add_argument("--operator-account", required=True)
     stage = commands.add_parser("stage", help="Apply one exact approved protected-staging plan")
     stage.add_argument("--core-artifact", type=Path, required=True)
     stage.add_argument("--household-artifact", type=Path, required=True)
+    stage.add_argument("--operator-account", required=True)
     stage.add_argument("--approved-plan", required=True)
     stage.add_argument("--allow-unsupported-platform", action="store_true")
     assemble_plan = commands.add_parser("assemble-plan", help="Plan initial staged activation assembly without mutation")
@@ -1647,11 +1743,16 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "preflight":
                 result = build_install_preflight(args.core_artifact, args.household_artifact)
             elif args.command == "stage-plan":
-                result = build_staging_preflight(args.core_artifact, args.household_artifact)
+                result = build_staging_preflight(
+                    args.core_artifact,
+                    args.household_artifact,
+                    args.operator_account,
+                )
             elif args.command == "stage":
                 result = execute_staging(
                     args.core_artifact,
                     args.household_artifact,
+                    args.operator_account,
                     args.approved_plan,
                     allow_unsupported_platform=args.allow_unsupported_platform,
                 )

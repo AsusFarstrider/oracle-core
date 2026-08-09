@@ -99,6 +99,7 @@ from .orchestration_routines import (
 )
 from .orchestration_routine_canonical import CanonicalRoutineExecution
 from .health_routes import (
+    canonical_health,
     health,
     health_audiobook,
     health_calendar,
@@ -336,7 +337,7 @@ async def lifespan(_app: FastAPI):
         verified_standard_activation = None
         try:
             if startup.installation_layout is not None:
-                if health().status != "ok":
+                if canonical_health(startup_composition).status != "ok":
                     raise RuntimeError("Standard Brain health did not reach ready state.")
                 verified_standard_activation = finalize_verified_startup(
                     startup_composition.runtime.effective_config.activation_generation_id,

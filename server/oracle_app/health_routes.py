@@ -181,6 +181,21 @@ def health() -> HealthResponse:
     )
 
 
+def canonical_health(
+    composition: CanonicalBrainApplicationComposition,
+) -> HealthResponse:
+    """Report aggregate health from the installed canonical composition."""
+    home_assistant = composition.runtime.home_assistant
+    return HealthResponse(
+        status="ok",
+        service="oracle-brain",
+        home_assistant_configured=bool(
+            home_assistant is not None and home_assistant.enabled
+        ),
+        ollama_configured=bool(composition.runtime.brain.inference.enabled),
+    )
+
+
 def health_config(request: Request) -> Response:
     request_app = request.scope.get("app")
     composition = getattr(
@@ -261,13 +276,7 @@ def health_http(request: Request) -> HealthResponse:
     canonical = _canonical_composition_from_request(request)
     if canonical is None:
         return health()
-    home_assistant = canonical.runtime.home_assistant
-    return HealthResponse(
-        status="ok",
-        service="oracle-brain",
-        home_assistant_configured=bool(home_assistant is not None and home_assistant.enabled),
-        ollama_configured=bool(canonical.runtime.brain.inference.enabled),
-    )
+    return canonical_health(canonical)
 
 
 def health_home_assistant_http(request: Request) -> HomeAssistantHealthResponse:
