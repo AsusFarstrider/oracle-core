@@ -18,13 +18,21 @@ from oracle_app.installation_identity import environment_directory_name
 from oracle_app.installation_systemd import (
     StandardSystemdError,
     build_initial_activation_plan,
+    build_rollback_activation_plan,
     build_systemd_install_plan,
+    build_update_activation_plan,
     fail_initial_activation,
+    finalize_managed_activation,
     finalize_initial_activation,
     install_systemd_unit,
     mark_initial_service_started,
     mark_initial_verification_passed,
+    mark_managed_service_started,
+    mark_managed_verification_passed,
     prepare_initial_activation,
+    prepare_managed_activation,
+    recover_managed_activation,
+    select_managed_activation_target,
 )
 
 
@@ -173,6 +181,87 @@ class StandardSystemdInstallationTests(unittest.TestCase):
         result = fail_initial_activation(self.layout, reason="recovery")
         self.assertEqual(result["state"], "verified")
         self.assertEqual(load_selected_activation(self.layout, "approved").activation_id, self.activation.activation_id)
+
+    def _establish_update_candidate(self):
+        self.unit.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(self.source_unit, self.unit)
+        for selection in ("active", "approved", "previous-known-good"):
+            select_activation(self.layout, selection, self.activation)
+        (self.layout.selection / "staged").unlink()
+
+        application_id = "core-" + "6" * 40
+        application = self.layout.revisions / application_id
+        (application / "scripts").mkdir(parents=True)
+        shutil.copy2(self.source_unit, application / "scripts" / "oracle-brain-standard.service")
+        environment_id = "oracle-python-environment-v1:sha256:" + "7" * 64
+        deployment_id = "oracle-household-deployment-v1:sha256:" + "8" * 64
+        (self.layout.environments / environment_directory_name(environment_id)).mkdir()
+        (self.layout.deployments / deployment_id).mkdir()
+        request = ActivationRequest(
+            core_commit="6" * 40,
+            core_git_tree="9" * 40,
+            application_revision_identity=application_id,
+            python_environment_identity=environment_id,
+            household_deployment_revision=deployment_id,
+            configuration_activation_identity=self.activation.record["configuration_activation_identity"],
+            service_definition_identity=self.activation.record["service_definition_identity"],
+        )
+        candidate = publish_activation(self.layout, request)
+        select_activation(self.layout, "staged", candidate)
+        return candidate
+
+    def test_successful_update_selects_complete_candidate_only_after_verification(self) -> None:
+        candidate = self._establish_update_candidate()
+        plan = build_update_activation_plan(self.layout, unit_path=self.unit)
+        prepare_managed_activation(self.layout, plan)
+        self.assertEqual(load_selected_activation(self.layout).activation_id, self.activation.activation_id)
+        select_managed_activation_target(self.layout)
+        self.assertEqual(load_selected_activation(self.layout).activation_id, candidate.activation_id)
+        mark_managed_service_started(self.layout)
+        mark_managed_verification_passed(self.layout, self._verification())
+        result = finalize_managed_activation(self.layout)
+        self.assertEqual(result["outcome"], "verified")
+        self.assertEqual(load_selected_activation(self.layout, "approved").activation_id, candidate.activation_id)
+        self.assertEqual(load_selected_activation(self.layout, "previous-known-good").activation_id, candidate.activation_id)
+        self.assertFalse((self.layout.selection / "staged").exists())
+
+    def test_failed_update_restores_complete_previous_and_retains_candidate_staged(self) -> None:
+        candidate = self._establish_update_candidate()
+        plan = build_update_activation_plan(self.layout, unit_path=self.unit)
+        prepare_managed_activation(self.layout, plan)
+        select_managed_activation_target(self.layout)
+        mark_managed_service_started(self.layout)
+        result = recover_managed_activation(self.layout, reason="readiness_failed")
+        self.assertEqual(result["outcome"], "recovered_previous")
+        self.assertEqual(load_selected_activation(self.layout).activation_id, self.activation.activation_id)
+        self.assertEqual(load_selected_activation(self.layout, "approved").activation_id, self.activation.activation_id)
+        self.assertEqual(load_selected_activation(self.layout, "previous-known-good").activation_id, self.activation.activation_id)
+        self.assertEqual(load_selected_activation(self.layout, "staged").activation_id, candidate.activation_id)
+
+    def test_explicit_rollback_selects_prior_but_keeps_latest_approved_record(self) -> None:
+        candidate = self._establish_update_candidate()
+        update = build_update_activation_plan(self.layout, unit_path=self.unit)
+        prepare_managed_activation(self.layout, update)
+        select_managed_activation_target(self.layout)
+        mark_managed_service_started(self.layout)
+        mark_managed_verification_passed(self.layout, self._verification())
+        finalize_managed_activation(self.layout)
+
+        rollback = build_rollback_activation_plan(
+            self.layout,
+            self.activation.activation_id,
+            unit_path=self.unit,
+        )
+        prepare_managed_activation(self.layout, rollback)
+        select_managed_activation_target(self.layout)
+        mark_managed_service_started(self.layout)
+        mark_managed_verification_passed(self.layout, self._verification())
+        result = finalize_managed_activation(self.layout)
+
+        self.assertEqual(result["operation"], "rollback")
+        self.assertEqual(load_selected_activation(self.layout).activation_id, self.activation.activation_id)
+        self.assertEqual(load_selected_activation(self.layout, "previous-known-good").activation_id, self.activation.activation_id)
+        self.assertEqual(load_selected_activation(self.layout, "approved").activation_id, candidate.activation_id)
 
 
 if __name__ == "__main__":

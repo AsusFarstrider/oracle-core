@@ -562,6 +562,124 @@ print(json.dumps({"status": "ready"}))
         )
         cleanup.assert_called_once_with(mock.ANY, reason="CalledProcessError")
 
+    def test_managed_update_stops_selects_starts_and_finalizes_only_after_verification(self) -> None:
+        plan = {
+            "identity": "oracle-update-activation-plan-v1:sha256:" + "1" * 64,
+            "operation": "update",
+        }
+        preflight = {"status": "ready", "plan": plan}
+        transaction = {"transaction_id": "managed_activation_" + "2" * 32}
+        active = SimpleNamespace(record={"configuration_activation_identity": "activation_" + "3" * 32})
+        verification = {
+            "passed": True,
+            "systemd_active": True,
+            "readiness": True,
+            "health": True,
+            "configuration_identity": True,
+            "deterministic_interaction": True,
+            "house_ui": True,
+            "system_ui": True,
+            "satellite_ui": True,
+        }
+        final = {
+            "transaction_id": transaction["transaction_id"],
+            "previous_activation_id": "previous",
+            "target_activation_id": "candidate",
+            "outcome": "verified",
+        }
+        with (
+            mock.patch.object(oracle_admin.os, "geteuid", return_value=0),
+            mock.patch.object(oracle_admin, "build_managed_activation_preflight", return_value=preflight),
+            mock.patch.object(oracle_admin, "_maintenance_lock", return_value=nullcontext()),
+            mock.patch.object(oracle_admin, "_service_authority", return_value=nullcontext()),
+            mock.patch.object(oracle_admin, "prepare_managed_activation", return_value=transaction),
+            mock.patch.object(oracle_admin, "select_managed_activation_target") as selected,
+            mock.patch.object(oracle_admin, "mark_managed_service_started") as started,
+            mock.patch.object(oracle_admin, "verify_initial_runtime", return_value=verification) as verify,
+            mock.patch.object(oracle_admin, "mark_managed_verification_passed") as marked,
+            mock.patch.object(oracle_admin, "finalize_managed_activation", return_value=final),
+            mock.patch.object(oracle_admin, "load_selected_activation", return_value=active),
+            mock.patch.object(oracle_admin, "_write_operation_evidence", return_value=Path("/evidence")),
+            mock.patch.object(oracle_admin.subprocess, "run") as run,
+        ):
+            result = oracle_admin.execute_managed_activation(
+                plan["identity"],
+                operation="update",
+                root=self.root / "oracle",
+            )
+        self.assertEqual(result["status"], "verified")
+        self.assertEqual(
+            [call.args[0] for call in run.call_args_list],
+            [["systemctl", "stop", "oracle-brain.service"], ["systemctl", "start", "oracle-brain.service"]],
+        )
+        selected.assert_called_once()
+        started.assert_called_once()
+        verify.assert_called_once_with("activation_" + "3" * 32)
+        marked.assert_called_once_with(mock.ANY, verification)
+
+    def test_failed_managed_update_restores_and_verifies_previous_complete_activation(self) -> None:
+        plan = {
+            "identity": "oracle-update-activation-plan-v1:sha256:" + "1" * 64,
+            "operation": "update",
+        }
+        preflight = {"status": "ready", "plan": plan}
+        transaction = {"transaction_id": "managed_activation_" + "2" * 32}
+        candidate = SimpleNamespace(record={"configuration_activation_identity": "activation_" + "3" * 32})
+        previous = SimpleNamespace(record={"configuration_activation_identity": "activation_" + "4" * 32})
+        recovered = {
+            "transaction_id": transaction["transaction_id"],
+            "previous_activation_id": "previous",
+            "target_activation_id": "candidate",
+            "verification": {"passed": False, "reason": "RuntimeError"},
+        }
+        recovery_verification = {
+            "passed": True,
+            "systemd_active": True,
+            "readiness": True,
+            "health": True,
+            "configuration_identity": True,
+            "deterministic_interaction": True,
+            "house_ui": True,
+            "system_ui": True,
+            "satellite_ui": True,
+        }
+        with (
+            mock.patch.object(oracle_admin.os, "geteuid", return_value=0),
+            mock.patch.object(oracle_admin, "build_managed_activation_preflight", return_value=preflight),
+            mock.patch.object(oracle_admin, "_maintenance_lock", return_value=nullcontext()),
+            mock.patch.object(oracle_admin, "_service_authority", return_value=nullcontext()),
+            mock.patch.object(oracle_admin, "prepare_managed_activation", return_value=transaction),
+            mock.patch.object(oracle_admin, "select_managed_activation_target"),
+            mock.patch.object(oracle_admin, "mark_managed_service_started"),
+            mock.patch.object(
+                oracle_admin,
+                "verify_initial_runtime",
+                side_effect=[RuntimeError("candidate unhealthy"), recovery_verification],
+            ),
+            mock.patch.object(oracle_admin, "recover_managed_activation", return_value=recovered) as recover,
+            mock.patch.object(oracle_admin, "load_selected_activation", side_effect=[candidate, previous]),
+            mock.patch.object(oracle_admin, "_write_operation_evidence", return_value=Path("/evidence")),
+            mock.patch.object(oracle_admin.subprocess, "run") as run,
+        ):
+            result = oracle_admin.execute_managed_activation(
+                plan["identity"],
+                operation="update",
+                root=self.root / "oracle",
+            )
+        self.assertEqual(result["status"], "recovered_failed")
+        self.assertTrue(result["automatic_recovery"])
+        self.assertTrue(result["recovery_verification"]["passed"])
+        self.assertEqual(
+            [call.args[0] for call in run.call_args_list],
+            [
+                ["systemctl", "stop", "oracle-brain.service"],
+                ["systemctl", "start", "oracle-brain.service"],
+                ["systemctl", "stop", "oracle-brain.service"],
+                ["systemctl", "start", "oracle-brain.service"],
+            ],
+        )
+        recover.assert_called_once_with(mock.ANY, reason="RuntimeError")
+
     def test_existing_interactive_or_privileged_oracle_identity_blocks_reuse(self) -> None:
         identities = {
             "service_account": {

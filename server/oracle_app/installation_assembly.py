@@ -17,6 +17,7 @@ from .installation import (
     ActivationRequest,
     InstallationLayout,
     InstalledActivation,
+    load_selected_activation,
     publish_activation,
     select_activation,
 )
@@ -107,5 +108,77 @@ def assemble_initial_activation(
             ),
         ),
     )
+    select_activation(layout, "staged", complete)
+    return complete
+
+
+def assemble_update_activation(
+    layout: InstallationLayout,
+    request: InitialAssemblyRequest,
+) -> InstalledActivation:
+    """Stage one complete application update against the selected config.
+
+    Stage 4 deliberately keeps application/deployment updates separate from
+    configuration authoring.  A repinned household bundle may participate only
+    when canonical validation proves it is an exact effective no-op relative
+    to the currently selected configuration and secret generations.
+    """
+
+    active = load_selected_activation(layout)
+    known_good = load_selected_activation(layout, "previous-known-good")
+    if active.activation_id != known_good.activation_id:
+        raise InitialAssemblyError("Update assembly requires the active activation to be known-good.")
+    staged = layout.selection / "staged"
+    if staged.exists() or staged.is_symlink():
+        raise InitialAssemblyError("Update assembly requires no existing staged activation.")
+
+    application = layout.revisions / request.application_revision_identity
+    deployment = layout.deployments / request.household_deployment_revision
+    environment = layout.environments / environment_directory_name(request.python_environment_identity)
+    for label, path in (
+        ("application revision", application),
+        ("household deployment", deployment),
+        ("Python environment", environment),
+    ):
+        if path.is_symlink() or not path.is_dir() or path.parent not in {
+            layout.revisions,
+            layout.deployments,
+            layout.environments,
+        }:
+            raise InitialAssemblyError(f"The staged {label} is absent or unsafe.")
+
+    bundle = deployment / request.configuration_root
+    if bundle.is_symlink() or not bundle.is_dir() or not bundle.resolve().is_relative_to(deployment.resolve()):
+        raise InitialAssemblyError("The staged canonical configuration root is absent or unsafe.")
+    store = GenerationStore(layout.configuration, secret_root=layout.secrets)
+    store.validate_initialized()
+    selected = store.load_selected()
+    if active.record.get("configuration_activation_identity") != selected.activation.generation_id:
+        raise InitialAssemblyError("Active installation and canonical configuration selections disagree.")
+    inspection = inspect_candidate(bundle, secret_snapshot=selected.secrets.snapshot)
+    if not inspection.report.activation_eligible or inspection.normalized is None:
+        raise InitialAssemblyError("The staged canonical configuration is not activation eligible.")
+    if inspection.normalized.config_revision != selected.config.config_revision:
+        raise InitialAssemblyError(
+            "Application update cannot implicitly change canonical configuration; use its transaction lifecycle first."
+        )
+
+    complete = publish_activation(
+        layout,
+        ActivationRequest(
+            core_commit=request.core_commit,
+            core_git_tree=request.core_git_tree,
+            application_revision_identity=request.application_revision_identity,
+            python_environment_identity=request.python_environment_identity,
+            household_deployment_revision=request.household_deployment_revision,
+            configuration_activation_identity=selected.activation.generation_id,
+            service_definition_identity=service_definition_identity(
+                application / request.service_definition_path
+            ),
+            persistent_state_checkpoint=active.record.get("persistent_state_checkpoint"),
+        ),
+    )
+    if complete.activation_id == active.activation_id:
+        raise InitialAssemblyError("Update activation must differ from the active complete activation.")
     select_activation(layout, "staged", complete)
     return complete

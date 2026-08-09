@@ -92,6 +92,12 @@ def assemble_initial_activation(*args: object, **kwargs: object):
     return implementation(*args, **kwargs)
 
 
+def assemble_update_activation(*args: object, **kwargs: object):
+    from oracle_app.installation_assembly import assemble_update_activation as implementation
+
+    return implementation(*args, **kwargs)
+
+
 def build_systemd_install_plan(*args: object, **kwargs: object):
     from oracle_app.installation_systemd import build_systemd_install_plan as implementation
 
@@ -142,6 +148,60 @@ def fail_initial_activation(*args: object, **kwargs: object):
 
 def load_initial_activation_transaction(*args: object, **kwargs: object):
     from oracle_app.installation_systemd import load_initial_activation_transaction as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def build_update_activation_plan(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import build_update_activation_plan as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def build_rollback_activation_plan(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import build_rollback_activation_plan as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def prepare_managed_activation(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import prepare_managed_activation as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def select_managed_activation_target(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import select_managed_activation_target as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def mark_managed_service_started(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import mark_managed_service_started as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def mark_managed_verification_passed(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import mark_managed_verification_passed as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def finalize_managed_activation(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import finalize_managed_activation as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def recover_managed_activation(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import recover_managed_activation as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def load_managed_activation_transaction(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import load_managed_activation_transaction as implementation
 
     return implementation(*args, **kwargs)
 
@@ -1011,6 +1071,7 @@ def build_initial_assembly_plan(
     environment_identity: str,
     *,
     root: Path = STANDARD_ROOT,
+    update: bool = False,
 ) -> dict[str, object]:
     """Inspect one already-staged minimal installation without changing it."""
 
@@ -1068,7 +1129,20 @@ def build_initial_assembly_plan(
         elif deployment.is_dir() and not deployment.is_symlink():
             candidate = deployment / configuration_root
             try:
-                inspection = inspect_candidate(candidate)
+                if update:
+                    from oracle_app.configuration.generations import GenerationStore
+
+                    selected_configuration = GenerationStore(
+                        root / "configuration",
+                        secret_root=root / "secrets",
+                    ).load_selected()
+                    inspection = inspect_candidate(
+                        candidate,
+                        secret_snapshot=selected_configuration.secrets.snapshot,
+                    )
+                else:
+                    selected_configuration = None
+                    inspection = inspect_candidate(candidate)
                 actual_authored = snapshot_candidate(candidate).authored_revision
             except (OSError, ValueError) as exc:
                 blockers.append({"code": "staged_configuration_invalid", "detail": str(exc)})
@@ -1077,30 +1151,65 @@ def build_initial_assembly_plan(
                     blockers.append({"code": "staged_configuration_ineligible", "detail": str(candidate)})
                 if actual_authored != authored_revision:
                     blockers.append({"code": "staged_configuration_revision_mismatch", "detail": actual_authored})
+                if (
+                    update
+                    and selected_configuration is not None
+                    and inspection.normalized is not None
+                    and inspection.normalized.config_revision != selected_configuration.config.config_revision
+                ):
+                    blockers.append(
+                        {
+                            "code": "implicit_configuration_change_forbidden",
+                            "detail": "use the canonical configuration transaction lifecycle before application update",
+                        }
+                    )
         if pair.get("logical_secret_requirements") != []:
             blockers.append({"code": "initial_secret_material_required", "detail": "minimal assembly supports the empty secret companion"})
-        for selection in ("active", "staged", "approved", "previous-known-good"):
-            path = root / "selection" / selection
-            if path.exists() or path.is_symlink():
-                blockers.append({"code": "initial_selection_not_empty", "detail": selection})
+        if update:
+            layout = InstallationLayout(root)
+            try:
+                active = load_selected_activation(layout)
+                known_good = load_selected_activation(layout, "previous-known-good")
+            except (OSError, ValueError) as exc:
+                blockers.append({"code": "established_selection_invalid", "detail": str(exc)})
+            else:
+                if active.activation_id != known_good.activation_id:
+                    blockers.append(
+                        {"code": "active_selection_not_known_good", "detail": active.activation_id}
+                    )
+            staged_path = root / "selection" / "staged"
+            if staged_path.exists() or staged_path.is_symlink():
+                blockers.append({"code": "staged_selection_not_empty", "detail": "staged"})
+        else:
+            for selection in ("active", "staged", "approved", "previous-known-good"):
+                path = root / "selection" / selection
+                if path.exists() or path.is_symlink():
+                    blockers.append({"code": "initial_selection_not_empty", "detail": selection})
     basis = {
         "format": PLAN_FORMAT,
-        "operation": "assemble-initial-activation",
+        "operation": "assemble-update-activation" if update else "assemble-initial-activation",
         "installation_root": str(root),
         "artifacts": {kind: {"sha256": value["sha256"]} for kind, value in artifacts["archives"].items()},
         "target": target,
-        "mutations": [
-            "create the initial canonical configuration and empty secret generations",
-            "arm canonical-only runtime startup",
-            "publish one immutable complete installation activation",
-            "select that complete activation as staged",
-        ],
+        "mutations": (
+            [
+                "publish one immutable complete update activation using the unchanged selected configuration",
+                "select that complete activation as staged",
+            ]
+            if update
+            else [
+                "create the initial canonical configuration and empty secret generations",
+                "arm canonical-only runtime startup",
+                "publish one immutable complete installation activation",
+                "select that complete activation as staged",
+            ]
+        ),
         "excluded": ["active selection", "approved selection", "systemd installation", "service start", "target health verification"],
     }
     identity = "oracle-operation-plan-v1:sha256:" + hashlib.sha256(_json_bytes(basis)).hexdigest()
     return {
         "format": OUTPUT_FORMAT,
-        "command": "assemble-plan",
+        "command": "update-assemble-plan" if update else "assemble-plan",
         "status": "blocked" if blockers else "ready",
         "mutation_performed": False,
         "artifacts": artifacts,
@@ -1117,19 +1226,33 @@ def execute_initial_assembly(
     *,
     root: Path = STANDARD_ROOT,
     lock_path: Path = MAINTENANCE_LOCK,
+    update: bool = False,
 ) -> dict[str, object]:
     if os.geteuid() != 0:
         raise RuntimeError("initial assembly requires an explicitly elevated oracle-admin invocation")
-    preflight = build_initial_assembly_plan(core_archive, household_archive, environment_identity, root=root)
+    preflight = build_initial_assembly_plan(
+        core_archive,
+        household_archive,
+        environment_identity,
+        root=root,
+        update=update,
+    )
     if preflight["status"] != "ready" or preflight["plan"]["identity"] != approved_plan:
         raise RuntimeError("initial assembly plan is blocked, stale, or unapproved")
     with _maintenance_lock(lock_path):
-        locked = build_initial_assembly_plan(core_archive, household_archive, environment_identity, root=root)
+        locked = build_initial_assembly_plan(
+            core_archive,
+            household_archive,
+            environment_identity,
+            root=root,
+            update=update,
+        )
         if locked["status"] != "ready" or locked["plan"]["identity"] != approved_plan:
             raise RuntimeError("initial assembly assumptions changed before the operation lock was acquired")
         target = locked["plan"]["target"]
         with _service_authority():
-            complete = assemble_initial_activation(
+            assembly = assemble_update_activation if update else assemble_initial_activation
+            complete = assembly(
                 InstallationLayout(root),
                 InitialAssemblyRequest(
                     core_commit=target["core_commit"],
@@ -1142,7 +1265,7 @@ def execute_initial_assembly(
             )
         result = {
             "format": OUTPUT_FORMAT,
-            "command": "assemble",
+            "command": "update-assemble" if update else "assemble",
             "status": "staged",
             "mutation_performed": True,
             "plan_identity": approved_plan,
@@ -1156,6 +1279,42 @@ def execute_initial_assembly(
         }
         evidence_path = _write_operation_evidence(root, "assembly-results", approved_plan, result)
     return {**result, "evidence_path": str(evidence_path)}
+
+
+def build_update_assembly_plan(
+    core_archive: Path,
+    household_archive: Path,
+    environment_identity: str,
+    *,
+    root: Path = STANDARD_ROOT,
+) -> dict[str, object]:
+    return build_initial_assembly_plan(
+        core_archive,
+        household_archive,
+        environment_identity,
+        root=root,
+        update=True,
+    )
+
+
+def execute_update_assembly(
+    core_archive: Path,
+    household_archive: Path,
+    environment_identity: str,
+    approved_plan: str,
+    *,
+    root: Path = STANDARD_ROOT,
+    lock_path: Path = MAINTENANCE_LOCK,
+) -> dict[str, object]:
+    return execute_initial_assembly(
+        core_archive,
+        household_archive,
+        environment_identity,
+        approved_plan,
+        root=root,
+        lock_path=lock_path,
+        update=True,
+    )
 
 
 @contextmanager
@@ -1511,6 +1670,177 @@ def recover_initial_activation(
     }
 
 
+def build_managed_activation_preflight(
+    *,
+    operation: str,
+    target_activation_id: str | None = None,
+    root: Path = STANDARD_ROOT,
+) -> dict[str, object]:
+    blockers: list[dict[str, str]] = []
+    plan = None
+    try:
+        if operation == "update":
+            plan = build_update_activation_plan(InstallationLayout(root))
+        elif operation == "rollback" and target_activation_id is not None:
+            plan = build_rollback_activation_plan(
+                InstallationLayout(root),
+                target_activation_id,
+            )
+        else:
+            raise RuntimeError("managed activation operation or target is invalid")
+    except (OSError, ValueError, RuntimeError) as exc:
+        blockers.append({"code": f"{operation}_activation_plan_invalid", "detail": str(exc)})
+    return {
+        "format": OUTPUT_FORMAT,
+        "command": f"{operation}-plan",
+        "status": "blocked" if blockers else "ready",
+        "mutation_performed": False,
+        "plan": plan,
+        "blockers": blockers,
+    }
+
+
+def execute_managed_activation(
+    approved_plan: str,
+    *,
+    operation: str,
+    target_activation_id: str | None = None,
+    root: Path = STANDARD_ROOT,
+    lock_path: Path = MAINTENANCE_LOCK,
+) -> dict[str, object]:
+    if os.geteuid() != 0:
+        raise RuntimeError("managed activation requires an explicitly elevated oracle-admin invocation")
+    preflight = build_managed_activation_preflight(
+        operation=operation,
+        target_activation_id=target_activation_id,
+        root=root,
+    )
+    if preflight["status"] != "ready" or preflight["plan"]["identity"] != approved_plan:
+        raise RuntimeError("managed activation plan is blocked, stale, or unapproved")
+    with _maintenance_lock(lock_path):
+        locked = build_managed_activation_preflight(
+            operation=operation,
+            target_activation_id=target_activation_id,
+            root=root,
+        )
+        if locked["status"] != "ready" or locked["plan"]["identity"] != approved_plan:
+            raise RuntimeError("managed activation assumptions changed before the operation lock was acquired")
+        layout = InstallationLayout(root)
+        prepared = False
+        transaction = None
+        try:
+            with _service_authority():
+                transaction = prepare_managed_activation(layout, locked["plan"])
+            prepared = True
+            subprocess.run(["systemctl", "stop", "oracle-brain.service"], check=True)
+            with _service_authority():
+                select_managed_activation_target(layout)
+            subprocess.run(["systemctl", "start", "oracle-brain.service"], check=True)
+            with _service_authority():
+                mark_managed_service_started(layout)
+            candidate = load_selected_activation(layout)
+            verification = verify_initial_runtime(
+                str(candidate.record["configuration_activation_identity"])
+            )
+            with _service_authority():
+                mark_managed_verification_passed(layout, verification)
+                final = finalize_managed_activation(layout)
+            result = {
+                "format": OUTPUT_FORMAT,
+                "command": operation,
+                "status": "verified",
+                "mutation_performed": True,
+                "plan_identity": approved_plan,
+                "transaction_id": transaction["transaction_id"],
+                "previous_activation_id": final["previous_activation_id"],
+                "activation_id": final["target_activation_id"],
+                "outcome": final["outcome"],
+                "verification": verification,
+                "automatic_recovery": False,
+            }
+        except BaseException as exc:
+            subprocess.run(["systemctl", "stop", "oracle-brain.service"], check=False)
+            if not prepared:
+                try:
+                    with _service_authority():
+                        transaction = load_managed_activation_transaction(layout)
+                except (OSError, RuntimeError, ValueError):
+                    transaction = None
+                else:
+                    prepared = True
+            if not prepared or transaction is None:
+                raise
+            with _service_authority():
+                recovered = recover_managed_activation(layout, reason=type(exc).__name__)
+            subprocess.run(["systemctl", "start", "oracle-brain.service"], check=True)
+            previous = load_selected_activation(layout)
+            recovery_verification = verify_initial_runtime(
+                str(previous.record["configuration_activation_identity"])
+            )
+            result = {
+                "format": OUTPUT_FORMAT,
+                "command": operation,
+                "status": "recovered_failed",
+                "mutation_performed": True,
+                "plan_identity": approved_plan,
+                "transaction_id": recovered["transaction_id"],
+                "failed_activation_id": recovered["target_activation_id"],
+                "activation_id": recovered["previous_activation_id"],
+                "failure": type(exc).__name__,
+                "verification": recovered["verification"],
+                "recovery_verification": recovery_verification,
+                "automatic_recovery": True,
+            }
+        evidence_path = _write_operation_evidence(
+            root,
+            f"{operation}-results",
+            approved_plan,
+            result,
+        )
+    return {**result, "evidence_path": str(evidence_path)}
+
+
+def recover_managed_activation_operation(
+    *,
+    root: Path = STANDARD_ROOT,
+    lock_path: Path = MAINTENANCE_LOCK,
+) -> dict[str, object]:
+    if os.geteuid() != 0:
+        raise RuntimeError("managed activation recovery requires elevated maintenance authority")
+    with _maintenance_lock(lock_path):
+        layout = InstallationLayout(root)
+        with _service_authority():
+            transaction = load_managed_activation_transaction(layout)
+        if transaction["state"] == "verification_passed":
+            with _service_authority():
+                result = finalize_managed_activation(layout)
+            outcome = "completed_verified"
+            verification = None
+        else:
+            subprocess.run(["systemctl", "stop", "oracle-brain.service"], check=False)
+            with _service_authority():
+                result = recover_managed_activation(layout, reason="interrupted_operation_recovery")
+            subprocess.run(["systemctl", "start", "oracle-brain.service"], check=True)
+            previous = load_selected_activation(layout)
+            verification = verify_initial_runtime(
+                str(previous.record["configuration_activation_identity"])
+            )
+            outcome = "recovered_previous"
+    return {
+        "format": OUTPUT_FORMAT,
+        "command": "update-recover",
+        "status": outcome,
+        "mutation_performed": True,
+        "transaction_id": result["transaction_id"],
+        "activation_id": (
+            result["target_activation_id"]
+            if outcome == "completed_verified"
+            else result["previous_activation_id"]
+        ),
+        "recovery_verification": verification,
+    }
+
+
 def _human(result: dict[str, object]) -> str:
     platform_result = result["platform"]
     artifacts = result["artifacts"]
@@ -1606,11 +1936,12 @@ def _human_activation(result: dict[str, object]) -> str:
     ]
     if result.get("plan_identity") is not None:
         lines.append(f"Plan: {result['plan_identity']}")
-    lines.append(
-        "Candidate is approved and known-good."
-        if result["status"] in {"verified", "completed_verified"}
-        else "Candidate remains staged and inactive; service is disabled."
-    )
+    if result["status"] in {"verified", "completed_verified"}:
+        lines.append("Selected activation passed verification.")
+    elif result["status"] in {"recovered_failed", "recovered_previous"}:
+        lines.append("The prior complete known-good activation was restored.")
+    else:
+        lines.append("The requested activation was not approved as known-good.")
     return "\n".join(lines)
 
 
@@ -1640,6 +1971,21 @@ def parser() -> argparse.ArgumentParser:
     assemble.add_argument("--household-artifact", type=Path, required=True)
     assemble.add_argument("--environment-identity", required=True)
     assemble.add_argument("--approved-plan", required=True)
+    update_assemble_plan = commands.add_parser(
+        "update-assemble-plan",
+        help="Plan one complete no-configuration-change update activation",
+    )
+    update_assemble_plan.add_argument("--core-artifact", type=Path, required=True)
+    update_assemble_plan.add_argument("--household-artifact", type=Path, required=True)
+    update_assemble_plan.add_argument("--environment-identity", required=True)
+    update_assemble = commands.add_parser(
+        "update-assemble",
+        help="Create one complete update activation and select it as staged",
+    )
+    update_assemble.add_argument("--core-artifact", type=Path, required=True)
+    update_assemble.add_argument("--household-artifact", type=Path, required=True)
+    update_assemble.add_argument("--environment-identity", required=True)
+    update_assemble.add_argument("--approved-plan", required=True)
     commands.add_parser("service-plan", help="Plan fixed standard systemd-unit installation without mutation")
     service_install = commands.add_parser("service-install", help="Install the exact approved fixed systemd unit")
     service_install.add_argument("--approved-plan", required=True)
@@ -1647,11 +1993,22 @@ def parser() -> argparse.ArgumentParser:
     activate = commands.add_parser("activate", help="Execute one approved initial activation and verification plan")
     activate.add_argument("--approved-plan", required=True)
     commands.add_parser("activate-recover", help="Recover one interrupted initial activation transaction")
+    commands.add_parser("update-plan", help="Plan staged update activation and automatic recovery")
+    update = commands.add_parser("update", help="Execute one approved update activation")
+    update.add_argument("--approved-plan", required=True)
+    commands.add_parser("update-recover", help="Recover one interrupted update or rollback transaction")
+    rollback_plan = commands.add_parser("rollback-plan", help="Plan explicit complete-activation rollback")
+    rollback_plan.add_argument("--activation-id", required=True)
+    rollback = commands.add_parser("rollback", help="Execute one approved complete-activation rollback")
+    rollback.add_argument("--activation-id", required=True)
+    rollback.add_argument("--approved-plan", required=True)
     return root
 
 
 _BOOTSTRAP_COMMANDS = frozenset({"preflight", "stage-plan", "stage"})
-_ASSEMBLY_COMMANDS = frozenset({"assemble-plan", "assemble"})
+_ASSEMBLY_COMMANDS = frozenset(
+    {"assemble-plan", "assemble", "update-assemble-plan", "update-assemble"}
+)
 
 
 def _managed_environment_for_command(args: argparse.Namespace, *, root: Path = STANDARD_ROOT) -> Path | None:
@@ -1660,8 +2017,20 @@ def _managed_environment_for_command(args: argparse.Namespace, *, root: Path = S
     if args.command in _ASSEMBLY_COMMANDS:
         name = environment_directory_name(args.environment_identity)
         environment = root / "environments" / name
-    else:
+    elif args.command in {
+        "service-plan", "service-install", "activate-plan", "activate", "activate-recover",
+        "update-plan", "update",
+    }:
         selected = load_selected_activation(InstallationLayout(root), "staged")
+        environment = (selected.directory / "environment").resolve(strict=True)
+    elif args.command == "update-recover":
+        try:
+            selected = load_selected_activation(InstallationLayout(root), "staged")
+        except ValueError:
+            selected = load_selected_activation(InstallationLayout(root), "active")
+        environment = (selected.directory / "environment").resolve(strict=True)
+    else:
+        selected = load_selected_activation(InstallationLayout(root), "active")
         environment = (selected.directory / "environment").resolve(strict=True)
     try:
         expected_parent = (root / "environments").resolve(strict=True)
@@ -1679,8 +2048,20 @@ def _managed_application_for_command(args: argparse.Namespace, *, root: Path = S
     if args.command in _ASSEMBLY_COMMANDS:
         manifest = verify(args.core_artifact)
         application = root / "revisions" / ("core-" + str(manifest["core_commit"]))
-    else:
+    elif args.command in {
+        "service-plan", "service-install", "activate-plan", "activate", "activate-recover",
+        "update-plan", "update",
+    }:
         selected = load_selected_activation(InstallationLayout(root), "staged")
+        application = (selected.directory / "application").resolve(strict=True)
+    elif args.command == "update-recover":
+        try:
+            selected = load_selected_activation(InstallationLayout(root), "staged")
+        except ValueError:
+            selected = load_selected_activation(InstallationLayout(root), "active")
+        application = (selected.directory / "application").resolve(strict=True)
+    else:
+        selected = load_selected_activation(InstallationLayout(root), "active")
         application = (selected.directory / "application").resolve(strict=True)
     try:
         expected_parent = (root / "revisions").resolve(strict=True)
@@ -1767,6 +2148,17 @@ def main(argv: list[str] | None = None) -> int:
                     args.environment_identity,
                     args.approved_plan,
                 )
+            elif args.command == "update-assemble-plan":
+                result = build_update_assembly_plan(
+                    args.core_artifact, args.household_artifact, args.environment_identity
+                )
+            elif args.command == "update-assemble":
+                result = execute_update_assembly(
+                    args.core_artifact,
+                    args.household_artifact,
+                    args.environment_identity,
+                    args.approved_plan,
+                )
             elif args.command == "service-plan":
                 result = build_service_install_preflight()
             elif args.command == "service-install":
@@ -1775,15 +2167,32 @@ def main(argv: list[str] | None = None) -> int:
                 result = build_activation_preflight()
             elif args.command == "activate":
                 result = execute_initial_activation(args.approved_plan)
-            else:
+            elif args.command == "activate-recover":
                 result = recover_initial_activation()
+            elif args.command == "update-plan":
+                result = build_managed_activation_preflight(operation="update")
+            elif args.command == "update":
+                result = execute_managed_activation(args.approved_plan, operation="update")
+            elif args.command == "update-recover":
+                result = recover_managed_activation_operation()
+            elif args.command == "rollback-plan":
+                result = build_managed_activation_preflight(
+                    operation="rollback",
+                    target_activation_id=args.activation_id,
+                )
+            else:
+                result = execute_managed_activation(
+                    args.approved_plan,
+                    operation="rollback",
+                    target_activation_id=args.activation_id,
+                )
     except (ArtifactError, InstallationStagingError, OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         failure = {
             "format": OUTPUT_FORMAT,
             "command": args.command,
             "status": "failed",
-            "mutation_performed": False if args.command not in {"stage", "assemble", "service-install", "activate", "activate-recover"} else None,
-            "mutation_may_have_occurred": args.command in {"stage", "assemble", "service-install", "activate", "activate-recover"},
+            "mutation_performed": False if args.command not in {"stage", "assemble", "update-assemble", "service-install", "activate", "activate-recover", "update", "update-recover", "rollback"} else None,
+            "mutation_may_have_occurred": args.command in {"stage", "assemble", "update-assemble", "service-install", "activate", "activate-recover", "update", "update-recover", "rollback"},
             "error": str(exc),
         }
         print(json.dumps(failure, indent=2, sort_keys=True) if args.json else f"Oracle {args.command}: failed\n{exc}")
@@ -1795,19 +2204,19 @@ def main(argv: list[str] | None = None) -> int:
             _human_staging(result)
             if args.command == "stage"
             else _human_activation(result)
-            if args.command in {"activate", "activate-recover"}
+            if args.command in {"activate", "activate-recover", "update", "update-recover", "rollback"}
             else _human_service_install(result)
             if args.command == "service-install"
             else _human_assembly(result)
-            if args.command == "assemble"
+            if args.command in {"assemble", "update-assemble"}
             else _human_assembly_plan(result)
-            if args.command == "assemble-plan"
+            if args.command in {"assemble-plan", "update-assemble-plan"}
             else _human_simple_plan(result)
-            if args.command in {"service-plan", "activate-plan"}
+            if args.command in {"service-plan", "activate-plan", "update-plan", "rollback-plan"}
             else _human(result)
         )
     )
-    return 0 if result["status"] in {"ready", "staged", "installed", "verified", "completed_verified"} else 2
+    return 0 if result["status"] in {"ready", "staged", "installed", "verified", "completed_verified", "recovered_previous"} else 2
 
 
 if __name__ == "__main__":
