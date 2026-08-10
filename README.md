@@ -95,13 +95,41 @@ authority before a later snapshot promotion. This keeps reusable distribution
 history clean without asking household operators to use Git or manage source
 repositories.
 
-## Installation Status
+## v0.1.0 Compatibility And Support
 
-The standard Debian installation and lifecycle tooling are being established in
-Stage 4. The first household-consumable release will be `v0.1.0` only after the
-clean-host installation, systemd startup, reboot, update, automatic recovery,
-explicit rollback, and preservation requirements have been validated. Until
-then, approved untagged commits are development and deliberate testing pins.
+`v0.1.0` is Oracle's first validated household-consumable core release. Exact
+Git commits and trees remain authoritative; the tag is a human label over one
+approved immutable snapshot.
+
+- **Platform:** Debian 13 on amd64 is the validated standard-installation
+  tuple. Other operating systems, Debian releases, derivatives, and
+  architectures are experimental until their own clean lifecycle evidence is
+  recorded.
+- **Profile:** `minimal-brain` is the validated installation profile. It uses
+  provider-free operation and defaults to host-local HTTP ingress. Retained
+  optional voice, media, satellite, and provider implementations are not
+  thereby certified as clean-host profiles.
+- **Configuration:** canonical configuration schema version 1 is supported.
+  Household deployment revisions, configuration generations, and secret
+  generations retain their own exact identities and must pass compatibility
+  validation before activation.
+- **State and rollback:** this release introduces no irreversible persistent-
+  state migration. Updates select complete immutable activation records;
+  failed activation restores and verifies the prior compatible record, while
+  explicit rollback uses the same complete-record mechanism.
+- **HTTP and clients:** the provider-free request path, `/health`,
+  `/health/config`, and the House, System, and Satellite web surfaces are part
+  of the validated baseline. Other documented APIs remain pre-1.0 contracts
+  and any deliberate compatibility break must be identified in release notes.
+- **Administration:** systemd is the Debian lifecycle authority. An explicitly
+  enrolled `oracle-admin` operator may run the managed CLI and inspect redacted
+  non-secret state without elevation; installation, mutation, secret-bearing
+  operations, repair, and host lifecycle authority require explicit elevation.
+
+The validated release path uses separately verified local core and household
+deployment artifacts plus separately supplied secrets. Installation, update,
+recovery, and rollback record the resolved core commit and Git tree rather than
+a moving branch or unresolved tag.
 
 ## License
 

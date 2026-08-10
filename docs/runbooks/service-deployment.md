@@ -1,10 +1,10 @@
 # Standard Debian Brain Service
 
-> **Stage 4 implementation status:** the complete-selector entrypoint,
-> administration transport, restart handshake, and bounded recovery helper now
-> exist in reusable source. They are not operationally supported until the
-> remaining runtime-path and installer work plus clean-host evidence are
-> complete.
+> **Validated Stage 4 baseline:** the complete-selector entrypoint,
+> administration transport, restart handshake, bounded recovery helper, and
+> standard installer lifecycle passed clean-host acceptance on Debian 13/amd64
+> with the provider-free `minimal-brain` profile. Other platforms and optional
+> profiles remain experimental or unverified pending their own evidence.
 
 ## Purpose
 

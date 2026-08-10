@@ -1,8 +1,9 @@
 # Canonical Configuration Setup
 
-Status: the canonical V2 configuration model is implemented. The standard
-Debian installation and lifecycle tooling are being validated during Stage 4;
-this guide does not claim that the first standard release is complete.
+Status: the canonical V2 configuration model is implemented. Stage 4 validated
+the standard installation lifecycle on Debian 13/amd64 with the provider-free
+`minimal-brain` profile. Other platforms and optional profiles remain
+experimental or unverified until they receive their own lifecycle evidence.
 
 ## Authority
 
