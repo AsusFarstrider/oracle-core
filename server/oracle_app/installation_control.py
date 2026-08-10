@@ -42,8 +42,8 @@ class CompleteActivationLock(AbstractContextManager["CompleteActivationLock"]):
         self._stream = None
 
     def __enter__(self) -> CompleteActivationLock:
-        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        descriptor = os.open(self.path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        self.path.parent.mkdir(mode=0o2750, parents=True, exist_ok=True)
+        descriptor = os.open(self.path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o640)
         self._stream = os.fdopen(descriptor, "r+b")
         import fcntl
 
@@ -269,16 +269,16 @@ class StandardActivationCoordinator:
         return previous
 
     def _write_journal(self, journal: dict[str, object], *, create: bool = False) -> None:
-        self.journal_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.journal_path.parent.mkdir(mode=0o2750, parents=True, exist_ok=True)
         if create:
-            descriptor = os.open(self.journal_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            descriptor = os.open(self.journal_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(_json_bytes(journal))
                 stream.flush()
                 os.fsync(stream.fileno())
             _fsync_directory(self.journal_path.parent)
         else:
-            _atomic_replace(self.journal_path, _json_bytes(journal))
+            _atomic_replace(self.journal_path, _json_bytes(journal), mode=0o640)
 
     def _load_journal(self) -> dict[str, object]:
         value = _read_json(self.journal_path)
@@ -350,7 +350,7 @@ class StandardActivationCoordinator:
         result_path = self.layout.control_state / f"{journal['transaction_id']}.json"
         result_bytes = _json_bytes(result)
         try:
-            descriptor = os.open(result_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            descriptor = os.open(result_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o440)
         except FileExistsError:
             if result_path.read_bytes() != result_bytes:
                 raise CompleteActivationCoordinationError(
@@ -394,11 +394,11 @@ def standard_online_authorization_audit(
             "timestamp": datetime.now(timezone.utc).isoformat(),
             **event,
         }
-        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path.parent.mkdir(mode=0o2750, parents=True, exist_ok=True)
         descriptor = os.open(
             path,
             os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
-            0o600,
+            0o640,
         )
         with os.fdopen(descriptor, "ab") as stream:
             stream.write(_json_bytes(envelope))

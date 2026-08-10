@@ -312,14 +312,14 @@ def _write_transaction(layout: InstallationLayout, value: dict[str, object], *, 
                 stream.write(content)
                 stream.flush()
                 os.fsync(stream.fileno())
-            temporary.chmod(0o600)
+            temporary.chmod(0o640)
             os.replace(temporary, path)
         finally:
             try:
                 temporary.unlink()
             except FileNotFoundError:
                 pass
-    path.chmod(0o600)
+    path.chmod(0o640)
     _fsync_directory(path.parent)
 
 
@@ -431,7 +431,7 @@ def _finish_initial_transaction(
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        destination.chmod(0o400)
+        destination.chmod(0o440)
     try:
         _transaction_path(layout).unlink()
     except FileNotFoundError:
@@ -499,7 +499,7 @@ def _write_managed_transaction(
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        path.chmod(0o600)
+        path.chmod(0o640)
         _fsync_directory(path.parent)
         return
     temporary = path.parent / f".{path.name}.tmp-{secrets.token_hex(8)}"
@@ -508,7 +508,7 @@ def _write_managed_transaction(
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        temporary.chmod(0o600)
+        temporary.chmod(0o640)
         os.replace(temporary, path)
         _fsync_directory(path.parent)
     finally:
@@ -659,7 +659,7 @@ def _finish_managed_transaction(
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        destination.chmod(0o400)
+        destination.chmod(0o440)
     try:
         _managed_transaction_path(layout).unlink()
     except FileNotFoundError:

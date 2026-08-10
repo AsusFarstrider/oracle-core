@@ -48,7 +48,7 @@ class ProtectedInstallationStagingTests(unittest.TestCase):
         self.environments = self.installation / "environments"
         self.deployments = self.installation / "deployments"
         self.owner_uid = os.geteuid()
-        self.service_gid = os.getegid()
+        self.read_gid = os.getegid()
         for path in (self.revisions, self.environments, self.deployments):
             path.mkdir(parents=True, exist_ok=True)
 
@@ -104,7 +104,7 @@ class ProtectedInstallationStagingTests(unittest.TestCase):
             revisions=self.revisions,
             deployments=self.deployments,
             owner_uid=self.owner_uid,
-            service_gid=self.service_gid,
+            read_gid=self.read_gid,
         )
         self.assertFalse(first["application_reused"])
         self.assertFalse(first["deployment_reused"])
@@ -114,15 +114,15 @@ class ProtectedInstallationStagingTests(unittest.TestCase):
         self.assertEqual((application / "README.md").read_text(encoding="utf-8"), "Oracle\n")
         self.assertEqual((application / "README.md").stat().st_mode & 0o222, 0)
         self.assertEqual((deployment / "configuration" / "bundle.yaml").stat().st_mode & 0o222, 0)
-        self.assertEqual((application.stat().st_uid, application.stat().st_gid), (self.owner_uid, self.service_gid))
-        self.assertEqual((deployment.stat().st_uid, deployment.stat().st_gid), (self.owner_uid, self.service_gid))
+        self.assertEqual((application.stat().st_uid, application.stat().st_gid), (self.owner_uid, self.read_gid))
+        self.assertEqual((deployment.stat().st_uid, deployment.stat().st_gid), (self.owner_uid, self.read_gid))
         second = installation_staging.stage_artifact_pair(
             self.core_archive,
             self.household_archive,
             revisions=self.revisions,
             deployments=self.deployments,
             owner_uid=self.owner_uid,
-            service_gid=self.service_gid,
+            read_gid=self.read_gid,
         )
         self.assertTrue(second["application_reused"])
         self.assertTrue(second["deployment_reused"])
@@ -135,7 +135,7 @@ class ProtectedInstallationStagingTests(unittest.TestCase):
             revisions=self.revisions,
             deployments=self.deployments,
             owner_uid=self.owner_uid,
-            service_gid=self.service_gid,
+            read_gid=self.read_gid,
         )
         Path(first["application_path"]).chmod(0o500)
 
@@ -149,7 +149,7 @@ class ProtectedInstallationStagingTests(unittest.TestCase):
                 revisions=self.revisions,
                 deployments=self.deployments,
                 owner_uid=self.owner_uid,
-                service_gid=self.service_gid,
+                read_gid=self.read_gid,
             )
 
     def test_invalid_artifact_fails_before_managed_storage_changes(self) -> None:
@@ -164,7 +164,7 @@ class ProtectedInstallationStagingTests(unittest.TestCase):
                 revisions=self.revisions,
                 deployments=self.deployments,
                 owner_uid=self.owner_uid,
-                service_gid=self.service_gid,
+                read_gid=self.read_gid,
             )
         self.assertEqual(list(self.revisions.iterdir()), [])
         self.assertEqual(list(self.deployments.iterdir()), [])
@@ -198,7 +198,7 @@ class ProtectedInstallationStagingTests(unittest.TestCase):
             revisions=self.revisions,
             deployments=self.deployments,
             owner_uid=self.owner_uid,
-            service_gid=self.service_gid,
+            read_gid=self.read_gid,
         )
         application = Path(application_result["application_path"])
         facts = {
@@ -229,7 +229,7 @@ class ProtectedInstallationStagingTests(unittest.TestCase):
                 self.environments,
                 Path("/usr/bin/python3"),
                 owner_uid=self.owner_uid,
-                service_gid=self.service_gid,
+                read_gid=self.read_gid,
             )
         self.assertFalse(result["reused"])
         environment = Path(result["path"])
@@ -239,7 +239,7 @@ class ProtectedInstallationStagingTests(unittest.TestCase):
         )
         self.assertTrue((environment / "oracle-environment.json").is_file())
         self.assertEqual((environment / "oracle-environment.json").stat().st_mode & 0o222, 0)
-        self.assertEqual((environment.stat().st_uid, environment.stat().st_gid), (self.owner_uid, self.service_gid))
+        self.assertEqual((environment.stat().st_uid, environment.stat().st_gid), (self.owner_uid, self.read_gid))
         commands = [call.args[0] for call in run.call_args_list]
         venv = next(command for command in commands if command[1:3] == ["-m", "venv"])
         self.assertEqual(Path(venv[3]), environment)
@@ -255,7 +255,7 @@ class ProtectedInstallationStagingTests(unittest.TestCase):
                 self.environments,
                 Path("/usr/bin/python3"),
                 owner_uid=self.owner_uid,
-                service_gid=self.service_gid,
+                read_gid=self.read_gid,
             )
         self.assertTrue(reused["reused"])
         self.assertEqual(rerun.call_count, 1)

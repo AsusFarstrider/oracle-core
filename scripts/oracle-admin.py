@@ -12,6 +12,7 @@ import platform
 import grp
 import pwd
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -36,6 +37,8 @@ from core_artifact import ArtifactError, _payload_inventory, _tree_identity, ver
 from installation_staging import (
     InstallationStagingError,
     build_python_environment,
+    inventory_sha256,
+    require_immutable_permissions,
     stage_artifact_pair,
     validate_python_environment,
 )
@@ -206,6 +209,23 @@ def load_managed_activation_transaction(*args: object, **kwargs: object):
     return implementation(*args, **kwargs)
 
 
+def service_definition_identity(*args: object, **kwargs: object):
+    from oracle_app.installation_assembly import service_definition_identity as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def configuration_control_status(socket_path: Path = Path("/run/oracle/control.sock")) -> dict[str, object]:
+    from oracle_app.configuration.host_local import HostLocalConfigurationClient
+
+    response = HostLocalConfigurationClient(socket_path, timeout_seconds=3.0).request(
+        {"operation": "status"}
+    )
+    if response.get("ok") is not True or not isinstance(response.get("result"), dict):
+        raise RuntimeError("Oracle configuration control status is unavailable")
+    return response["result"]
+
+
 def _json_bytes(value: object) -> bytes:
     return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
@@ -370,16 +390,16 @@ def standard_layout_plan(root: Path = STANDARD_ROOT) -> dict[str, object]:
     return {
         "root": entry("", "root", SERVICE_GROUP, "0755", "elevated_maintenance"),
         "directories": [
-            entry("revisions", "root", SERVICE_GROUP, "0750", "elevated_maintenance"),
-            entry("environments", "root", SERVICE_GROUP, "0750", "elevated_maintenance"),
-            entry("deployments", "root", SERVICE_GROUP, "0750", "elevated_maintenance"),
-            entry("state", "root", SERVICE_GROUP, "0750", "elevated_maintenance"),
-            entry("configuration", SERVICE_ACCOUNT, SERVICE_GROUP, "0750", "oracle_control_plane"),
+            entry("revisions", "root", OPERATOR_GROUP, "0750", "elevated_maintenance"),
+            entry("environments", "root", OPERATOR_GROUP, "0750", "elevated_maintenance"),
+            entry("deployments", "root", OPERATOR_GROUP, "0750", "elevated_maintenance"),
+            entry("state", "root", OPERATOR_GROUP, "0750", "elevated_maintenance"),
+            entry("configuration", SERVICE_ACCOUNT, OPERATOR_GROUP, "2750", "oracle_control_plane"),
             entry("secrets", SERVICE_ACCOUNT, SERVICE_GROUP, "0700", "oracle_control_plane"),
-            entry("activations", SERVICE_ACCOUNT, SERVICE_GROUP, "0750", "oracle_control_plane"),
-            entry("selection", SERVICE_ACCOUNT, SERVICE_GROUP, "0750", "oracle_control_plane"),
-            entry("state/installation", "root", SERVICE_GROUP, "0750", "elevated_maintenance"),
-            entry("state/control", SERVICE_ACCOUNT, SERVICE_GROUP, "0750", "oracle_control_plane"),
+            entry("activations", SERVICE_ACCOUNT, OPERATOR_GROUP, "2750", "oracle_control_plane"),
+            entry("selection", SERVICE_ACCOUNT, OPERATOR_GROUP, "2750", "oracle_control_plane"),
+            entry("state/installation", "root", OPERATOR_GROUP, "2750", "elevated_maintenance"),
+            entry("state/control", SERVICE_ACCOUNT, OPERATOR_GROUP, "2750", "oracle_control_plane"),
             entry("data", SERVICE_ACCOUNT, SERVICE_GROUP, "0700", "oracle_runtime"),
             entry("cache", SERVICE_ACCOUNT, SERVICE_GROUP, "0700", "oracle_runtime_reconstructible"),
             entry("tmp", SERVICE_ACCOUNT, SERVICE_GROUP, "0700", "oracle_runtime_temporary"),
@@ -552,6 +572,82 @@ def ensure_operator_membership(account_name: str) -> dict[str, object]:
     }
 
 
+def _reconcile_readable_tree(
+    root: Path,
+    *,
+    owner_uid: int,
+    operator_gid: int,
+    immutable: bool,
+) -> None:
+    """Give oracle-admin fixed read/traverse access without granting writes."""
+
+    if root.is_symlink() or not root.is_dir():
+        raise RuntimeError(f"managed operator-readable subtree is unsafe: {root}")
+    for path in (root, *sorted(root.rglob("*"), key=lambda value: len(value.parts))):
+        metadata = path.lstat()
+        if path.is_symlink():
+            os.chown(path, owner_uid, operator_gid, follow_symlinks=False)
+            continue
+        if path.is_dir():
+            mode = 0o550 if immutable else 0o2750
+        elif path.is_file():
+            if immutable:
+                mode = 0o550 if metadata.st_mode & 0o111 else 0o440
+            else:
+                mode = 0o640 if metadata.st_mode & stat.S_IWUSR else 0o440
+        else:
+            raise RuntimeError(f"unsupported managed operator-readable entry: {path}")
+        os.chown(path, owner_uid, operator_gid)
+        path.chmod(mode)
+
+
+def _reconcile_operator_read_access(root: Path, *, service_uid: int, operator_gid: int) -> None:
+    for name in ("revisions", "environments", "deployments"):
+        parent = root / name
+        if parent.is_symlink() or not parent.is_dir():
+            raise RuntimeError(f"managed immutable parent is unsafe: {parent}")
+        os.chown(parent, 0, operator_gid)
+        parent.chmod(0o750)
+        for child in sorted(parent.iterdir(), key=lambda value: value.name):
+            _reconcile_readable_tree(
+                child,
+                owner_uid=0,
+                operator_gid=operator_gid,
+                immutable=True,
+            )
+    for name in ("configuration", "selection"):
+        _reconcile_readable_tree(
+            root / name,
+            owner_uid=service_uid,
+            operator_gid=operator_gid,
+            immutable=False,
+        )
+    activations = root / "activations"
+    if activations.is_symlink() or not activations.is_dir():
+        raise RuntimeError(f"managed activation parent is unsafe: {activations}")
+    os.chown(activations, service_uid, operator_gid)
+    activations.chmod(0o2750)
+    for child in sorted(activations.iterdir(), key=lambda value: value.name):
+        _reconcile_readable_tree(
+            child,
+            owner_uid=service_uid,
+            operator_gid=operator_gid,
+            immutable=True,
+        )
+    _reconcile_readable_tree(
+        root / "state" / "installation",
+        owner_uid=0,
+        operator_gid=operator_gid,
+        immutable=False,
+    )
+    _reconcile_readable_tree(
+        root / "state" / "control",
+        owner_uid=service_uid,
+        operator_gid=operator_gid,
+        immutable=False,
+    )
+
+
 def ensure_standard_layout(root: Path = STANDARD_ROOT) -> dict[str, object]:
     if os.geteuid() != 0:
         raise RuntimeError("protected layout creation requires an explicitly elevated oracle-admin invocation")
@@ -568,8 +664,9 @@ def ensure_standard_layout(root: Path = STANDARD_ROOT) -> dict[str, object]:
             raise RuntimeError("standard installation root contains undeclared entries: " + ", ".join(unexpected))
     account = pwd.getpwnam(SERVICE_ACCOUNT)
     service_group = grp.getgrnam(SERVICE_GROUP)
+    operator_group = grp.getgrnam(OPERATOR_GROUP)
     owners = {"root": 0, SERVICE_ACCOUNT: account.pw_uid}
-    groups = {SERVICE_GROUP: service_group.gr_gid}
+    groups = {SERVICE_GROUP: service_group.gr_gid, OPERATOR_GROUP: operator_group.gr_gid}
     entries = [plan["root"], *plan["directories"]]
     created: list[str] = []
     for item in entries:
@@ -581,6 +678,11 @@ def ensure_standard_layout(root: Path = STANDARD_ROOT) -> dict[str, object]:
             created.append(str(path))
         os.chown(path, owners[item["owner"]], groups[item["group"]])
         path.chmod(int(item["mode"], 8))
+    _reconcile_operator_read_access(
+        root,
+        service_uid=account.pw_uid,
+        operator_gid=operator_group.gr_gid,
+    )
     return {"created": created, "layout": plan}
 
 
@@ -939,9 +1041,9 @@ def _write_staging_evidence(root: Path, plan_identity: str, result: dict[str, ob
     directory.mkdir(mode=0o750, exist_ok=True)
     if directory.is_symlink() or not directory.is_dir():
         raise RuntimeError("installation evidence directory is unsafe")
-    service_gid = grp.getgrnam(SERVICE_GROUP).gr_gid
-    os.chown(directory, 0, service_gid)
-    directory.chmod(0o750)
+    operator_gid = grp.getgrnam(OPERATOR_GROUP).gr_gid
+    os.chown(directory, 0, operator_gid)
+    directory.chmod(0o2750)
     digest = plan_identity.rsplit(":", 1)[-1]
     destination = directory / f"{digest}.json"
     content = _json_bytes(result)
@@ -955,7 +1057,7 @@ def _write_staging_evidence(root: Path, plan_identity: str, result: dict[str, ob
         stream.flush()
         os.fsync(stream.fileno())
     temporary.chmod(0o440)
-    os.chown(temporary, 0, service_gid)
+    os.chown(temporary, 0, operator_gid)
     os.replace(temporary, destination)
     descriptor = os.open(directory, os.O_RDONLY)
     try:
@@ -1024,17 +1126,17 @@ def execute_staging(
         layout = ensure_standard_layout(root)
         identity_state = identities.get("identities")
         groups = identity_state.get("groups") if isinstance(identity_state, dict) else None
-        service_group = groups.get(SERVICE_GROUP) if isinstance(groups, dict) else None
-        service_gid = service_group.get("gid") if isinstance(service_group, dict) else None
-        if not isinstance(service_gid, int) or service_gid <= 0:
-            raise RuntimeError("validated Oracle service group identity is unavailable")
+        operator_group = groups.get(OPERATOR_GROUP) if isinstance(groups, dict) else None
+        operator_gid = operator_group.get("gid") if isinstance(operator_group, dict) else None
+        if not isinstance(operator_gid, int) or operator_gid <= 0:
+            raise RuntimeError("validated Oracle operator read group identity is unavailable")
         components = stage_artifact_pair(
             core_archive,
             household_archive,
             revisions=root / "revisions",
             deployments=root / "deployments",
             owner_uid=0,
-            service_gid=service_gid,
+            read_gid=operator_gid,
         )
         environment = build_python_environment(
             Path(components["application_path"]),
@@ -1042,7 +1144,7 @@ def execute_staging(
             Path(locked_preflight["platform"]["python"]["executable"]),
             profile="minimal-brain",
             owner_uid=0,
-            service_gid=service_gid,
+            read_gid=operator_gid,
         )
         evidence = {
             "format": OUTPUT_FORMAT,
@@ -1323,10 +1425,16 @@ def _service_authority():
 
     account = pwd.getpwnam(SERVICE_ACCOUNT)
     group = grp.getgrnam(SERVICE_GROUP)
+    operator_group = grp.getgrnam(OPERATOR_GROUP)
     original_euid = os.geteuid()
     original_egid = os.getegid()
+    original_groups = os.getgroups()
     if original_euid != 0:
         raise RuntimeError("service-authority transition requires elevated maintenance authority")
+    # Match the fixed systemd service boundary while running shared offline
+    # publication code: oracle-admin supplies read-only access to non-secret
+    # managed components, never host authority or secret traversal.
+    os.setgroups(sorted({group.gr_gid, operator_group.gr_gid}))
     os.setegid(group.gr_gid)
     os.seteuid(account.pw_uid)
     try:
@@ -1334,6 +1442,7 @@ def _service_authority():
     finally:
         os.seteuid(original_euid)
         os.setegid(original_egid)
+        os.setgroups(original_groups)
 
 
 def _write_operation_evidence(
@@ -1346,9 +1455,9 @@ def _write_operation_evidence(
     directory.mkdir(mode=0o750, exist_ok=True)
     if directory.is_symlink() or not directory.is_dir():
         raise RuntimeError("installation evidence directory is unsafe")
-    service_gid = grp.getgrnam(SERVICE_GROUP).gr_gid
-    os.chown(directory, 0, service_gid)
-    directory.chmod(0o750)
+    operator_gid = grp.getgrnam(OPERATOR_GROUP).gr_gid
+    os.chown(directory, 0, operator_gid)
+    directory.chmod(0o2750)
     destination = directory / f"{plan_identity.rsplit(':', 1)[-1]}.json"
     content = _json_bytes(result)
     if destination.exists():
@@ -1361,7 +1470,7 @@ def _write_operation_evidence(
         stream.flush()
         os.fsync(stream.fileno())
     temporary.chmod(0o440)
-    os.chown(temporary, 0, service_gid)
+    os.chown(temporary, 0, operator_gid)
     os.replace(temporary, destination)
     descriptor = os.open(directory, os.O_RDONLY)
     try:
@@ -1841,6 +1950,260 @@ def recover_managed_activation_operation(
     }
 
 
+def _latest_staging_evidence(
+    root: Path,
+    *,
+    application_identity: str,
+    deployment_identity: str,
+) -> dict[str, object] | None:
+    directory = root / "state" / "installation" / "staging-results"
+    if directory.is_symlink() or not directory.is_dir():
+        return None
+    for path in sorted(directory.glob("*.json"), reverse=True):
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            value = json.loads(path.read_bytes())
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        components = value.get("components") if isinstance(value, dict) else None
+        if not isinstance(components, dict):
+            continue
+        if (
+            components.get("application_revision_identity") == application_identity
+            and components.get("household_deployment_revision") == deployment_identity
+        ):
+            return value
+    return None
+
+
+def _require_operator_readable_tree(root: Path, *, operator_gid: int) -> None:
+    """Verify fixed non-secret oracle-admin visibility without write authority."""
+
+    if root.is_symlink() or not root.is_dir():
+        raise RuntimeError(f"operator-readable managed object is absent or unsafe: {root}")
+    for path in (root, *sorted(root.rglob("*"))):
+        metadata = path.lstat()
+        if metadata.st_gid != operator_gid:
+            raise RuntimeError(f"operator-readable managed object has the wrong group: {path}")
+        if path.is_symlink():
+            continue
+        mode = stat.S_IMODE(metadata.st_mode)
+        if mode & 0o027:
+            raise RuntimeError(f"operator-readable managed object has group-write or other access: {path}")
+        if path.is_dir() and mode & 0o050 != 0o050:
+            raise RuntimeError(f"oracle-admin cannot traverse managed object: {path}")
+        if path.is_file() and mode & 0o040 != 0o040:
+            raise RuntimeError(f"oracle-admin cannot read managed object: {path}")
+
+
+def _evidence_inventory(root: Path) -> list[dict[str, object]]:
+    """Identify non-secret evidence without exporting its potentially sensitive text."""
+
+    results: list[dict[str, object]] = []
+    for relative in (Path("state/installation"), Path("state/control")):
+        directory = root / relative
+        if directory.is_symlink() or not directory.is_dir():
+            continue
+        for path in sorted(directory.rglob("*")):
+            if path.is_symlink() or not path.is_file():
+                continue
+            results.append(
+                {
+                    "path": str(path.relative_to(root)),
+                    "size": path.stat().st_size,
+                    "sha256": _sha256(path),
+                }
+            )
+    return results
+
+
+def build_managed_status(*, root: Path = STANDARD_ROOT) -> dict[str, object]:
+    """Inspect one standard installation without reading raw secret material."""
+
+    layout = InstallationLayout(root)
+    findings: list[dict[str, str]] = []
+    selections: dict[str, object] = {}
+    selected = None
+    for name in ("active", "staged", "approved", "previous-known-good"):
+        try:
+            activation = load_selected_activation(layout, name)
+        except (OSError, RuntimeError, ValueError) as exc:
+            selections[name] = {"present": False, "detail": str(exc)}
+            if name == "active":
+                findings.append({"code": "active_activation_invalid", "detail": str(exc)})
+        else:
+            record = activation.record
+            selections[name] = {
+                "present": True,
+                "activation_id": activation.activation_id,
+                "core_commit": record["core"]["commit"],
+                "core_git_tree": record["core"]["git_tree"],
+                "application_revision_identity": record["application_revision_identity"],
+                "python_environment_identity": record["python_environment_identity"],
+                "household_deployment_revision": record["household_deployment_revision"],
+                "configuration_activation_identity": record["configuration_activation_identity"],
+                "service_definition_identity": record["service_definition_identity"],
+                "persistent_state_checkpoint": record["persistent_state_checkpoint"],
+            }
+            if name == "active":
+                selected = activation
+
+    integrity: dict[str, object] = {"checked": selected is not None, "components": {}}
+    if selected is not None:
+        operator_gid = grp.getgrnam(OPERATOR_GROUP).gr_gid
+        service_uid = pwd.getpwnam(SERVICE_ACCOUNT).pw_uid
+        record = selected.record
+        application = (selected.directory / "application").resolve(strict=True)
+        environment = (selected.directory / "environment").resolve(strict=True)
+        deployment = (selected.directory / "deployment").resolve(strict=True)
+        configuration = (selected.directory / "configuration").resolve(strict=True)
+        evidence = _latest_staging_evidence(
+            root,
+            application_identity=str(record["application_revision_identity"]),
+            deployment_identity=str(record["household_deployment_revision"]),
+        )
+        expected_inventory = evidence.get("components") if isinstance(evidence, dict) else None
+        checks = {
+            "application": lambda: (
+                require_immutable_permissions(application, owner_uid=0, read_gid=operator_gid),
+                _tree_identity(application) == record["core"]["git_tree"],
+                inventory_sha256(_payload_inventory(application))
+                == expected_inventory.get("application_inventory_sha256")
+                if isinstance(expected_inventory, dict)
+                else False,
+            ),
+            "environment": lambda: (
+                require_immutable_permissions(environment, owner_uid=0, read_gid=operator_gid),
+                validate_python_environment(application, environment),
+            ),
+            "deployment": lambda: (
+                require_immutable_permissions(deployment, owner_uid=0, read_gid=operator_gid),
+                inventory_sha256(_payload_inventory(deployment))
+                == expected_inventory.get("deployment_inventory_sha256")
+                if isinstance(expected_inventory, dict)
+                else False,
+            ),
+            "configuration": lambda: _require_operator_readable_tree(
+                configuration,
+                operator_gid=operator_gid,
+            ),
+            "activation": lambda: require_immutable_permissions(
+                selected.directory,
+                owner_uid=service_uid,
+                read_gid=operator_gid,
+            ),
+        }
+        for label, check in checks.items():
+            try:
+                outcome = check()
+                if isinstance(outcome, tuple) and any(item is False for item in outcome):
+                    raise RuntimeError(f"{label} content identity differs from installation evidence")
+            except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+                integrity["components"][label] = {"valid": False, "detail": str(exc)}
+                findings.append({"code": f"managed_{label}_drift", "detail": str(exc)})
+            else:
+                integrity["components"][label] = {"valid": True}
+        try:
+            unit_identity = service_definition_identity(Path("/etc/systemd/system/oracle-brain.service"))
+            if unit_identity != record["service_definition_identity"]:
+                raise RuntimeError("installed systemd definition differs from the active activation")
+        except (OSError, RuntimeError, ValueError) as exc:
+            integrity["components"]["service_definition"] = {"valid": False, "detail": str(exc)}
+            findings.append({"code": "managed_service_definition_drift", "detail": str(exc)})
+        else:
+            integrity["components"]["service_definition"] = {"valid": True}
+
+    systemd_state = {
+        "active": _systemctl_property("is-active", "oracle-brain.service"),
+        "enabled": _systemctl_property("is-enabled", "oracle-brain.service"),
+    }
+    if systemd_state["active"] != "active":
+        findings.append(
+            {"code": "systemd_service_not_active", "detail": str(systemd_state["active"])}
+        )
+    if systemd_state["enabled"] != "enabled":
+        findings.append(
+            {"code": "systemd_service_not_enabled", "detail": str(systemd_state["enabled"])}
+        )
+    runtime: dict[str, object] = {}
+    for label, url in (
+        ("health", "http://127.0.0.1:8011/health"),
+        ("configuration_health", "http://127.0.0.1:8011/health/config"),
+    ):
+        try:
+            response = _http_json(url)
+            if label == "health" and (
+                response.get("status") != "ok" or response.get("service") != "oracle-brain"
+            ):
+                raise RuntimeError("Oracle runtime health is not ok")
+            if label == "configuration_health" and response.get("ok") is not True:
+                raise RuntimeError("Oracle configuration health is not ready")
+            runtime[label] = {"available": True, "result": response}
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError, urllib.error.URLError) as exc:
+            runtime[label] = {"available": False, "detail": str(exc)}
+            findings.append({"code": f"runtime_{label}_unavailable", "detail": str(exc)})
+    try:
+        control_status = configuration_control_status()
+    except (OSError, RuntimeError, ValueError) as exc:
+        control: dict[str, object] = {"available": False, "detail": str(exc)}
+        findings.append({"code": "online_control_status_unavailable", "detail": str(exc)})
+    else:
+        control = {"available": True, "result": control_status}
+        if selected is not None and control_status.get("selected_activation_generation_id") != selected.record.get(
+            "configuration_activation_identity"
+        ):
+            detail = "online configuration identity differs from the active installation activation"
+            findings.append({"code": "configuration_activation_identity_mismatch", "detail": detail})
+
+    return {
+        "format": OUTPUT_FORMAT,
+        "command": "status",
+        "status": "healthy" if not findings else "degraded",
+        "mutation_performed": False,
+        "installation_root": str(root),
+        "platform": platform_preflight(root),
+        "systemd": systemd_state,
+        "selections": selections,
+        "integrity": integrity,
+        "runtime": runtime,
+        "configuration_control": control,
+        "findings": findings,
+    }
+
+
+def export_managed_diagnostics(output: Path, *, root: Path = STANDARD_ROOT) -> dict[str, object]:
+    """Write one redacted inspection bundle outside managed Oracle storage."""
+
+    resolved_output = output.resolve(strict=False)
+    if resolved_output.is_relative_to(root.resolve(strict=False)):
+        raise RuntimeError("diagnostic export destination must be outside managed Oracle storage")
+    if output.exists() or output.is_symlink() or not output.parent.is_dir():
+        raise RuntimeError("diagnostic export destination must be a new file in an existing directory")
+    payload = {
+        "format": "oracle-diagnostics-v1",
+        "status": build_managed_status(root=root),
+        "non_secret_evidence_inventory": _evidence_inventory(root),
+        "excluded": ["secrets", "data", "cache", "tmp", "journal contents"],
+    }
+    content = _json_bytes(payload)
+    with output.open("xb") as stream:
+        stream.write(content)
+        stream.flush()
+        os.fsync(stream.fileno())
+    output.chmod(0o600)
+    return {
+        "format": OUTPUT_FORMAT,
+        "command": "diagnostics-export",
+        "status": "created",
+        "mutation_performed": False,
+        "output": str(output),
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "evidence_entries": len(payload["non_secret_evidence_inventory"]),
+        "secret_material_included": False,
+    }
+
+
 def _human(result: dict[str, object]) -> str:
     platform_result = result["platform"]
     artifacts = result["artifacts"]
@@ -1945,10 +2308,50 @@ def _human_activation(result: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
+def _human_status(result: dict[str, object]) -> str:
+    active = result["selections"].get("active", {})
+    lines = [
+        f"Oracle managed installation: {result['status']}",
+        f"Systemd: {result['systemd']['active']} ({result['systemd']['enabled']})",
+    ]
+    if active.get("present"):
+        lines.extend(
+            [
+                f"Active activation: {active['activation_id']}",
+                f"Core: {active['core_commit']} / {active['core_git_tree']}",
+                f"Deployment: {active['household_deployment_revision']}",
+                f"Configuration: {active['configuration_activation_identity']}",
+            ]
+        )
+    if result["findings"]:
+        lines.append("Findings:")
+        lines.extend(f"- {item['code']}: {item['detail']}" for item in result["findings"])
+    else:
+        lines.append("No managed-content drift or readiness failure detected.")
+    return "\n".join(lines)
+
+
+def _human_diagnostics(result: dict[str, object]) -> str:
+    return "\n".join(
+        [
+            "Oracle diagnostic export: created",
+            f"Output: {result['output']}",
+            f"SHA-256: {result['sha256']}",
+            "Secret material included: no",
+        ]
+    )
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description=__doc__)
     root.add_argument("--json", action="store_true", help="Emit stable schema-governed machine output")
     commands = root.add_subparsers(dest="command", required=True)
+    commands.add_parser("status", help="Inspect health, compatibility, selections, and drift without mutation")
+    diagnostics = commands.add_parser(
+        "diagnostics-export",
+        help="Export redacted managed-installation evidence without reading secret values",
+    )
+    diagnostics.add_argument("--output", type=Path, required=True)
     preflight = commands.add_parser("preflight", help="Inspect a host and exact local artifact pair without mutation")
     preflight.add_argument("--core-artifact", type=Path, required=True)
     preflight.add_argument("--household-artifact", type=Path, required=True)
@@ -2123,6 +2526,10 @@ def main(argv: list[str] | None = None) -> int:
         with _machine_readable_output(args.json):
             if args.command == "preflight":
                 result = build_install_preflight(args.core_artifact, args.household_artifact)
+            elif args.command == "status":
+                result = build_managed_status()
+            elif args.command == "diagnostics-export":
+                result = export_managed_diagnostics(args.output)
             elif args.command == "stage-plan":
                 result = build_staging_preflight(
                     args.core_artifact,
@@ -2203,6 +2610,10 @@ def main(argv: list[str] | None = None) -> int:
         else (
             _human_staging(result)
             if args.command == "stage"
+            else _human_status(result)
+            if args.command == "status"
+            else _human_diagnostics(result)
+            if args.command == "diagnostics-export"
             else _human_activation(result)
             if args.command in {"activate", "activate-recover", "update", "update-recover", "rollback"}
             else _human_service_install(result)
@@ -2216,7 +2627,10 @@ def main(argv: list[str] | None = None) -> int:
             else _human(result)
         )
     )
-    return 0 if result["status"] in {"ready", "staged", "installed", "verified", "completed_verified", "recovered_previous"} else 2
+    return 0 if result["status"] in {
+        "ready", "staged", "installed", "verified", "completed_verified", "recovered_previous",
+        "healthy", "created",
+    } else 2
 
 
 if __name__ == "__main__":

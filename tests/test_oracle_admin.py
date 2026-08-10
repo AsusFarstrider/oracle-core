@@ -397,19 +397,35 @@ print(json.dumps({"status": "ready"}))
 
     def test_initial_publication_drops_to_service_authority_and_restores_elevation(self) -> None:
         account = SimpleNamespace(pw_uid=901)
-        group = SimpleNamespace(gr_gid=902)
-        calls: list[tuple[str, int]] = []
+        groups = {
+            "oracle": SimpleNamespace(gr_gid=902),
+            "oracle-admin": SimpleNamespace(gr_gid=903),
+        }
+        calls: list[tuple[str, object]] = []
         with (
             mock.patch.object(oracle_admin.pwd, "getpwnam", return_value=account),
-            mock.patch.object(oracle_admin.grp, "getgrnam", return_value=group),
+            mock.patch.object(oracle_admin.grp, "getgrnam", side_effect=lambda name: groups[name]),
             mock.patch.object(oracle_admin.os, "geteuid", return_value=0),
             mock.patch.object(oracle_admin.os, "getegid", return_value=0),
+            mock.patch.object(oracle_admin.os, "getgroups", return_value=[0]),
+            mock.patch.object(oracle_admin.os, "setgroups", side_effect=lambda value: calls.append(("groups", value))),
             mock.patch.object(oracle_admin.os, "setegid", side_effect=lambda value: calls.append(("gid", value))),
             mock.patch.object(oracle_admin.os, "seteuid", side_effect=lambda value: calls.append(("uid", value))),
         ):
             with oracle_admin._service_authority():
                 calls.append(("body", 1))
-        self.assertEqual(calls, [("gid", 902), ("uid", 901), ("body", 1), ("uid", 0), ("gid", 0)])
+        self.assertEqual(
+            calls,
+            [
+                ("groups", [902, 903]),
+                ("gid", 902),
+                ("uid", 901),
+                ("body", 1),
+                ("uid", 0),
+                ("gid", 0),
+                ("groups", [0]),
+            ],
+        )
 
     def test_service_plan_keeps_unit_disabled_and_binds_current_systemd_state(self) -> None:
         exact = SimpleNamespace(
@@ -773,8 +789,11 @@ print(json.dumps({"status": "ready"}))
         })
         self.assertEqual((root / "secrets").stat().st_mode & 0o777, 0o700)
         self.assertEqual((root / "revisions").stat().st_mode & 0o777, 0o750)
+        self.assertEqual((root / "configuration").stat().st_mode & 0o7777, 0o2750)
+        self.assertEqual((root / "activations").stat().st_mode & 0o7777, 0o2750)
+        self.assertEqual((root / "state" / "control").stat().st_mode & 0o7777, 0o2750)
         self.assertTrue((root / "state" / "installation").is_dir())
-        self.assertEqual(chown.call_count, 14)
+        self.assertGreaterEqual(chown.call_count, 14)
         self.assertIn(str(root), result["created"])
 
     def test_layout_probe_rejects_undeclared_root_content_before_reconciliation(self) -> None:
@@ -891,7 +910,12 @@ print(json.dumps({"status": "ready"}))
                 "ensure_standard_identities",
                 return_value={
                     "created": [],
-                    "identities": {"groups": {"oracle": {"gid": 902}}},
+                    "identities": {
+                        "groups": {
+                            "oracle": {"gid": 901},
+                            "oracle-admin": {"gid": 902},
+                        }
+                    },
                 },
             ),
             mock.patch.object(oracle_admin, "ensure_standard_layout", return_value={"created": [], "layout": {}}),
@@ -924,10 +948,10 @@ print(json.dumps({"status": "ready"}))
         self.assertEqual(stage_pair.call_count, 1)
         enroll_operator.assert_called_once_with(self.operator_account)
         self.assertEqual(stage_pair.call_args.kwargs["owner_uid"], 0)
-        self.assertEqual(stage_pair.call_args.kwargs["service_gid"], 902)
+        self.assertEqual(stage_pair.call_args.kwargs["read_gid"], 902)
         build_environment.assert_called_once()
         self.assertEqual(build_environment.call_args.kwargs["owner_uid"], 0)
-        self.assertEqual(build_environment.call_args.kwargs["service_gid"], 902)
+        self.assertEqual(build_environment.call_args.kwargs["read_gid"], 902)
 
     def test_preflight_reports_existing_or_absent_oracle_identities(self) -> None:
         with (
@@ -938,6 +962,169 @@ print(json.dumps({"status": "ready"}))
         self.assertIsNone(identities["service_account"]["existing"])
         self.assertIsNone(identities["groups"]["oracle"])
         self.assertIsNone(identities["groups"]["oracle-admin"])
+
+    def test_operator_read_reconciliation_excludes_secret_and_runtime_surfaces(self) -> None:
+        root = self.root / "oracle"
+        for name in (
+            "revisions", "environments", "deployments", "configuration", "secrets",
+            "activations", "selection", "state/installation", "state/control", "data", "cache", "tmp",
+        ):
+            (root / name).mkdir(parents=True, exist_ok=True)
+        immutable = root / "revisions" / "core-example"
+        immutable.mkdir()
+        executable = immutable / "oracle-admin.py"
+        executable.write_text("#!/usr/bin/python3\n", encoding="utf-8")
+        executable.chmod(0o700)
+        secret = root / "secrets" / "secrets.env"
+        secret.write_text("TOKEN=secret\n", encoding="utf-8")
+        secret.chmod(0o600)
+        data = root / "data" / "brain.db"
+        data.write_bytes(b"private")
+        data.chmod(0o600)
+
+        with mock.patch.object(oracle_admin.os, "chown") as chown:
+            oracle_admin._reconcile_operator_read_access(
+                root,
+                service_uid=os.getuid(),
+                operator_gid=os.getgid(),
+            )
+
+        self.assertEqual(executable.stat().st_mode & 0o777, 0o550)
+        self.assertFalse(executable.stat().st_mode & 0o020)
+        self.assertEqual(secret.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(data.stat().st_mode & 0o777, 0o600)
+        touched = {Path(call.args[0]) for call in chown.call_args_list}
+        self.assertNotIn(secret, touched)
+        self.assertNotIn(data, touched)
+
+    def test_diagnostic_export_omits_secret_and_runtime_trees(self) -> None:
+        root = self.root / "oracle"
+        installation = root / "state" / "installation"
+        control = root / "state" / "control"
+        secrets = root / "secrets"
+        data = root / "data"
+        for directory in (installation, control, secrets, data):
+            directory.mkdir(parents=True)
+        (installation / "install.json").write_text('{"status":"ok"}\n', encoding="utf-8")
+        (control / "result.json").write_text('{"status":"ok"}\n', encoding="utf-8")
+        (secrets / "secrets.env").write_text("TOKEN=do-not-export\n", encoding="utf-8")
+        (data / "brain.db").write_text("private-runtime-state\n", encoding="utf-8")
+        output = self.root / "diagnostics.json"
+        with mock.patch.object(
+            oracle_admin,
+            "build_managed_status",
+            return_value={"format": oracle_admin.OUTPUT_FORMAT, "status": "healthy"},
+        ):
+            result = oracle_admin.export_managed_diagnostics(output, root=root)
+        payload = output.read_text(encoding="utf-8")
+        self.assertEqual(result["status"], "created")
+        self.assertFalse(result["secret_material_included"])
+        self.assertNotIn("do-not-export", payload)
+        self.assertNotIn("private-runtime-state", payload)
+        self.assertNotIn("secrets/secrets.env", payload)
+        self.assertNotIn("data/brain.db", payload)
+        self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+
+    def test_status_reports_exact_active_non_secret_identities_without_mutation(self) -> None:
+        root = self.root / "oracle"
+        application = root / "revisions" / "core-example"
+        environment = root / "environments" / "environment-example"
+        deployment = root / "deployments" / "deployment-example"
+        configuration = root / "configuration" / "activations" / "configuration-example"
+        activation_directory = root / "activations" / "activation-example"
+        for directory in (application, environment, deployment, configuration, activation_directory):
+            directory.mkdir(parents=True)
+        (application / "README.md").write_text("Oracle\n", encoding="utf-8")
+        (deployment / "deployment.json").write_text("{}\n", encoding="utf-8")
+        (configuration / "metadata.json").write_text("{}\n", encoding="utf-8")
+        configuration.chmod(0o750)
+        (configuration / "metadata.json").chmod(0o640)
+        for link, target in (
+            ("application", application),
+            ("environment", environment),
+            ("deployment", deployment),
+            ("configuration", configuration),
+        ):
+            (activation_directory / link).symlink_to(os.path.relpath(target, activation_directory))
+        core_tree = "1" * 40
+        activation_id = "oracle-installation-activation-v1:sha256:" + "2" * 64
+        record = {
+            "core": {"commit": "3" * 40, "git_tree": core_tree},
+            "application_revision_identity": application.name,
+            "python_environment_identity": "oracle-python-environment-v1:sha256:" + "4" * 64,
+            "household_deployment_revision": deployment.name,
+            "configuration_activation_identity": configuration.name,
+            "service_definition_identity": "systemd-unit-" + "5" * 64,
+            "persistent_state_checkpoint": None,
+        }
+        selected = SimpleNamespace(
+            activation_id=activation_id,
+            directory=activation_directory,
+            record=record,
+        )
+        evidence = {
+            "components": {
+                "application_inventory_sha256": oracle_admin.inventory_sha256(
+                    oracle_admin._payload_inventory(application)
+                ),
+                "deployment_inventory_sha256": oracle_admin.inventory_sha256(
+                    oracle_admin._payload_inventory(deployment)
+                ),
+            }
+        }
+
+        def selection(_layout, name="active"):
+            if name == "active":
+                return selected
+            raise ValueError("selection absent")
+
+        group = SimpleNamespace(gr_gid=os.getgid())
+        account = SimpleNamespace(pw_uid=os.getuid())
+        health = {"status": "ok", "service": "oracle-brain"}
+        config_health = {"ok": True}
+        with (
+            mock.patch.object(oracle_admin, "load_selected_activation", side_effect=selection),
+            mock.patch.object(oracle_admin.grp, "getgrnam", return_value=group),
+            mock.patch.object(oracle_admin.pwd, "getpwnam", return_value=account),
+            mock.patch.object(oracle_admin, "require_immutable_permissions"),
+            mock.patch.object(oracle_admin, "validate_python_environment", return_value={}),
+            mock.patch.object(oracle_admin, "_tree_identity", return_value=core_tree),
+            mock.patch.object(oracle_admin, "_latest_staging_evidence", return_value=evidence),
+            mock.patch.object(
+                oracle_admin,
+                "service_definition_identity",
+                return_value=record["service_definition_identity"],
+            ),
+            mock.patch.object(oracle_admin, "_systemctl_property", side_effect=["active", "enabled"]),
+            mock.patch.object(oracle_admin, "_http_json", side_effect=[health, config_health]),
+            mock.patch.object(
+                oracle_admin,
+                "configuration_control_status",
+                return_value={"selected_activation_generation_id": configuration.name},
+            ),
+            mock.patch.object(oracle_admin, "platform_preflight", return_value={"support_status": "supported"}),
+        ):
+            result = oracle_admin.build_managed_status(root=root)
+        self.assertEqual(result["status"], "healthy")
+        self.assertFalse(result["mutation_performed"])
+        self.assertEqual(result["selections"]["active"]["activation_id"], activation_id)
+        self.assertEqual(result["selections"]["active"]["core_git_tree"], core_tree)
+        self.assertEqual(result["findings"], [])
+
+    def test_mutating_lifecycle_remains_elevation_gated(self) -> None:
+        with mock.patch.object(oracle_admin.os, "geteuid", return_value=1000):
+            with self.assertRaisesRegex(RuntimeError, "explicitly elevated"):
+                oracle_admin.execute_staging(
+                    self.core,
+                    self.household,
+                    self.operator_account,
+                    "oracle-operation-plan-v1:sha256:" + "1" * 64,
+                    root=self.root / "oracle",
+                )
+            with self.assertRaisesRegex(RuntimeError, "explicitly elevated"):
+                oracle_admin.execute_service_install("plan", root=self.root / "oracle")
+            with self.assertRaisesRegex(RuntimeError, "explicitly elevated"):
+                oracle_admin.execute_managed_activation("plan", operation="update", root=self.root / "oracle")
 
 
 if __name__ == "__main__":

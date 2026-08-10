@@ -240,8 +240,8 @@ def publish_activation(layout: InstallationLayout, request: ActivationRequest) -
             if Path(relative).is_absolute():
                 raise InstallationLayoutError("Activation component reference must be relative.")
             (staging / link_name).symlink_to(relative, target_is_directory=True)
-        record_path.chmod(0o400)
-        staging.chmod(0o500)
+        record_path.chmod(0o440)
+        staging.chmod(0o550)
         _fsync_directory(staging)
         os.rename(staging, destination)
         _fsync_directory(layout.activations)

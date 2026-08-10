@@ -182,12 +182,24 @@ class GenerationStore:
     def secret_transactions_root(self) -> Path:
         return self.secret_root / "transactions"
 
+    @property
+    def _split_standard_store(self) -> bool:
+        return self.secret_root != self.root
+
+    @property
+    def _configuration_file_mode(self) -> int:
+        return 0o640 if self._split_standard_store else 0o600
+
     def initialize(self, bundle_id: str) -> None:
         if _BUNDLE_ID.fullmatch(bundle_id) is None:
             raise GenerationStoreError("Store bundle lineage must use a canonical bundle ID.")
-        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        config_root_mode = 0o2750 if self._split_standard_store else 0o700
+        self.root.mkdir(mode=config_root_mode, parents=True, exist_ok=True)
+        self.root.chmod(config_root_mode)
         for name in ("config-generations", "activations", "transactions"):
-            (self.root / name).mkdir(mode=0o700, exist_ok=True)
+            directory = self.root / name
+            directory.mkdir(mode=config_root_mode, exist_ok=True)
+            directory.chmod(config_root_mode)
         self.secret_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         for name in ("secret-generations", "secret-status", "transactions"):
             (self.secret_root / name).mkdir(mode=0o700, exist_ok=True)
@@ -198,7 +210,7 @@ class GenerationStore:
             if actual != expected:
                 raise StoreLineageConflict("Installed store is bound to a different bundle lineage.")
             return
-        _write_new(binding, _json_bytes(expected), mode=0o600)
+        _write_new(binding, _json_bytes(expected), mode=self._configuration_file_mode)
         _fsync_directory(self.root)
 
     def validate_initialized(self) -> str:
@@ -262,8 +274,8 @@ class GenerationStore:
             "required_secret_ids": sorted(required_secret_ids),
         }
         try:
-            _write_new(directory / "configuration.json", normalized.canonical_bytes, mode=0o600)
-            _write_new(directory / "metadata.json", _json_bytes(metadata), mode=0o600)
+            _write_new(directory / "configuration.json", normalized.canonical_bytes, mode=self._configuration_file_mode)
+            _write_new(directory / "metadata.json", _json_bytes(metadata), mode=self._configuration_file_mode)
             _fsync_directory(directory)
             _fsync_directory(directory.parent)
         except BaseException:
@@ -368,7 +380,7 @@ class GenerationStore:
         }
         temporary = self.root / f".selected-{secrets.token_hex(16)}.tmp"
         try:
-            _write_new(temporary, _json_bytes(pointer), mode=0o600)
+            _write_new(temporary, _json_bytes(pointer), mode=self._configuration_file_mode)
             os.replace(temporary, self.root / "selected.json")
             _fsync_directory(self.root)
         finally:
@@ -736,11 +748,15 @@ class GenerationStore:
             raise GenerationStoreError("Invalid generation identifier.")
         confined_root = self.root if base is None else base
         parent = confined_root / collection
-        parent.mkdir(mode=0o700, exist_ok=True)
+        configuration_collection = base is None and self._split_standard_store
+        parent_mode = 0o2750 if configuration_collection else 0o700
+        generation_mode = 0o750 if configuration_collection else 0o700
+        parent.mkdir(mode=parent_mode, exist_ok=True)
+        parent.chmod(parent_mode)
         if parent.is_symlink() or not parent.resolve(strict=True).is_relative_to(confined_root):
             raise GenerationIntegrityError("Generation collection escapes the installed store.")
         directory = parent / generation_id
-        directory.mkdir(mode=0o700)
+        directory.mkdir(mode=generation_mode)
         return directory
 
     def _generation_directory(
