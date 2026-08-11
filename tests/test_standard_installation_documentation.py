@@ -60,6 +60,9 @@ def test_standard_installation_runbook_covers_the_complete_cli_lifecycle() -> No
     ):
         assert required in runbook
 
+    assert 'sudo "$ORACLE_PYTHON" -B "$ORACLE_ADMIN" --json update-assemble-plan' in runbook
+    assert "validates the existing selected secret generation" in reference
+
 
 def test_public_navigation_exposes_installation_and_administration_contracts() -> None:
     readme = PUBLIC_README.read_text(encoding="utf-8")

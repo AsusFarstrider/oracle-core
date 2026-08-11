@@ -57,7 +57,8 @@ shell, or broad authorization rule.
 
 | Command family | Normal authority | Mutation |
 | --- | --- | --- |
-| `preflight`, all `*-plan`, `status` | enrolled operator where an installation exists | none |
+| `preflight`, non-secret `*-plan`, `status` | enrolled operator where an installation exists | none |
+| `update-assemble-plan` | explicit elevation | none; reads the selected secret generation for complete-activation validation |
 | `diagnostics-export` | enrolled operator | creates one redacted operator-owned output file outside `/srv/oracle` |
 | `stage`, `assemble`, `update-assemble` | explicit elevation | managed host/install state |
 | `service-install` | explicit elevation | fixed systemd definition and daemon reload |
@@ -101,7 +102,9 @@ and selects it as `staged`. It does not install or start the systemd service.
 Arguments match initial assembly. These commands build a complete update
 activation around already staged protected components while preserving the
 currently selected configuration activation when compatible. The candidate is
-selected only as `staged`.
+selected only as `staged`. `update-assemble-plan` requires explicit elevation:
+although read-only, it validates the existing selected secret generation and
+must not broaden `oracle-admin` access to raw secret material.
 
 ### `service-plan` / `service-install`
 

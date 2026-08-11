@@ -277,12 +277,15 @@ sudo "$ORACLE_PYTHON" -B "$ORACLE_ADMIN" --json stage \
 ```
 
 Take the target environment identity from the stage result, then assemble the
-new complete staged activation:
+new complete staged activation. Planning this update assembly is explicitly
+elevated because it validates the currently selected secret generation while
+building the complete activation; membership in `oracle-admin` does not grant
+raw secret traversal.
 
 ```sh
 TARGET_ENVIRONMENT_IDENTITY='oracle-python-environment-v1:sha256:<exact-digest>'
 
-"$ORACLE_PYTHON" -B "$ORACLE_ADMIN" --json update-assemble-plan \
+sudo "$ORACLE_PYTHON" -B "$ORACLE_ADMIN" --json update-assemble-plan \
   --core-artifact "$CORE_ARTIFACT" \
   --household-artifact "$HOUSEHOLD_ARTIFACT" \
   --environment-identity "$TARGET_ENVIRONMENT_IDENTITY" \
