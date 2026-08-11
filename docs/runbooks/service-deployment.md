@@ -12,6 +12,12 @@ This runbook describes the standard Debian Brain service posture. A private
 development installation may continue using its existing checkout and service
 arrangement; it is not modified by this standard-installation guide.
 
+For the exact artifact bootstrap, staging, assembly, service installation,
+activation, update, recovery, rollback, and verification commands, use the
+[standard Debian installation runbook](standard-installation.md). The
+[administration CLI reference](../reference/administration-cli.md) defines the
+plan/apply and elevation boundary for each command.
+
 ## Lifecycle Authority
 
 Systemd is the outer process-lifecycle authority. It provides boot enablement,

@@ -131,6 +131,14 @@ deployment artifacts plus separately supplied secrets. Installation, update,
 recovery, and rollback record the resolved core commit and Git tree rather than
 a moving branch or unresolved tag.
 
+## Install And Operate
+
+- [Standard Debian installation, update, recovery, and rollback](docs/runbooks/standard-installation.md)
+- [Administration CLI contract and command reference](docs/reference/administration-cli.md)
+- [Canonical household configuration setup](docs/config/setup.md)
+- [Dependency and installation-profile declarations](docs/reference/dependency-profiles.md)
+- [Systemd service and restart lifecycle](docs/runbooks/service-deployment.md)
+
 ## License
 
 Oracle reusable core is licensed under the Apache License 2.0. See

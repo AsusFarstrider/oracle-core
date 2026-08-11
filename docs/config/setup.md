@@ -5,6 +5,11 @@ the standard installation lifecycle on Debian 13/amd64 with the provider-free
 `minimal-brain` profile. Other platforms and optional profiles remain
 experimental or unverified until they receive their own lifecycle evidence.
 
+Use the [standard Debian installation runbook](../runbooks/standard-installation.md)
+to validate, stage, assemble, activate, update, recover, or roll back a
+materialized household deployment. This document defines what that deployment
+must contain; it is not a substitute for the host lifecycle procedure.
+
 ## Authority
 
 Read these reusable authorities first:

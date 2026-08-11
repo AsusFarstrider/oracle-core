@@ -1,9 +1,11 @@
 # Oracle Deployment Inventory
 
-> **Stage 4 target contract:** the `/srv/oracle` installation, administration,
-> activation, and recovery machinery described below is ratified but is not an
-> operational runbook until the standard installer and clean-host lifecycle
-> evidence are complete. Current untagged core snapshots are development inputs.
+> **Validated Stage 4 baseline:** the `/srv/oracle` installation,
+> administration, activation, and recovery machinery described below passed
+> clean-host lifecycle evidence on Debian 13/amd64 with `minimal-brain` and
+> host-local ingress. Use the
+> [standard installation runbook](standard-installation.md) for the supported
+> operator procedure.
 
 ## Purpose
 
