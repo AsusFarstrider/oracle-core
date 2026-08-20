@@ -46,7 +46,7 @@ def send_stt(
     on_upload_complete: Optional[Callable[[], None]] = None,
     on_upload_complete_error: Optional[Callable[[Exception], None]] = None,
 ) -> str:
-    parsed = urlsplit(f"{oracle_url.rstrip('/')}/stt")
+    parsed = urlsplit(f"{oracle_url.rstrip('/')}/api/speech/stt")
     if parsed.scheme not in {"http", "https"}:
         raise RuntimeError(f"Unsupported STT URL scheme: {parsed.scheme}")
 
@@ -78,7 +78,7 @@ def send_stt(
     connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
     connection = connection_cls(parsed.hostname, parsed.port, timeout=120)
     try:
-        connection.putrequest("POST", parsed.path or "/stt")
+        connection.putrequest("POST", parsed.path or "/api/speech/stt")
         headers = _request_headers(
             credential=credential,
             correlation_id=clean_correlation_id,
@@ -127,11 +127,26 @@ def send_command(
     headers = _request_headers(credential=credential, correlation_id=correlation_id)
     if headers is not None:
         request_kwargs["headers"] = headers
-    response = requests.post(f"{oracle_url.rstrip('/')}/command", **request_kwargs)
+    response = requests.post(f"{oracle_url.rstrip('/')}/api/conversation/command", **request_kwargs)
     response.raise_for_status()
     data = response.json()
     spoken_reply = extract_spoken_reply(data)
-    return CommandOutcome(transcript=transcript, spoken_reply=spoken_reply, raw_response=data)
+    for field in ("source_id", "session_id", "trace_id"):
+        if not str(data.get(field) or "").strip():
+            raise RuntimeError(f"Oracle conversation result omitted {field}")
+    if str(data.get("source_id")) != source:
+        raise RuntimeError("Oracle conversation result source identity mismatch")
+    return CommandOutcome(
+        transcript=transcript,
+        spoken_reply=spoken_reply,
+        raw_response=data,
+        status=str(data.get("status") or ""),
+        failure_code=str(data.get("failure_code") or ""),
+        effects=dict(data.get("effects") or {}),
+        source_id=str(data.get("source_id") or ""),
+        session_id=str(data.get("session_id") or ""),
+        trace_id=str(data.get("trace_id") or ""),
+    )
 
 
 def submit_wake_claim(
@@ -222,15 +237,15 @@ def report_satellite_activity(
         return
 
 
-def fetch_pending_alerts(
+def claim_due_alerts(
     oracle_url: str,
     source: str,
     *,
     credential: str | None = None,
 ) -> List[Dict[str, Any]]:
-    response = requests.get(
-        f"{oracle_url.rstrip('/')}/alerts/pending",
-        params={"source": source},
+    response = requests.post(
+        f"{oracle_url.rstrip('/')}/api/satellite/alerts/claim",
+        json={"source_id": source, "lease_seconds": 60, "limit": 16},
         timeout=30,
         **_header_kwargs(credential=credential),
     )
@@ -238,6 +253,23 @@ def fetch_pending_alerts(
     data = response.json()
     alerts = data.get("alerts")
     return alerts if isinstance(alerts, list) else []
+
+
+def acknowledge_alert(
+    oracle_url: str,
+    source: str,
+    alert_id: str,
+    lease_id: str,
+    *,
+    credential: str | None = None,
+) -> None:
+    response = requests.post(
+        f"{oracle_url.rstrip('/')}/api/satellite/alerts/{alert_id}/acknowledge",
+        json={"source_id": source, "lease_id": lease_id, "status": "completed"},
+        timeout=30,
+        **_header_kwargs(credential=credential),
+    )
+    response.raise_for_status()
 
 
 def fetch_command_events(
@@ -250,7 +282,7 @@ def fetch_command_events(
     credential: str | None = None,
 ) -> List[Dict[str, Any]]:
     response = requests.get(
-        f"{oracle_url.rstrip('/')}/api/voice/command-events",
+        f"{oracle_url.rstrip('/')}/api/conversation/command-events",
         params={
             "source": source,
             "session_id": session_id,
@@ -265,19 +297,18 @@ def fetch_command_events(
     return events if isinstance(events, list) else []
 
 
-def send_silent_audiobook_stop(
+def resume_deferred_playback(
     oracle_url: str,
     source: str,
-    alert_id: str,
+    continuation_token: str,
     *,
     credential: str | None = None,
 ) -> Dict[str, Any]:
     response = requests.post(
-        f"{oracle_url.rstrip('/')}/command",
+        f"{oracle_url.rstrip('/')}/api/satellite/deferred-resume",
         json={
-            "text": "stop audiobook",
             "source": source,
-            "session_id": f"{source}-sleep-timer-{alert_id}",
+            "continuation_token": continuation_token,
         },
         timeout=120,
         **_header_kwargs(credential=credential),
@@ -286,16 +317,9 @@ def send_silent_audiobook_stop(
     try:
         payload = response.json()
     except (TypeError, ValueError) as exc:
-        raise requests.RequestException("Sleep timer Brain stop returned invalid JSON") from exc
-    dispatch = payload.get("dispatch") if isinstance(payload, dict) else None
-    result = dispatch.get("result") if isinstance(dispatch, dict) else None
-    if (
-        not isinstance(dispatch, dict)
-        or str(dispatch.get("status") or "").strip().lower() != "executed"
-        or not isinstance(result, dict)
-        or str(result.get("action") or "").strip().lower() != "stop"
-    ):
-        raise requests.RequestException("Sleep timer Brain stop did not execute")
+        raise requests.RequestException("Deferred playback continuation returned invalid JSON") from exc
+    if not isinstance(payload, dict):
+        raise requests.RequestException("Deferred playback continuation returned an invalid response")
     return payload
 
 
@@ -306,7 +330,7 @@ def request_tts(
     credential: str | None = None,
 ) -> bytes:
     response = requests.post(
-        f"{oracle_url.rstrip('/')}/tts",
+        f"{oracle_url.rstrip('/')}/api/speech/tts",
         json={"text": text},
         timeout=120,
         **_header_kwargs(credential=credential),

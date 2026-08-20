@@ -268,7 +268,7 @@ class WeatherRuntimeSettingsTests(unittest.TestCase):
                 satellite_projection_activation_ids=MappingProxyType({}),
                 config_revision=inspection.normalized_candidate_revision,
                 bundle_id="example-home",
-                schema_version=1,
+                schema_version=2,
                 roles=inspection.bundle.roles,  # type: ignore[union-attr]
                 secrets=inspection.secrets,  # type: ignore[arg-type]
             )

@@ -1,17 +1,60 @@
 from __future__ import annotations
 
 import json
-from urllib import error, request
+from typing import Any
 
-from oracle_app.config import get_ollama_request_settings, get_ollama_settings
+from oracle_app.inference import InferenceClient, legacy_inference_client
 
 from .parsing import MusicIntent, optional_list, optional_str
 
 
-def resolve_with_ollama(text: str) -> MusicIntent | None:
-    base_url, model = get_ollama_settings()
-    settings = get_ollama_request_settings()
-    endpoint = f"{base_url}/api/generate"
+OLLAMA_CAPABILITY_MODES: set[str] = {"answer", "home_assistant", "calendar", "music", "news", "audiobook"}
+
+
+def parse_ollama_decision(raw_text: str) -> dict[str, str]:
+    cleaned = raw_text.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+    if cleaned.startswith("json"):
+        cleaned = cleaned[4:].strip()
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end >= start:
+        cleaned = cleaned[start : end + 1]
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return {
+            "mode": "answer",
+            "reply": raw_text.strip(),
+            "command": "",
+            "reason": "Model did not return valid JSON; treated as a non-executable answer",
+        }
+    mode = parsed.get("mode")
+    if mode not in OLLAMA_CAPABILITY_MODES:
+        return {
+            "mode": "answer",
+            "reply": raw_text.strip(),
+            "command": "",
+            "reason": "Model returned an invalid mode; treated as a non-executable answer",
+        }
+    reply = str(parsed.get("reply", "")).strip()
+    command = str(parsed.get("command", "")).strip()
+    reason = str(parsed.get("reason", "")).strip()
+    if mode != "answer" and not command:
+        return {
+            "mode": "answer",
+            "reply": reply or "I need a clearer request before I can act on it.",
+            "command": "",
+            "reason": reason or "Model selected an executable mode without a command",
+        }
+    return {"mode": mode, "reply": reply, "command": command, "reason": reason}
+
+
+def resolve_with_ollama(text: str, *, inference: InferenceClient | None = None) -> MusicIntent | None:
     system = (
         "You extract structured music intents for Oracle. "
         "Return only JSON with keys: intent, media_type, title, artist, album, playlist, genre, qualifiers, mode. "
@@ -20,26 +63,9 @@ def resolve_with_ollama(text: str) -> MusicIntent | None:
         "Allowed media_type: track, album, artist, playlist. "
         "Do not invent media that was not requested."
     )
-    payload = {
-        "model": model,
-        "prompt": text,
-        "system": system,
-        "format": "json",
-        "stream": False,
-        "keep_alive": settings["keep_alive"],
-        "options": settings["options"],
-    }
-    req = request.Request(
-        endpoint,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
     try:
-        with request.urlopen(req, timeout=settings["timeout_seconds"]) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError):
+        body = _inference(inference).generate(text, system=system, format="json")
+    except Exception:
         return None
 
     raw = str(body.get("response", "")).strip()
@@ -74,13 +100,12 @@ def resolve_with_ollama(text: str) -> MusicIntent | None:
 def choose_music_match_with_ollama(
     intent: MusicIntent,
     candidates: list[dict[str, Any]],
+    *,
+    inference: InferenceClient | None = None,
 ) -> dict[str, Any] | None:
     if not candidates:
         return None
 
-    base_url, model = get_ollama_settings()
-    settings = get_ollama_request_settings()
-    endpoint = f"{base_url}/api/generate"
     system = (
         "You choose the best music playback match for Oracle. "
         "Return only JSON with keys: choice_index and reason. "
@@ -106,26 +131,9 @@ def choose_music_match_with_ollama(
             "candidates": prompt_candidates,
         }
     )
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "system": system,
-        "format": "json",
-        "stream": False,
-        "keep_alive": settings["keep_alive"],
-        "options": settings["options"],
-    }
-    req = request.Request(
-        endpoint,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
     try:
-        with request.urlopen(req, timeout=settings["timeout_seconds"]) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError):
+        body = _inference(inference).generate(prompt, system=system, format="json")
+    except Exception:
         return None
 
     raw = str(body.get("response", "")).strip()
@@ -149,13 +157,12 @@ def choose_music_match_with_ollama(
 def choose_best_guess_with_ollama(
     request_text: str,
     candidates: list[dict[str, Any]],
+    *,
+    inference: InferenceClient | None = None,
 ) -> dict[str, Any] | None:
     if not candidates:
         return None
 
-    base_url, model = get_ollama_settings()
-    settings = get_ollama_request_settings()
-    endpoint = f"{base_url}/api/generate"
     system = (
         "You choose the single best fallback media guess for Oracle after deterministic matching was too weak. "
         "Return only JSON with keys: choice_index and reason. "
@@ -184,26 +191,9 @@ def choose_best_guess_with_ollama(
             "candidates": prompt_candidates,
         }
     )
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "system": system,
-        "format": "json",
-        "stream": False,
-        "keep_alive": settings["keep_alive"],
-        "options": settings["options"],
-    }
-    req = request.Request(
-        endpoint,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
     try:
-        with request.urlopen(req, timeout=settings["timeout_seconds"]) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError):
+        body = _inference(inference).generate(prompt, system=system, format="json")
+    except Exception:
         return None
 
     raw = str(body.get("response", "")).strip()
@@ -222,3 +212,9 @@ def choose_best_guess_with_ollama(
     if not 0 <= choice_index < len(candidates):
         return None
     return candidates[choice_index]
+
+
+def _inference(inference: InferenceClient | None) -> InferenceClient:
+    if inference is not None:
+        return inference
+    return legacy_inference_client()

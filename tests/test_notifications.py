@@ -15,7 +15,6 @@ from oracle_app.alerts import (
     consume_due_alerts,
     create_alert_batch,
     list_due_alerts,
-    record_alert_idempotency_key,
 )
 from oracle_app.notifications import (
     NotificationContextNotSupportedError,
@@ -23,6 +22,15 @@ from oracle_app.notifications import (
     build_notification_delivery_decisions,
     evaluate_notification_suppression,
     submit_notification,
+)
+from oracle_app.memory.alerts import acknowledge_alert, claim_due_alerts
+from oracle_app.notifications.channels.satellite_announcement import (
+    dispatch_satellite_announcement_values,
+    reconcile_satellite_receipts,
+)
+from oracle_app.notifications.receipts import (
+    NotificationDeliveryQuery,
+    list_notification_deliveries,
 )
 
 
@@ -75,6 +83,63 @@ def _external_settings(*, failure_policy: str = "best_effort"):
 
 class NotificationAlertStoreTests(IsolatedAlertStoreTestCase):
 
+    def test_satellite_receipt_tracks_acknowledgement_suppression_and_expiry(self) -> None:
+        now = datetime.now().astimezone()
+        for occurrence_id in ("accepted", "suppressed", "expired"):
+            dispatch_satellite_announcement_values(
+                notification_type="door_open",
+                occurrence_id=occurrence_id,
+                targets=("source-a",),
+                message="Door open.",
+                audio_policy="pause_resume",
+                delivery_ttl_seconds=1,
+                caller="test",
+                now=now,
+            )
+
+        accepted = claim_due_alerts(
+            source_id="source-a",
+            now=now,
+            notification_decisions={
+                list_due_alerts("source-a", kind="notification")[0].alert_id: "deliver"
+            },
+            db_path=self.alert_db_path,
+        )
+        self.assertEqual(len(accepted), 1)
+        acknowledge_alert(
+            alert_id=accepted[0].alert_id,
+            source_id="source-a",
+            lease_id=str(accepted[0].lease_id),
+            now=now,
+            db_path=self.alert_db_path,
+        )
+        remaining = list_due_alerts("source-a", kind="notification")
+        suppressed_id = next(
+            item.alert_id for item in remaining
+            if item.metadata["event_id"] == "suppressed"
+        )
+        claim_due_alerts(
+            source_id="source-a",
+            now=now,
+            notification_decisions={suppressed_id: "suppress"},
+            db_path=self.alert_db_path,
+        )
+        claim_due_alerts(
+            source_id="source-a",
+            now=now + timedelta(seconds=2),
+            notification_decisions={},
+            db_path=self.alert_db_path,
+        )
+        reconcile_satellite_receipts("source-a")
+        receipts = list_notification_deliveries(
+            NotificationDeliveryQuery(notification_type="door_open", limit=10),
+            db_path=self.alert_db_path,
+        )
+        self.assertEqual(
+            {item["occurrence_id"]: item["status"] for item in receipts},
+            {"accepted": "accepted", "suppressed": "suppressed", "expired": "expired"},
+        )
+
     def test_batch_fanout_is_source_scoped_and_idempotent(self) -> None:
         now = datetime.now().astimezone()
         created, duplicate = create_alert_batch(
@@ -112,14 +177,15 @@ class NotificationAlertStoreTests(IsolatedAlertStoreTestCase):
             message="Stale door warning.",
             sources=["source-a"],
             session_id=None,
-            expires_at=now - timedelta(seconds=1),
+            expires_at=now + timedelta(seconds=1),
             idempotency_key="notification:door_open:event-expired",
         )
 
-        self.assertEqual(
-            consume_due_alerts("source-a", notification_decisions={}),
-            [],
-        )
+        with patch("oracle_app.alerts._now_local", return_value=now + timedelta(seconds=2)):
+            self.assertEqual(
+                consume_due_alerts("source-a", notification_decisions={}),
+                [],
+            )
         _created, duplicate = create_alert_batch(
             kind="notification",
             due_at=now,
@@ -150,23 +216,7 @@ class NotificationAlertStoreTests(IsolatedAlertStoreTestCase):
         )
         self.assertEqual([item["message"] for item in delivered], ["Door open."])
 
-    def test_suppressed_receipt_deduplicates_later_fanout(self) -> None:
-        key = "notification:door_open:suppressed-event"
-
-        self.assertFalse(record_alert_idempotency_key(key))
-        _created, duplicate = create_alert_batch(
-            kind="notification",
-            due_at=datetime.now().astimezone(),
-            message="Door open.",
-            sources=["source-a"],
-            session_id=None,
-            idempotency_key=key,
-        )
-
-        self.assertTrue(duplicate)
-
-
-class NotificationServiceTests(unittest.TestCase):
+class NotificationServiceTests(IsolatedAlertStoreTestCase):
     def test_suppression_reads_home_assistant_helper(self) -> None:
         bridge = SimpleNamespace(
             fetch_entity_state=lambda entity_id: {
@@ -228,7 +278,7 @@ class NotificationServiceTests(unittest.TestCase):
         self.assertNotIn("caller", mock_create.call_args.kwargs["metadata"])
 
     @patch("oracle_app.notifications.service.record_notification_event")
-    @patch("oracle_app.notifications.service.record_alert_idempotency_key", return_value=False)
+    @patch("oracle_app.notifications.service.reserve_suppressed_satellite_receipts", return_value=True)
     @patch("oracle_app.notifications.service.evaluate_notification_suppression", return_value="active")
     @patch("oracle_app.notifications.catalog.get_notification_settings", return_value=SETTINGS)
     def test_submit_returns_suppressed_without_creating_alerts(

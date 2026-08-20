@@ -6,6 +6,7 @@ from typing import Any
 from oracle_app.command_events import append_command_interim_event
 from oracle_app.facts_cache import load_cached_facts_result, store_facts_result_in_cache
 from oracle_app.facts_summarizer import summarize_facts_result
+from oracle_app.facts_wikipedia_policy import WikipediaQuestionPolicy
 from oracle_app.provider_bridges.facts_static import StaticFactsBridge
 from oracle_app.provider_bridges.facts_wikipedia import WikipediaFactsBridge
 from oracle_app.schemas import (
@@ -63,7 +64,7 @@ def lookup_facts(request: FactsProviderRequest, *, settings: dict[str, Any]) -> 
         store_facts_result_in_cache(request, result, settings=settings)
         return result
     if provider == "wikipedia_api":
-        result = WikipediaFactsBridge().lookup(request, settings=settings)
+        result = WikipediaFactsBridge(policy=WikipediaQuestionPolicy()).lookup(request, settings=settings)
         store_facts_result_in_cache(request, result, settings=settings)
         return result
     result = FactsProviderResult(

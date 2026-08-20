@@ -10,12 +10,11 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from oracle_app.runtime_paths import RUNTIME_PATHS
+from oracle_app.memory.schema import SUGGESTIONS_SCHEMA
 
 
 DATA_DIR = RUNTIME_PATHS.data
 DB_PATH = RUNTIME_PATHS.memory_database
-LAST_PACKET_PATH = RUNTIME_PATHS.last_suggestions_packet
-LAST_RESPONSE_PATH = RUNTIME_PATHS.last_suggestions_response
 
 
 def utc_now_iso() -> str:
@@ -28,76 +27,8 @@ def ensure_storage(db_path: Path | None = None) -> None:
     conn = sqlite3.connect(db_path)
     try:
         conn.execute("PRAGMA journal_mode=WAL")
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS suggestion_runs (
-                run_id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                completed_at TEXT,
-                status TEXT NOT NULL,
-                run_type TEXT NOT NULL,
-                window_start TEXT NOT NULL,
-                window_end TEXT NOT NULL,
-                reason TEXT,
-                custom_prompt TEXT,
-                openclaw_status TEXT,
-                collector_status_json TEXT NOT NULL DEFAULT '{}',
-                error TEXT,
-                packet_path TEXT,
-                response_path TEXT,
-                suggestion_count INTEGER NOT NULL DEFAULT 0,
-                mock INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE TABLE IF NOT EXISTS suggestions (
-                id TEXT PRIMARY KEY,
-                run_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                status TEXT NOT NULL,
-                title TEXT NOT NULL,
-                severity TEXT NOT NULL,
-                category TEXT NOT NULL,
-                source TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                evidence_json TEXT NOT NULL,
-                suggested_action TEXT NOT NULL,
-                recommended_oracle_action TEXT,
-                confidence REAL NOT NULL,
-                requires_review INTEGER NOT NULL,
-                similarity_key TEXT NOT NULL,
-                similar_to_id TEXT,
-                raw_openclaw_item_json TEXT NOT NULL,
-                reviewed_at TEXT,
-                review_decision TEXT,
-                review_notes TEXT,
-                correction_text TEXT,
-                rejection_reason TEXT,
-                future_automation_candidate INTEGER NOT NULL DEFAULT 0,
-                suppress_if_repeated INTEGER NOT NULL DEFAULT 0,
-                mock INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY(run_id) REFERENCES suggestion_runs(run_id)
-            );
-
-            CREATE TABLE IF NOT EXISTS suggestion_reviews (
-                review_id TEXT PRIMARY KEY,
-                suggestion_id TEXT NOT NULL,
-                run_id TEXT NOT NULL,
-                reviewed_at TEXT NOT NULL,
-                status TEXT NOT NULL,
-                notes TEXT,
-                correction_text TEXT,
-                rejection_reason TEXT,
-                future_automation_candidate INTEGER NOT NULL DEFAULT 0,
-                suppress_if_repeated INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY(suggestion_id) REFERENCES suggestions(id)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_suggestions_run ON suggestions(run_id);
-            CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status);
-            CREATE INDEX IF NOT EXISTS idx_suggestions_similarity ON suggestions(similarity_key);
-            CREATE INDEX IF NOT EXISTS idx_reviews_suggestion ON suggestion_reviews(suggestion_id);
-            """
-        )
+        # Oracle Memory is the sole table/schema authority for Suggestions.
+        conn.executescript(SUGGESTIONS_SCHEMA)
         conn.commit()
     finally:
         conn.close()
@@ -153,7 +84,7 @@ def update_run(
             """
             UPDATE suggestion_runs
             SET completed_at = ?, status = ?, openclaw_status = ?, collector_status_json = ?,
-                error = ?, packet_path = ?, response_path = ?, suggestion_count = ?
+                error = ?, packet_path = NULL, response_path = NULL, suggestion_count = ?
             WHERE run_id = ?
             """,
             (
@@ -162,8 +93,6 @@ def update_run(
                 openclaw_status,
                 json.dumps(collector_status, sort_keys=True),
                 error,
-                str(LAST_PACKET_PATH),
-                str(LAST_RESPONSE_PATH),
                 int(suggestion_count),
                 run_id,
             ),
@@ -181,6 +110,50 @@ def last_successful_run_end() -> str | None:
             """
         ).fetchone()
     return str(row["window_end"]) if row else None
+
+
+def save_current_exchange(
+    run_id: str,
+    *,
+    packet: dict[str, Any] | None = None,
+    response: dict[str, Any] | None = None,
+) -> None:
+    with connect() as conn:
+        existing = conn.execute(
+            "SELECT * FROM suggestion_exchange_current WHERE singleton_id=1"
+        ).fetchone()
+        packet_json = (
+            json.dumps(packet, sort_keys=True) if packet is not None
+            else (existing["packet_json"] if existing is not None and existing["run_id"] == run_id else None)
+        )
+        response_json = (
+            json.dumps(response, sort_keys=True) if response is not None
+            else (existing["response_json"] if existing is not None and existing["run_id"] == run_id else None)
+        )
+        conn.execute(
+            """INSERT INTO suggestion_exchange_current (
+                   singleton_id, run_id, updated_at, packet_json, response_json
+               ) VALUES (1, ?, ?, ?, ?)
+               ON CONFLICT(singleton_id) DO UPDATE SET
+                   run_id=excluded.run_id, updated_at=excluded.updated_at,
+                   packet_json=excluded.packet_json, response_json=excluded.response_json""",
+            (run_id, utc_now_iso(), packet_json, response_json),
+        )
+
+
+def get_current_exchange() -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM suggestion_exchange_current WHERE singleton_id=1"
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "run_id": row["run_id"],
+        "updated_at": row["updated_at"],
+        "packet": json.loads(row["packet_json"]) if row["packet_json"] else None,
+        "response": json.loads(row["response_json"]) if row["response_json"] else None,
+    }
 
 
 def default_window() -> tuple[str, str]:

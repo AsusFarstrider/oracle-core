@@ -117,11 +117,12 @@ occurrence id must not create another announcement.
 Expired notification alerts must not be released to a satellite. This avoids
 speaking stale household state after a target reconnects.
 
-Delivery uses the existing polling alert boundary; this capability does not
-add direct Brain-to-satellite push or move policy into satellites.
+Delivery uses authenticated leased satellite claim and explicit
+acknowledgement; this capability does not add direct Brain-to-satellite push or
+move policy into satellites.
 
-Alert queue consumption confirms that a satellite accepted the item. It does
-not prove that a person heard the announcement.
+Acknowledgement confirms that the local runtime accepted the foreground
+operation. It does not prove that a person heard the announcement.
 
 ## External Channel Contract
 
@@ -158,10 +159,13 @@ routing tags, topics, credentials, payload bodies, and provider-native receipt
 objects are forbidden.
 
 The store supports idempotent reservation, validated transitions, filtered
-inspection, and due-work lookup. Existing satellite delivery does not use
-these receipts. An enabled external policy reserves one receipt per logical
-recipient group. `first_per_correlation` is enforced by a unique Memory index;
-later occurrences in the same correlation reuse the first receipt.
+inspection, and due-work lookup. Satellite announcements reserve one receipt
+per canonical target source: it remains pending through an alert lease, becomes
+accepted on acknowledgement, and becomes suppressed or expired with the typed
+terminal alert outcome. Receipt reconciliation is retry-safe after a crash.
+An enabled external policy reserves one receipt per logical recipient group.
+`first_per_correlation` is enforced by a unique Memory index; later occurrences
+in the same correlation reuse the first receipt.
 
 ## Apprise Provider Bridge
 

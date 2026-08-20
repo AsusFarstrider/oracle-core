@@ -17,7 +17,6 @@ UI contract.
   listener and canonical access policy.
 - `external-boundary-required`: remote Internet use requires a separately
   configured VPN, authenticated tunnel, reverse proxy, or equivalent boundary.
-- `compatibility`: a retained alias whose removal has a separate evidence gate.
 
 No label grants authorization by itself. Installation bind settings and
 canonical trust, source, authentication, and credential policy must agree.
@@ -27,10 +26,12 @@ canonical trust, source, authentication, and credential policy must agree.
 | Family | Representative paths | Minimum exposure rule |
 |---|---|---|
 | Household browser UI | `/ui`, `/ui/*`, `/api/ui/*` | Host-local by default; household LAN by explicit choice. Remote Internet use requires an external boundary. |
-| Operator diagnostics | `/admin`, `/admin/*`, read-only `/api/admin/*` | Same transport choices as browser UI, with operator-sensitive results protected by the applicable access policy. |
-| Health and discovery | `/health`, `/health/*`, admin health aliases | Never assume anonymous public access. Any externally reachable liveness result must be separately bounded and non-sensitive. |
-| Voice requests | `/api/voice/*` and retained aliases | Household LAN only when enabled clients have matching canonical source and credential policy. |
+| Operator diagnostics | `/admin`, `/admin/*`, read-only `/api/admin/*` including `/api/admin/caches` | Same transport choices as browser UI, with operator-sensitive results protected by the applicable access policy. Cache diagnostics are read-only lifecycle/footprint evidence. |
+| Health and discovery | root `/health` liveness and `/api/admin/health/*` diagnostics | Never assume anonymous public access. Root `/health` is the only permanent root API; satellite-local `:8022/health/config` is a separate appliance contract. |
+| Conversation requests | `/api/conversation/*` | Household LAN only when enabled clients have matching canonical source and credential policy. Raw route and dispatch internals are not public command results. |
+| Speech conversion | `/api/speech/stt`, `/api/speech/tts` | Household LAN only for enabled clients; speech conversion owns no command, session, or reply policy. |
 | Satellite lifecycle | `/api/satellite/*` | Household LAN, with the exact directional lifecycle or operational credential required by each route. Do not expose through a public browser boundary. |
+| Reliable satellite alerts | `/api/satellite/alerts/claim`, `/api/satellite/alerts/{alert_id}/acknowledge` | Household LAN only; require the satellite projection credential and derive source identity from it. |
 | Provider integrations | `/api/integrations/{provider}/*` | Internal or household LAN only, narrowly authenticated, and limited to Oracle-native evidence or callbacks. |
 | Media proxy | Brain-hosted artwork or prepared playback streams | Reachable only where the consuming authorized client requires it; provider credentials must never leak into URLs or responses. |
 | Development introspection | `/docs`, `/redoc`, `/openapi.json` | Host-local by default; explicitly gate or disable before broader exposure. |

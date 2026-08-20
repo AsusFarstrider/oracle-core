@@ -1,5 +1,5 @@
 {
-  "$id": "urn:oracle:configuration-schema:v1",
+  "$id": "urn:oracle:configuration-schema:v2",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Generated tooling output; executable Pydantic models remain field authority.",
@@ -400,11 +400,11 @@
         "MemoryRetentionConfiguration": {
           "additionalProperties": false,
           "properties": {
-            "cache_history_days": {
-              "default": 30,
+            "alert_terminal_days": {
+              "default": 90,
               "maximum": 3650,
               "minimum": 0,
-              "title": "Cache History Days",
+              "title": "Alert Terminal Days",
               "type": "integer"
             },
             "critical_event_days": {
@@ -421,13 +421,6 @@
               "title": "Error Event Days",
               "type": "integer"
             },
-            "evidence_ref_days": {
-              "default": 90,
-              "maximum": 3650,
-              "minimum": 0,
-              "title": "Evidence Ref Days",
-              "type": "integer"
-            },
             "failed_raw_transcript_days": {
               "default": 30,
               "maximum": 3650,
@@ -442,18 +435,39 @@
               "title": "Lifecycle Event Days",
               "type": "integer"
             },
+            "notification_accepted_days": {
+              "default": 90,
+              "maximum": 3650,
+              "minimum": 0,
+              "title": "Notification Accepted Days",
+              "type": "integer"
+            },
+            "notification_failed_days": {
+              "default": 365,
+              "maximum": 3650,
+              "minimum": 0,
+              "title": "Notification Failed Days",
+              "type": "integer"
+            },
+            "notification_suppressed_days": {
+              "default": 90,
+              "maximum": 3650,
+              "minimum": 0,
+              "title": "Notification Suppressed Days",
+              "type": "integer"
+            },
+            "orchestration_history_days": {
+              "default": 365,
+              "maximum": 3650,
+              "minimum": 0,
+              "title": "Orchestration History Days",
+              "type": "integer"
+            },
             "provider_status_event_days": {
               "default": 180,
               "maximum": 3650,
               "minimum": 0,
               "title": "Provider Status Event Days",
-              "type": "integer"
-            },
-            "rollup_days": {
-              "default": 365,
-              "maximum": 3650,
-              "minimum": 0,
-              "title": "Rollup Days",
               "type": "integer"
             },
             "routine_event_days": {
@@ -463,18 +477,11 @@
               "title": "Routine Event Days",
               "type": "integer"
             },
-            "snapshot_daily_days": {
+            "session_metadata_days": {
               "default": 90,
               "maximum": 3650,
               "minimum": 0,
-              "title": "Snapshot Daily Days",
-              "type": "integer"
-            },
-            "snapshot_hourly_days": {
-              "default": 14,
-              "maximum": 3650,
-              "minimum": 0,
-              "title": "Snapshot Hourly Days",
+              "title": "Session Metadata Days",
               "type": "integer"
             },
             "successful_raw_transcript_days": {
@@ -482,6 +489,34 @@
               "maximum": 3650,
               "minimum": 0,
               "title": "Successful Raw Transcript Days",
+              "type": "integer"
+            },
+            "suggestion_envelope_days": {
+              "default": 365,
+              "maximum": 3650,
+              "minimum": 0,
+              "title": "Suggestion Envelope Days",
+              "type": "integer"
+            },
+            "suggestion_exchange_days": {
+              "default": 30,
+              "maximum": 3650,
+              "minimum": 0,
+              "title": "Suggestion Exchange Days",
+              "type": "integer"
+            },
+            "suggestion_mock_days": {
+              "default": 30,
+              "maximum": 3650,
+              "minimum": 0,
+              "title": "Suggestion Mock Days",
+              "type": "integer"
+            },
+            "suggestion_raw_evidence_days": {
+              "default": 90,
+              "maximum": 3650,
+              "minimum": 0,
+              "title": "Suggestion Raw Evidence Days",
               "type": "integer"
             },
             "transcript_metadata_days": {
@@ -936,7 +971,7 @@
           "type": "string"
         },
         "schema_version": {
-          "const": 1,
+          "const": 2,
           "title": "Schema Version",
           "type": "integer"
         }
@@ -4725,6 +4760,17 @@
               "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
               "title": "User Id",
               "type": "string"
+            },
+            "when": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RoutineStepCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "required": [
@@ -4742,6 +4788,11 @@
         "IntegerRoutineInput": {
           "additionalProperties": false,
           "properties": {
+            "confirm_duration": {
+              "default": false,
+              "title": "Confirm Duration",
+              "type": "boolean"
+            },
             "default": {
               "title": "Default",
               "type": "integer"
@@ -4753,6 +4804,37 @@
             "minimum": {
               "title": "Minimum",
               "type": "integer"
+            },
+            "no_timer_value": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "No Timer Value"
+            },
+            "prompt": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Prompt"
+            },
+            "spoken_duration": {
+              "default": false,
+              "title": "Spoken Duration",
+              "type": "boolean"
             },
             "type": {
               "const": "integer",
@@ -4767,6 +4849,76 @@
             "maximum"
           ],
           "title": "IntegerRoutineInput",
+          "type": "object"
+        },
+        "NotificationStep": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Id",
+              "type": "string"
+            },
+            "label": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Label",
+              "type": "string"
+            },
+            "notification_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Notification Id",
+              "type": "string"
+            },
+            "on_failure": {
+              "enum": [
+                "stop",
+                "continue"
+              ],
+              "title": "On Failure",
+              "type": "string"
+            },
+            "required": {
+              "title": "Required",
+              "type": "boolean"
+            },
+            "timeout_seconds": {
+              "default": 15,
+              "maximum": 86400,
+              "minimum": 1,
+              "title": "Timeout Seconds",
+              "type": "integer"
+            },
+            "type": {
+              "const": "notification",
+              "title": "Type",
+              "type": "string"
+            },
+            "when": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RoutineStepCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "required",
+            "on_failure",
+            "type",
+            "notification_id"
+          ],
+          "title": "NotificationStep",
           "type": "object"
         },
         "PlaybackCheckStep": {
@@ -4835,6 +4987,17 @@
               "const": "playback_check",
               "title": "Type",
               "type": "string"
+            },
+            "when": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RoutineStepCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "required": [
@@ -4918,9 +5081,11 @@
                 "discriminator": {
                   "mapping": {
                     "audiobook_start": "#/$defs/AudiobookStartStep",
+                    "notification": "#/$defs/NotificationStep",
                     "playback_check": "#/$defs/PlaybackCheckStep",
                     "sleep_timer": "#/$defs/SleepTimerStep",
                     "state_check": "#/$defs/StateCheckStep",
+                    "timer_sound": "#/$defs/TimerSoundStep",
                     "ui_action": "#/$defs/UiActionStep",
                     "wait": "#/$defs/WaitStep"
                   },
@@ -4944,6 +5109,12 @@
                   },
                   {
                     "$ref": "#/$defs/StateCheckStep"
+                  },
+                  {
+                    "$ref": "#/$defs/NotificationStep"
+                  },
+                  {
+                    "$ref": "#/$defs/TimerSoundStep"
                   }
                 ]
               },
@@ -4980,6 +5151,45 @@
             "steps"
           ],
           "title": "RoutineDefinition",
+          "type": "object"
+        },
+        "RoutineStepCondition": {
+          "additionalProperties": false,
+          "properties": {
+            "input_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Input Id",
+              "type": "string"
+            },
+            "operator": {
+              "enum": [
+                "equals",
+                "not_equals",
+                "greater_than"
+              ],
+              "title": "Operator",
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "title": "Value"
+            }
+          },
+          "required": [
+            "input_id",
+            "operator",
+            "value"
+          ],
+          "title": "RoutineStepCondition",
           "type": "object"
         },
         "RoutineTriggers": {
@@ -5103,6 +5313,17 @@
               "const": "sleep_timer",
               "title": "Type",
               "type": "string"
+            },
+            "when": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RoutineStepCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "required": [
@@ -5183,6 +5404,17 @@
               "const": "state_check",
               "title": "Type",
               "type": "string"
+            },
+            "when": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RoutineStepCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "required": [
@@ -5225,6 +5457,76 @@
             "type"
           ],
           "title": "StringRoutineInput",
+          "type": "object"
+        },
+        "TimerSoundStep": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Id",
+              "type": "string"
+            },
+            "label": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Label",
+              "type": "string"
+            },
+            "on_failure": {
+              "enum": [
+                "stop",
+                "continue"
+              ],
+              "title": "On Failure",
+              "type": "string"
+            },
+            "required": {
+              "title": "Required",
+              "type": "boolean"
+            },
+            "source_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Source Id",
+              "type": "string"
+            },
+            "timeout_seconds": {
+              "default": 15,
+              "maximum": 86400,
+              "minimum": 1,
+              "title": "Timeout Seconds",
+              "type": "integer"
+            },
+            "type": {
+              "const": "timer_sound",
+              "title": "Type",
+              "type": "string"
+            },
+            "when": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RoutineStepCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "required",
+            "on_failure",
+            "type",
+            "source_id"
+          ],
+          "title": "TimerSoundStep",
           "type": "object"
         },
         "UiActionStep": {
@@ -5273,6 +5575,17 @@
               "const": "ui_action",
               "title": "Type",
               "type": "string"
+            },
+            "when": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RoutineStepCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "required": [
@@ -5362,6 +5675,17 @@
               "const": "wait",
               "title": "Type",
               "type": "string"
+            },
+            "when": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RoutineStepCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "required": [

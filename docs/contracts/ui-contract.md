@@ -139,13 +139,13 @@ Alpha `/api/ui` does not assume:
 - websockets
 - push-based sync
 
-### Separation From `/api/voice`
+### Separation From `/api/conversation`
 
-Conversation and chat belong in `/api/voice`.
+Conversation and chat belong in `/api/conversation`.
 
 If a browser or mobile client supports chat:
 
-- that chat surface uses `/api/voice`
+- that chat surface uses `/api/conversation`
 - it does not redefine `/api/ui` into a second conversation surface
 
 ### Alpha Constraints Are Temporary

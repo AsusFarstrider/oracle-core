@@ -6,10 +6,10 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from oracle_app import state
+from oracle_app import audiobook_state, state
 from oracle_app.audiobook_runtime.canonical import CanonicalAudiobookExecution
 from oracle_app.config import get_satellite_music_backend_hint
-from oracle_app.handlers.ollama import call_ollama_generate, parse_ollama_decision
+from oracle_app.inference import InferenceClient, legacy_inference_client
 from oracle_app.music_runtime.policy import (
     apply_ultra_generic_single_word_music_guard as apply_ultra_generic_single_word_music_guard_runtime,
     build_best_guess_candidates as build_music_best_guess_candidates,
@@ -56,6 +56,7 @@ from oracle_app.music_runtime.ollama import (
     choose_best_guess_with_ollama,
     choose_music_match_with_ollama,
     resolve_with_ollama,
+    parse_ollama_decision,
 )
 from oracle_app.music_runtime.parsing import parse_music_intent
 from oracle_app.music_runtime.client import build_native_queue_manifest
@@ -103,6 +104,7 @@ def execute_music(
     canonical_playback_target: bool = False,
     canonical_execution: CanonicalMusicExecution | None = None,
     audiobook_execution: CanonicalAudiobookExecution | None = None,
+    inference: InferenceClient | None = None,
     canonical_authority: bool = False,
 ) -> DispatchPlan:
     if canonical_authority and canonical_execution is None:
@@ -207,7 +209,7 @@ def execute_music(
         return dispatch
 
     parsed_intent = parse_music_intent(normalized)
-    intent = parsed_intent or resolve_with_ollama(normalized)
+    intent = parsed_intent or resolve_with_ollama(normalized, inference=inference)
     if intent is None:
         dispatch.status = "failed"
         dispatch.result = {
@@ -273,7 +275,7 @@ def execute_music(
         return dispatch
 
     if intent.intent == "lookup_album":
-        return _lookup_track_album(dispatch, intent=intent, search_music=search)
+        return _lookup_track_album(dispatch, intent=intent, search_music=search, inference=inference)
 
     if intent.intent != "play":
         dispatch.status = "failed"
@@ -408,6 +410,7 @@ def execute_music(
             music_candidates=scored[:5],
             audiobook_execution=audiobook_execution,
             canonical_authority=canonical_authority,
+            inference=inference,
         )
         if ollama_guess is not None:
             log_fallback_event(
@@ -431,7 +434,7 @@ def execute_music(
         return dispatch
 
     if decision == "clarify" and not _is_ultra_generic_single_word_music_title(intent):
-        ollama_selection = choose_music_match_with_ollama(intent, selected[:5])
+        ollama_selection = choose_music_match_with_ollama(intent, selected[:5], inference=inference)
         if ollama_selection is not None:
             decision = "execute"
             selected = [ollama_selection]
@@ -539,6 +542,7 @@ def _lookup_track_album(
     *,
     intent,
     search_music=search_music_catalog,
+    inference: InferenceClient | None = None,
 ) -> DispatchPlan:
     try:
         candidates = search_music(intent)
@@ -558,7 +562,7 @@ def _lookup_track_album(
     decision, selected = choose_music_match(scored)
 
     if decision == "not_found" or not selected:
-        ollama_reply = _lookup_music_info_with_ollama(intent.original_text)
+        ollama_reply = _lookup_music_info_with_ollama(intent.original_text, inference=inference)
         if ollama_reply:
             log_fallback_event(
                 source=dispatch.payload.get("source"),
@@ -600,14 +604,19 @@ def _lookup_track_album(
     return dispatch
 
 
-def _lookup_music_info_with_ollama(question: str) -> str | None:
+def _lookup_music_info_with_ollama(
+    question: str,
+    *,
+    inference: InferenceClient | None = None,
+) -> str | None:
     prompt = str(question or "").strip()
     if not prompt:
         return None
     try:
-        result = call_ollama_generate(
+        result = (inference or legacy_inference_client()).generate(
             prompt,
             system=MUSIC_INFO_ANSWER_SYSTEM_PROMPT,
+            format="json",
         )
     except Exception:
         return None
@@ -683,6 +692,7 @@ def _try_ollama_best_guess(
     music_candidates: list[dict[str, Any]],
     audiobook_execution: CanonicalAudiobookExecution | None = None,
     canonical_authority: bool = False,
+    inference: InferenceClient | None = None,
 ) -> DispatchPlan | None:
     return try_ollama_best_guess_runtime(
         dispatch,
@@ -696,7 +706,11 @@ def _try_ollama_best_guess(
             audiobook_execution=audiobook_execution,
             canonical_authority=canonical_authority,
         ),
-        choose_best_guess_with_ollama=choose_best_guess_with_ollama,
+        choose_best_guess_with_ollama=lambda text, candidates: choose_best_guess_with_ollama(
+            text,
+            candidates,
+            inference=inference,
+        ),
         store_pending_music_request=state.store_pending_music_request,
     )
 
@@ -1079,7 +1093,7 @@ def _interrupt_active_audiobook_for_music(
             "error": "audiobook_state_query_failed",
             "detail": str(exc),
         }
-    active = state.get_active_audiobook_playback_for_source(source)
+    active = audiobook_state.get_active_audiobook_playback_for_source(source)
     if authority_session is None and active is None:
         return None
     authority_state = str((authority_session or {}).get("state", "")).strip().lower()
@@ -1117,11 +1131,11 @@ def _interrupt_active_audiobook_for_music(
             close_session=False,
             require_sync_success=False,
             defer_sync=True,
-            get_active_playback_for_source=state.get_active_audiobook_playback_for_source,
+            get_active_playback_for_source=audiobook_state.get_active_audiobook_playback_for_source,
             execute_satellite_command=command,
             close_audiobook_session=close_session,
             sync_audiobook_session=sync_session,
-            clear_active_playback=state.clear_active_audiobook_playback,
+            clear_active_playback=audiobook_state.clear_active_audiobook_playback,
         )
         merged = {"status": status, **result}
         if authority_session is not None:
@@ -1188,11 +1202,13 @@ class MusicHandler:
         canonical_playback_target: bool = False,
         canonical_execution: CanonicalMusicExecution | None = None,
         audiobook_execution: CanonicalAudiobookExecution | None = None,
+        inference: InferenceClient | None = None,
         canonical_authority: bool = False,
     ) -> None:
         self.canonical_playback_target = canonical_playback_target
         self.canonical_execution = canonical_execution
         self.audiobook_execution = audiobook_execution
+        self.inference = inference
         self.canonical_authority = canonical_authority
 
     def handle(self, dispatch: DispatchPlan, registry: Any) -> DispatchPlan:
@@ -1201,5 +1217,6 @@ class MusicHandler:
             canonical_playback_target=self.canonical_playback_target,
             canonical_execution=self.canonical_execution,
             audiobook_execution=self.audiobook_execution,
+            inference=self.inference,
             canonical_authority=self.canonical_authority,
         )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
@@ -22,8 +23,10 @@ sys.modules.setdefault("python_multipart.multipart", python_multipart_multipart_
 
 from oracle_app.api import session_lookup
 from oracle_app import state
+from oracle_app.command_events import append_command_interim_event, list_command_interim_events
+from oracle_app.conversation import append_turn, get_conversation
 from oracle_app.session_state import describe_followup_resolution, set_active_context, set_user_context
-from oracle_app.session_state import _SESSIONS, clear_all_sessions, clear_session_state, inspect_session, refresh_session, resolve_request_session, set_pending_state
+from oracle_app.session_state import _SESSIONS, _SESSION_AUDIT, clear_all_sessions, clear_session_state, inspect_session, refresh_session, resolve_request_session, set_pending_state
 
 
 class SessionStateTests(unittest.TestCase):
@@ -175,6 +178,96 @@ class SessionStateTests(unittest.TestCase):
                 session_lookup(source="satellite-alpha", session_id="session-expire-2")
 
         self.assertEqual(exc_info.exception.status_code, 404)
+
+    def test_session_expiry_atomically_clears_owned_compartments(self) -> None:
+        resolve_request_session("satellite-alpha", "session-expire-owned")
+        append_turn("satellite-alpha", "session-expire-owned", "user", "What is new?")
+        append_command_interim_event(
+            source="satellite-alpha",
+            session_id="session-expire-owned",
+            event_type="facts_summarizer_ack",
+            domain="facts",
+            message="I am checking.",
+        )
+        refreshed = _SESSIONS["satellite-alpha:session-expire-owned"]["session_meta"]["refreshed_monotonic"]
+
+        with patch("oracle_app.session_state.time.monotonic", return_value=refreshed + 91.0):
+            payload = inspect_session("satellite-alpha", "session-expire-owned")
+
+        self.assertIsNone(payload)
+        self.assertIsNone(get_conversation("satellite-alpha", "session-expire-owned"))
+        self.assertEqual(
+            list_command_interim_events(
+                source="satellite-alpha",
+                session_id="session-expire-owned",
+            ),
+            [],
+        )
+        self.assertNotIn("satellite-alpha:session-expire-owned", _SESSION_AUDIT)
+
+    def test_explicit_reset_clears_history_events_and_prior_audit(self) -> None:
+        resolve_request_session("satellite-alpha", "session-reset-owned")
+        set_active_context(
+            "satellite-alpha",
+            "session-reset-owned",
+            route_target="music",
+            dispatch_hook="music.execute",
+            action="play",
+            anchor_strength="strong",
+        )
+        append_turn("satellite-alpha", "session-reset-owned", "user", "Play music")
+        append_command_interim_event(
+            source="satellite-alpha",
+            session_id="session-reset-owned",
+            event_type="facts_summarizer_ack",
+            domain="facts",
+            message="I am checking.",
+        )
+
+        result = clear_session_state(
+            "satellite-alpha",
+            "session-reset-owned",
+            reason="explicit_cancel",
+        )
+        inspected = inspect_session("satellite-alpha", "session-reset-owned")
+
+        self.assertTrue(result["active_context_cleared"])
+        self.assertTrue(result["conversation_cleared"])
+        self.assertTrue(result["command_events_cleared"])
+        self.assertTrue(result["audit_cleared"])
+        self.assertIsNone(get_conversation("satellite-alpha", "session-reset-owned"))
+        self.assertEqual(
+            list_command_interim_events(
+                source="satellite-alpha",
+                session_id="session-reset-owned",
+            ),
+            [],
+        )
+        assert inspected is not None
+        self.assertEqual(set(inspected["lifecycle"]), {"session"})
+        self.assertEqual(inspected["lifecycle"]["session"]["event"], "session_reset")
+
+    def test_concurrent_conversation_mutations_keep_six_turn_bound(self) -> None:
+        resolve_request_session("satellite-alpha", "session-concurrent")
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            list(
+                executor.map(
+                    lambda index: append_turn(
+                        "satellite-alpha",
+                        "session-concurrent",
+                        "user",
+                        f"turn-{index}",
+                    ),
+                    range(100),
+                )
+            )
+
+        conversation = get_conversation("satellite-alpha", "session-concurrent")
+
+        assert conversation is not None
+        self.assertEqual(len(conversation["history"]), 6)
+        self.assertEqual(len({turn["text"] for turn in conversation["history"]}), 6)
 
     def test_inspect_session_includes_active_room_ref_when_present(self) -> None:
         set_active_context(

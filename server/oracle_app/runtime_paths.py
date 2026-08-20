@@ -53,15 +53,6 @@ class RuntimePathBindings:
     def local_service_restart_state(self) -> Path:
         return self.data / "network-local-service-restart.json"
 
-    @property
-    def last_suggestions_packet(self) -> Path:
-        return self.data / "last_openclaw_packet.json"
-
-    @property
-    def last_suggestions_response(self) -> Path:
-        return self.data / "last_openclaw_response.json"
-
-
 def resolve_runtime_paths(
     environment: Mapping[str, str] | None = None,
     *,
@@ -80,7 +71,7 @@ def resolve_runtime_paths(
         root = Path(standard_root)
         return RuntimePathBindings(True, root, root / "data", root / "cache", root / "tmp")
     root = Path(development_root)
-    # Preserve Phil's existing source-tree defaults exactly. Runtime caches
+    # Preserve the existing source-tree defaults exactly. Runtime caches
     # historically share the development data directory.
     return RuntimePathBindings(False, root, root / "data", root / "data", Path("/tmp"))
 

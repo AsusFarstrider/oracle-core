@@ -10,7 +10,7 @@ from oracle_app.configuration import OPTIONAL_ROLE_PATHS, REQUIRED_ROLE_PATHS
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_PATH = REPO_ROOT / "docs" / "reference" / "generated" / "configuration-v1.schema.json"
+SCHEMA_PATH = REPO_ROOT / "docs" / "reference" / "generated" / "configuration-v2.schema.json"
 
 
 class ConfigurationJsonSchemaTests(unittest.TestCase):

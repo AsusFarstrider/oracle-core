@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 
-from . import state
+from . import ui_calendar_drafts
 from .calendar_runtime import CanonicalCalendarExecution
 from .calendar_write import build_confirmation_prompt
 from .schemas import (
@@ -253,8 +253,8 @@ def ui_calendar_draft_impl(payload: UiCalendarDraftRequest) -> dict[str, object]
         }
 
     draft_id = f"ui-cal-{uuid.uuid4().hex}"
-    state.clear_ui_calendar_drafts_for_client(client_id)
-    state.store_ui_calendar_draft(client_id, draft_id, event_draft)
+    ui_calendar_drafts.clear_ui_calendar_drafts_for_client(client_id)
+    ui_calendar_drafts.store_ui_calendar_draft(client_id, draft_id, event_draft)
     return _build_ui_calendar_confirmation_payload(draft_id, event_draft)
 
 
@@ -271,7 +271,7 @@ def _confirm_calendar_draft(payload: UiCalendarDraftConfirmRequest, commit_event
     draft_id = str(payload.draft_id).strip()
     if not draft_id:
         raise HTTPException(status_code=400, detail="draft_id cannot be empty")
-    event_draft = state.load_ui_calendar_draft(client_id, draft_id)
+    event_draft = ui_calendar_drafts.load_ui_calendar_draft(client_id, draft_id)
     if event_draft is None:
         return {
             "ok": False,
@@ -292,7 +292,7 @@ def _confirm_calendar_draft(payload: UiCalendarDraftConfirmRequest, commit_event
             "refresh": {"refresh_pages": []},
         }
 
-    state.clear_ui_calendar_draft(client_id, draft_id)
+    ui_calendar_drafts.clear_ui_calendar_draft(client_id, draft_id)
     committed_draft = committed.get("event_draft") or event_draft
     return {
         "ok": True,
@@ -317,7 +317,7 @@ def ui_calendar_cancel_impl(payload: UiCalendarDraftCancelRequest) -> dict[str, 
     draft_id = str(payload.draft_id).strip()
     if not draft_id:
         raise HTTPException(status_code=400, detail="draft_id cannot be empty")
-    cleared = state.clear_ui_calendar_draft(client_id, draft_id)
+    cleared = ui_calendar_drafts.clear_ui_calendar_draft(client_id, draft_id)
     return {
         "ok": True,
         "draft_id": draft_id,

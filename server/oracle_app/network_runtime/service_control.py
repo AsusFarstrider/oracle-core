@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import shlex
-import subprocess
 from typing import Any
 
 from oracle_app.configuration.domain_models import ServiceControlAdapter
@@ -9,15 +7,12 @@ from oracle_app.configuration.network_adapter_runtime_settings import (
     NetworkAdapterRuntimeSettings,
     NetworkAdaptersRuntimeSettings,
 )
-from oracle_app.provider_bridges.service_control import (
-    _check_json_health,
-    _mount_options,
-    _mount_target,
-    _raid_array_healthy,
-    _service_state_argv,
-    _service_status_argv,
-    _typed_transport_command,
-    check_typed_service_available,
+from .platform_adapters import (
+    ServicePlatformAdapter,
+    check_json_health,
+    mount_options,
+    mount_target,
+    raid_array_healthy,
 )
 
 
@@ -26,6 +21,13 @@ class TypedServiceControl:
 
     def __init__(self, adapters: NetworkAdaptersRuntimeSettings) -> None:
         self.adapters = adapters
+
+    @staticmethod
+    def _platform(runtime: NetworkAdapterRuntimeSettings) -> ServicePlatformAdapter:
+        definition = runtime.definition
+        if not isinstance(definition, ServiceControlAdapter):
+            raise ValueError("Canonical adapter is not service control.")
+        return ServicePlatformAdapter(definition, runtime.credential)
 
     def lifecycle_plan(self, host: NetworkAdapterRuntimeSettings) -> dict[str, Any]:
         definition = self._host_definition(host)
@@ -57,18 +59,15 @@ class TypedServiceControl:
         checks: list[dict[str, str]] = []
         for adapter_id in definition.readiness_service_adapter_ids:
             service = self._service(adapter_id)
-            result = check_typed_service_available(
-                adapter=service.definition,
-                credential=service.credential,
-                timeout_seconds=timeout_seconds,
-            )
-            checks.append({"id": f"service:{adapter_id}", "kind": "service", "status": "passed" if result.get("ok") is True else "failed"})
+            result = self._platform(service).available(timeout_seconds=timeout_seconds)
+            checks.append({"id": f"service:{adapter_id}", "kind": "service", "status": "passed" if result.ok else "failed"})
         for url in definition.readiness_http_urls:
-            result = _check_json_health(url=str(url), timeout_seconds=timeout_seconds)
-            checks.append({"id": f"http:{url}", "kind": "http", "status": "passed" if result.get("ok") is True else "failed"})
+            passed = check_json_health(str(url), timeout_seconds=timeout_seconds)
+            checks.append({"id": f"http:{url}", "kind": "http", "status": "passed" if passed else "failed"})
         for path in definition.readiness_read_write_paths:
-            mount = self._run(host, ["findmnt", "-rn", "-o", "TARGET", str(path)], timeout_seconds)
-            writable = mount.get("ok") is True and str(mount.get("stdout") or "").strip() == str(path) and self._write_probe(host, str(path), timeout_seconds)
+            platform = self._platform(host)
+            mount = platform.inspect_mount(str(path), target_only=True, timeout_seconds=timeout_seconds)
+            writable = mount.ok and mount.stdout.strip() == str(path) and platform.probe_write(str(path), timeout_seconds=timeout_seconds)
             checks.append({"id": f"mount:{path}", "kind": "mount", "status": "passed" if writable else "failed"})
         failed = [item for item in checks if item["status"] != "passed"]
         return {
@@ -86,15 +85,16 @@ class TypedServiceControl:
         storage = None if definition.lifecycle is None else definition.lifecycle.storage
         if storage is None:
             return {"ok": False, "configured": False, "status": "unavailable", "check_count": 0, "passed_count": 0, "failed_check_ids": [], "checks": [], "detail": "Storage safety checks are not configured."}
-        mdstat = self._run(host, ["cat", "/proc/mdstat"], timeout_seconds)
-        mount = self._run(host, ["findmnt", "-rn", "-o", "SOURCE,TARGET,OPTIONS", str(storage.mount_path)], timeout_seconds)
+        platform = self._platform(host)
+        mdstat = platform.read_mdstat(timeout_seconds=timeout_seconds)
+        mount = platform.inspect_mount(str(storage.mount_path), timeout_seconds=timeout_seconds)
         sharing = self._service(storage.sharing_service_adapter_id)
-        service = check_typed_service_available(adapter=sharing.definition, credential=sharing.credential, timeout_seconds=timeout_seconds)
-        mount_text = str(mount.get("stdout") or "").strip()
+        service = self._platform(sharing).available(timeout_seconds=timeout_seconds)
+        mount_text = mount.stdout.strip()
         checks = [
-            {"id": "raid", "status": "passed" if mdstat.get("ok") is True and _raid_array_healthy(str(mdstat.get("stdout") or ""), array_name=storage.array_id) else "failed"},
-            {"id": "mount", "status": "passed" if mount.get("ok") is True and _mount_target(mount_text) == str(storage.mount_path) and "rw" in _mount_options(mount_text) else "failed"},
-            {"id": "sharing_service", "status": "passed" if service.get("ok") is True else "failed"},
+            {"id": "raid", "status": "passed" if mdstat.ok and raid_array_healthy(mdstat.stdout, array_id=storage.array_id) else "failed"},
+            {"id": "mount", "status": "passed" if mount.ok and mount_target(mount_text) == str(storage.mount_path) and "rw" in mount_options(mount_text) else "failed"},
+            {"id": "sharing_service", "status": "passed" if service.ok else "failed"},
         ]
         passed = sum(item["status"] == "passed" for item in checks)
         return {"ok": passed == len(checks), "configured": True, "status": "passed" if passed == len(checks) else "failed", "check_count": len(checks), "passed_count": passed, "failed_check_ids": [item["id"] for item in checks if item["status"] != "passed"], "checks": checks, "detail": "Storage safety checks completed."}
@@ -132,9 +132,11 @@ class TypedServiceControl:
         errors: list[str] = []
         if "close_host_storage" in completed and lifecycle.storage is not None:
             storage = lifecycle.storage
-            for command in (["sudo", "-S", "-p", "oracle-sudo-prompt:", "--", "mdadm", "--assemble", f"/dev/{storage.array_id}"], ["sudo", "-S", "-p", "oracle-sudo-prompt:", "--", "mount", str(storage.mount_path)]):
-                if self._run(host, list(command), timeout_seconds).get("ok") is not True:
-                    errors.append("storage")
+            platform = self._platform(host)
+            if not platform.assemble_raid(storage.array_id, timeout_seconds=timeout_seconds):
+                errors.append("storage")
+            if not platform.mount(str(storage.mount_path), timeout_seconds=timeout_seconds):
+                errors.append("storage")
             if self._set_services([storage.sharing_service_adapter_id], "started", timeout_seconds).get("ok") is not True:
                 errors.append("sharing_service")
         if "stop_host_services" in completed and self._set_services(lifecycle.prepare_service_adapter_ids, "started", timeout_seconds).get("ok") is not True:
@@ -183,8 +185,7 @@ class TypedServiceControl:
         if result.get("ok") is not True:
             return result
         host = self._host_for_id(profile.host_id)
-        result = self._run(host, ["sudo", "-S", "-p", "oracle-sudo-prompt:", "--", "umount", str(profile.mount_path)], timeout)
-        if result.get("ok") is not True:
+        if not self._platform(host).unmount(str(profile.mount_path), timeout_seconds=timeout):
             self._set_services(profile.service_adapter_ids, "started", timeout)
             return _failure("service_control_client_storage_release_failed", "Dependent services stopped, but the client storage mount could not be released.")
         return {"ok": True}
@@ -193,16 +194,12 @@ class TypedServiceControl:
         if profile is None:
             return {"ok": True, "status": "not_required"}
         host = self._host_for_id(profile.host_id)
-        result = self._run(host, ["sudo", "-S", "-p", "oracle-sudo-prompt:", "--", "systemctl", "restart", profile.mount_service_target], timeout)
-        if result.get("ok") is not True:
+        platform = self._platform(host)
+        if not platform.restart_mount_service(profile.mount_service_target, timeout_seconds=timeout):
             return _failure("service_control_client_storage_restore_failed", "The client storage mount could not be restored.")
         if not self._mount_is_read_write(host, str(profile.mount_path), timeout):
-            remounted = self._run(
-                host,
-                ["sudo", "-S", "-p", "oracle-sudo-prompt:", "--", "mount", "-o", "remount,rw", str(profile.mount_path)],
-                timeout,
-            )
-            if remounted.get("ok") is not True or not self._mount_is_read_write(host, str(profile.mount_path), timeout):
+            remounted = platform.remount_read_write(str(profile.mount_path), timeout_seconds=timeout)
+            if not remounted or not self._mount_is_read_write(host, str(profile.mount_path), timeout):
                 return _failure("service_control_client_storage_restore_failed", "The client storage mount did not recover read-write.")
         return self._set_services(profile.service_adapter_ids, "started", timeout)
 
@@ -210,17 +207,14 @@ class TypedServiceControl:
         result = self._set_services([storage.sharing_service_adapter_id], "stopped", timeout)
         if result.get("ok") is not True:
             return result
-        commands = [
-            ["sudo", "-S", "-p", "oracle-sudo-prompt:", "--", "sync"],
-            ["sudo", "-S", "-p", "oracle-sudo-prompt:", "--", "umount", str(storage.mount_path)],
-            ["sudo", "-S", "-p", "oracle-sudo-prompt:", "--", "mdadm", "--stop", f"/dev/{storage.array_id}"],
-        ]
-        for index, command in enumerate(commands):
-            if self._run(host, command, timeout).get("ok") is not True:
-                if index == 2:
-                    self._run(host, ["sudo", "-S", "-p", "oracle-sudo-prompt:", "--", "mount", str(storage.mount_path)], timeout)
-                self._set_services([storage.sharing_service_adapter_id], "started", timeout)
-                return _failure("service_control_storage_close_failed", "Host storage could not be closed cleanly.")
+        platform = self._platform(host)
+        closed = platform.flush_writes(timeout_seconds=timeout) and platform.unmount(str(storage.mount_path), timeout_seconds=timeout)
+        if closed and not platform.stop_raid(storage.array_id, timeout_seconds=timeout):
+            platform.mount(str(storage.mount_path), timeout_seconds=timeout)
+            closed = False
+        if not closed:
+            self._set_services([storage.sharing_service_adapter_id], "started", timeout)
+            return _failure("service_control_storage_close_failed", "Host storage could not be closed cleanly.")
         return {"ok": True}
 
     def _set_services(self, adapter_ids: Any, state: str, timeout: int) -> dict[str, Any]:
@@ -232,14 +226,10 @@ class TypedServiceControl:
             targets = [*definition.lifecycle_service_targets, str(definition.service_target or "")]
             if state == "started":
                 targets.reverse()
+            platform = self._platform(service)
             for target in targets:
-                argv = _service_state_argv(
-                    adapter=str(definition.service_adapter or ""),
-                    target=target,
-                    desired_state=state,
-                )
-                result = self._run(service, argv, timeout)
-                if result.get("ok") is not True:
+                result = platform.set_service_state(target, state, timeout_seconds=timeout)
+                if not result.ok:
                     self._rollback_stopped_targets(completed_targets, state, timeout)
                     return _failure("service_control_lifecycle_service_failed", f"Configured lifecycle service {adapter_id} could not be {state}.")
                 completed_targets.append((service, target))
@@ -261,17 +251,7 @@ class TypedServiceControl:
         if state != "stopped":
             return
         for service, target in reversed(completed):
-            definition = service.definition
-            assert isinstance(definition, ServiceControlAdapter)
-            self._run(
-                service,
-                _service_state_argv(
-                    adapter=str(definition.service_adapter or ""),
-                    target=target,
-                    desired_state="started",
-                ),
-                timeout,
-            )
+            self._platform(service).set_service_state(target, "started", timeout_seconds=timeout)
 
     def _mount_is_read_write(
         self,
@@ -279,9 +259,9 @@ class TypedServiceControl:
         path: str,
         timeout: int,
     ) -> bool:
-        result = self._run(host, ["findmnt", "-rn", "-o", "SOURCE,TARGET,OPTIONS", path], timeout)
-        text = str(result.get("stdout") or "").strip()
-        return result.get("ok") is True and _mount_target(text) == path and "rw" in _mount_options(text)
+        result = self._platform(host).inspect_mount(path, timeout_seconds=timeout)
+        text = result.stdout.strip()
+        return result.ok and mount_target(text) == path and "rw" in mount_options(text)
 
     def _target_has_state(
         self,
@@ -290,40 +270,7 @@ class TypedServiceControl:
         state: str,
         timeout: int,
     ) -> bool:
-        definition = service.definition
-        assert isinstance(definition, ServiceControlAdapter)
-        result = self._run(
-            service,
-            _service_status_argv(
-                adapter=str(definition.service_adapter or ""),
-                target=target,
-                verification_mode=str(definition.verification_mode or ""),
-            ),
-            timeout,
-        )
-        if definition.service_adapter == "docker":
-            running = str(result.get("stdout") or "").strip().lower() == "true"
-        else:
-            running = result.get("ok") is True
-        return running if state == "started" else not running
-
-    def _write_probe(self, host: NetworkAdapterRuntimeSettings, path: str, timeout: int) -> bool:
-        script = 'probe="$1/.oracle-readiness-$$"; trap \'rm -f "$probe"\' EXIT HUP INT TERM; (umask 077 && printf "oracle-readiness\\n" > "$probe") && test -s "$probe" && rm -f "$probe"'
-        command = ["sh", "-c", script, "oracle-readiness", path] if host.definition.transport == "local" else ["sh -c " + shlex.quote(script) + " oracle-readiness " + shlex.quote(path)]
-        return self._run(host, command, timeout).get("ok") is True
-
-    def _run(self, runtime: NetworkAdapterRuntimeSettings, command: list[str], timeout: int) -> dict[str, Any]:
-        definition = runtime.definition
-        if not isinstance(definition, ServiceControlAdapter):
-            return _failure("service_control_adapter_invalid", "Adapter is not service control.")
-        argv, stdin, environment = _typed_transport_command(adapter=definition, credential=runtime.credential, command_argv=command)
-        if not argv:
-            return _failure("service_control_transport_not_configured", "Service-control transport is not configured.")
-        try:
-            result = subprocess.run(argv, input=stdin, check=False, capture_output=True, text=True, timeout=max(3, min(60, int(timeout))), env=environment)
-        except (OSError, subprocess.SubprocessError):
-            return _failure("service_control_command_failed", "Service-control command could not be completed.")
-        return {"ok": result.returncode == 0, "stdout": str(result.stdout or "") if result.returncode == 0 else ""}
+        return self._platform(service).service_has_state(target, state, timeout_seconds=timeout)
 
     def _host_for_id(self, host_id: str) -> NetworkAdapterRuntimeSettings:
         matches = [item for item in self.adapters.adapters.values() if isinstance(item.definition, ServiceControlAdapter) and item.definition.target_kind == "host" and item.definition.host_id == host_id]

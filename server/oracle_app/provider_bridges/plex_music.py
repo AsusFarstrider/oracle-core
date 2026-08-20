@@ -5,11 +5,7 @@ from typing import Any, TypeAlias
 from urllib import error, parse, request
 from xml.etree import ElementTree
 
-from fastapi import HTTPException
-
 from oracle_app.config import get_music_settings
-from oracle_app.music_runtime.matching import build_query_variants, build_search_queries, normalize_match_text
-from oracle_app.music_runtime.parsing import MusicIntent
 from oracle_app.music_runtime.selection import music_provider_ref, music_selection_id
 
 
@@ -50,10 +46,23 @@ class PlexMusicBridge:
         self._configured_settings = settings
         self._connection = connection
 
-    def search(self, intent: MusicIntent) -> list[dict[str, Any]]:
+    def search_media(self, media_type: str, query: str) -> list[dict[str, Any]]:
         settings = self._settings()
         self._validate_settings(settings)
-        return self._search_for_intent(intent, settings)
+        endpoint = (
+            self.build_playlist_search_endpoint(settings, query)
+            if media_type == "playlist"
+            else self.build_library_search_endpoint(settings, media_type, query)
+        )
+        return self.extract_xml_results(self.fetch_xml(endpoint, settings), media_type=media_type)
+
+    def children(self, provider_path: str, *, media_type: str) -> list[dict[str, Any]]:
+        settings = self._settings()
+        self._validate_settings(settings)
+        endpoint = self.build_metadata_children_endpoint(settings, provider_path)
+        if not endpoint:
+            return []
+        return self.extract_xml_results(self.fetch_xml(endpoint, settings), media_type=media_type)
 
     def build_native_queue_manifest(self, selection: dict[str, Any]) -> dict[str, Any] | None:
         settings = self._settings()
@@ -85,92 +94,6 @@ class PlexMusicBridge:
             "collection_type": media_type,
             "tracks": tracks,
         }
-
-    def search_track_from_album_fallback(self, intent: MusicIntent, settings: MusicProviderSettings) -> list[dict[str, Any]]:
-        album_query = (intent.album or "").strip()
-        title_target = normalize_match_text(intent.title or "")
-        if not album_query or not title_target:
-            return []
-
-        album_candidates: list[dict[str, Any]] = []
-        seen_album_keys: set[str] = set()
-        for query in build_query_variants(album_query):
-            payload = self.fetch_xml(self.build_library_search_endpoint(settings, "album", query), settings)
-            for album in self.extract_xml_results(payload, media_type="album"):
-                album_key = str(album.get("plex_key", "")).strip()
-                if not album_key or album_key in seen_album_keys:
-                    continue
-                seen_album_keys.add(album_key)
-                album_candidates.append(album)
-
-        matches: list[dict[str, Any]] = []
-        for album in album_candidates[:5]:
-            album_key = str(album.get("plex_key", "")).strip()
-            if not album_key:
-                continue
-            children_payload = self.fetch_xml(self.build_metadata_children_endpoint(settings, album_key), settings)
-            for track in self.extract_xml_results(children_payload, media_type="track"):
-                candidate_title = normalize_match_text(track.get("title", ""))
-                if not candidate_title:
-                    continue
-                if candidate_title == title_target or title_target in candidate_title or candidate_title in title_target:
-                    if not track.get("album"):
-                        track["album"] = album.get("title", "")
-                    if not track.get("artist"):
-                        track["artist"] = album.get("artist", "")
-                    matches.append(track)
-        return matches
-
-    def search_track_from_artist_fallback(self, intent: MusicIntent, settings: MusicProviderSettings) -> list[dict[str, Any]]:
-        artist_query = (intent.artist or "").strip()
-        title_target = normalize_match_text(intent.title or "")
-        if not artist_query or not title_target:
-            return []
-
-        artist_candidates: list[dict[str, Any]] = []
-        seen_artist_keys: set[str] = set()
-        for query in build_query_variants(artist_query):
-            payload = self.fetch_xml(self.build_library_search_endpoint(settings, "artist", query), settings)
-            for artist in self.extract_xml_results(payload, media_type="artist"):
-                artist_key = str(artist.get("plex_key", "")).strip()
-                if not artist_key or artist_key in seen_artist_keys:
-                    continue
-                seen_artist_keys.add(artist_key)
-                artist_candidates.append(artist)
-
-        matches: list[dict[str, Any]] = []
-        seen_track_keys: set[str] = set()
-        for artist in artist_candidates[:5]:
-            artist_key = str(artist.get("plex_key", "")).strip()
-            if not artist_key:
-                continue
-            children_payload = self.fetch_xml(self.build_metadata_children_endpoint(settings, artist_key), settings)
-            direct_tracks = self.extract_xml_results(children_payload, media_type="track")
-            if direct_tracks:
-                self._append_matching_tracks(
-                    matches,
-                    seen_track_keys,
-                    direct_tracks,
-                    title_target=title_target,
-                    fallback_artist=str(artist.get("title", "")).strip(),
-                )
-                continue
-
-            albums = self.extract_xml_results(children_payload, media_type="album")
-            for album in albums[:8]:
-                album_key = str(album.get("plex_key", "")).strip()
-                if not album_key:
-                    continue
-                album_children_payload = self.fetch_xml(self.build_metadata_children_endpoint(settings, album_key), settings)
-                album_tracks = self.extract_xml_results(album_children_payload, media_type="track")
-                self._append_matching_tracks(
-                    matches,
-                    seen_track_keys,
-                    album_tracks,
-                    title_target=title_target,
-                    fallback_artist=str(artist.get("title", "")).strip(),
-                )
-        return matches
 
     def build_library_search_endpoint(self, settings: MusicProviderSettings, media_type: str, query: str) -> str:
         plex_type = {
@@ -347,66 +270,6 @@ class PlexMusicBridge:
         except (TypeError, ValueError):
             return 0
 
-    def _search_for_intent(self, intent: MusicIntent, settings: MusicProviderSettings) -> list[dict[str, Any]]:
-        media_types = [intent.media_type] if intent.media_type else ["track", "album", "artist", "playlist"]
-        queries = build_search_queries(intent)
-        if not queries:
-            return []
-
-        results: list[dict[str, Any]] = []
-        seen_keys: set[str] = set()
-        for query in queries:
-            for media_type in media_types:
-                if media_type == "playlist":
-                    endpoint = self.build_playlist_search_endpoint(settings, query)
-                else:
-                    endpoint = self.build_library_search_endpoint(settings, media_type, query)
-
-                payload = self.fetch_xml(endpoint, settings)
-                for item in self.extract_xml_results(payload, media_type=media_type):
-                    identity = str(item.get("rating_key") or item.get("plex_key") or "")
-                    if not identity or identity in seen_keys:
-                        continue
-                    seen_keys.add(identity)
-                    results.append(item)
-        if intent.media_type == "track" and intent.title and intent.album:
-            for item in self.search_track_from_album_fallback(intent, settings):
-                identity = str(item.get("rating_key") or item.get("plex_key") or "")
-                if not identity or identity in seen_keys:
-                    continue
-                seen_keys.add(identity)
-                results.append(item)
-        if intent.media_type == "track" and intent.title and intent.artist:
-            for item in self.search_track_from_artist_fallback(intent, settings):
-                identity = str(item.get("rating_key") or item.get("plex_key") or "")
-                if not identity or identity in seen_keys:
-                    continue
-                seen_keys.add(identity)
-                results.append(item)
-        return results
-
-    def _append_matching_tracks(
-        self,
-        matches: list[dict[str, Any]],
-        seen_track_keys: set[str],
-        tracks: list[dict[str, Any]],
-        *,
-        title_target: str,
-        fallback_artist: str,
-    ) -> None:
-        for track in tracks:
-            track_key = str(track.get("rating_key") or track.get("plex_key") or "").strip()
-            if not track_key or track_key in seen_track_keys:
-                continue
-            candidate_title = normalize_match_text(track.get("title", ""))
-            if not candidate_title:
-                continue
-            if candidate_title == title_target or title_target in candidate_title or candidate_title in title_target:
-                if not track.get("artist"):
-                    track["artist"] = fallback_artist
-                seen_track_keys.add(track_key)
-                matches.append(track)
-
     def _load_collection_tracks(
         self,
         selection: dict[str, Any],
@@ -542,7 +405,7 @@ class PlexMusicBridge:
                 return
         elif settings.get("plex_configured"):
             return
-        raise HTTPException(status_code=500, detail="Plex is not configured")
+        raise MusicBridgeConfigurationError("music_provider_not_configured", "Plex is not configured")
 
     def _settings(self) -> MusicProviderSettings:
         return self._connection or self._configured_settings or get_music_settings()

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
-from oracle_app.alerts import list_due_alerts, record_alert_idempotency_key
+from oracle_app.alerts import list_due_alerts
 from oracle_app.configuration.home_assistant_runtime_settings import HomeAssistantRuntimeSettings
 from oracle_app.configuration.notification_runtime_settings import (
     NotificationRuntimeSettings,
@@ -16,7 +16,10 @@ from oracle_app.provider_bridges.home_assistant import HomeAssistantBridge
 
 from .audit import record_notification_event
 from .channels.external import reserve_canonical_external_deliveries
-from .channels.satellite_announcement import dispatch_satellite_announcement_values
+from .channels.satellite_announcement import (
+    dispatch_satellite_announcement_values,
+    reserve_suppressed_satellite_receipts,
+)
 from .errors import (
     NotificationContextNotSupportedError,
     NotificationDefinitionNotFoundError,
@@ -71,16 +74,14 @@ class CanonicalNotificationExecution:
             )
             raise NotificationSuppressionUnavailableError(clean_type)
         if suppression == "active":
-            duplicate = record_alert_idempotency_key(
-                f"notification:{clean_type}:{clean_occurrence_id}",
-                metadata={
-                    "notification_id": clean_type,
-                    "event_id": clean_occurrence_id,
-                    "receipt_status": "suppressed",
-                    **({} if clean_caller == "home_assistant" else {"caller": clean_caller}),
-                },
+            created = reserve_suppressed_satellite_receipts(
+                notification_type=clean_type,
+                occurrence_id=clean_occurrence_id,
+                targets=self.satellite_targets(runtime),
+                expires_at=_now_local()
+                + timedelta(seconds=runtime.definition.delivery_ttl_seconds),
             )
-            status = "duplicate" if duplicate else "suppressed"
+            status = "suppressed" if created else "duplicate"
             record_notification_event(
                 notification_type=clean_type,
                 occurrence_id=clean_occurrence_id,

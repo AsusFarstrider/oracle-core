@@ -130,7 +130,9 @@ def build_system_hook(action: str) -> str:
         return "system.alerts"
     if action == "switch_user":
         return "system.switch_user"
-    return "system.refresh_cache"
+    if action == "refresh_cache":
+        return "system.refresh_cache"
+    return "system.unknown_operation"
 
 
 def system_action_requires_text(action: str) -> bool:

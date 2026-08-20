@@ -71,7 +71,7 @@ class ConfigurationTransitionValidationTests(unittest.TestCase):
     def _normalized(configuration: dict[str, object]) -> NormalizedBundle:
         canonical = canonicalize_json(configuration)
         return NormalizedBundle(
-            format="oracle-config-v1",
+            format="oracle-config-v2",
             config_revision="test-transition-revision",
             configuration=configuration,
             canonical_bytes=canonical,
@@ -82,7 +82,7 @@ class ConfigurationTransitionValidationTests(unittest.TestCase):
         return TransitionValidationContext(
             activation_generation_id="activation_" + "1" * 32,
             config_generation_id="config_" + "2" * 32,
-            config_revision="oracle-config-v1:sha256:" + "3" * 64,
+            config_revision="oracle-config-v2:sha256:" + "3" * 64,
             selection_operation_id="selection_op_" + "4" * 32,
             selection_revision=4,
         )

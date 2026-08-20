@@ -171,20 +171,23 @@ def check_ollama_health(
             )
         timeout_seconds = 5
 
-    endpoint = f"{base_url}/api/version"
-    req = request.Request(endpoint, method="GET")
-
     try:
-        with request.urlopen(req, timeout=timeout_seconds) as response:
-            raw_body = response.read().decode("utf-8", errors="replace")
-            return OllamaHealthResponse(
-                status="ok",
-                service="oracle-brain",
-                ollama_url=base_url,
-                model=model,
-                detail=raw_body,
-                http_status=response.status,
-            )
+        if canonical_authority:
+            response_status, raw_body = inference.version()
+        else:
+            endpoint = f"{base_url}/api/version"
+            req = request.Request(endpoint, method="GET")
+            with request.urlopen(req, timeout=timeout_seconds) as response:
+                response_status = response.status
+                raw_body = response.read().decode("utf-8", errors="replace")
+        return OllamaHealthResponse(
+            status="ok",
+            service="oracle-brain",
+            ollama_url=base_url,
+            model=model,
+            detail=raw_body,
+            http_status=response_status,
+        )
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         return OllamaHealthResponse(

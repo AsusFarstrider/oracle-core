@@ -135,14 +135,14 @@ The retired `network_control`, `network_service_control`, and
 The policy is an Oracle-owned allowlist. Provider systems do not define Oracle
 identity and do not authorize actions.
 
-The network domain may map an Oracle host/service to a service-control bridge
+The network domain may map an Oracle host/service to a service-control adapter
 reference such as `host_id` plus a bridge-facing `service_name`. The
-service-control bridge owns platform and transport details: Linux, Windows,
+typed platform adapter owns platform and transport details: Linux, Windows,
 local execution, SSH, Docker, systemd, and the concrete command mechanics. The
 network-control policy only decides whether a named Oracle target/action pair
 may be previewed or confirmed.
 
-Router restart uses a separate router-control bridge profile keyed by the stable
+Router restart uses a separate typed router-control adapter keyed by the stable
 Oracle router host ID. Router login details remain local bridge configuration;
 they are not network inventory identity and must not appear in API responses.
 
@@ -193,7 +193,7 @@ targets, array names, or mount paths.
 
 Host restart policy may set `requires_graceful_lifecycle: true`. This is a
 mandatory execution contract, not an optional runbook. The corresponding
-service-control bridge profile must declare `lifecycle.mode: graceful`.
+service-control adapter profile must declare `lifecycle.mode: graceful`.
 Oracle must block the reboot before adapter execution when the lifecycle
 profile is absent, invalid, or any mandatory preparation phase fails.
 
@@ -211,7 +211,7 @@ Graceful lifecycle phases are ordered:
 8. verify host readiness;
 9. restore client mounts read-write and restart cross-host dependent services.
 
-The bridge owns concrete service targets, mount paths, RAID names, and fixed
+Typed platform adapters own concrete service targets, mount paths, RAID names, and fixed
 commands. Policy and UI must contain only the lifecycle requirement and safe
 phase summaries. A preparation failure must prevent reboot. If reboot dispatch
 fails after preparation, Oracle must attempt bridge-owned rollback and report
@@ -295,7 +295,7 @@ The first executable adapter is intentionally narrow:
   systemd`
 
 For the service-control path, Oracle sends the confirmed Oracle target/action to
-the bridge with the target's `service_control` reference. The bridge owns the
+the adapter with the target's `service_control` reference. The adapter owns the
 host profile, login/transport, platform, service manager, and basic command
 implementation. Network-control responses must not expose the resolved bridge
 command target.
@@ -303,7 +303,7 @@ command target.
 After a confirmed service-control restart, Oracle must verify availability
 before returning success. Service-specific verifiers may be used when they
 provide stronger evidence, such as Plex active-session/API availability checks.
-Otherwise, the service-control bridge performs a read-only status check using
+Otherwise, the service-control adapter performs a read-only status check using
 the same bridge host/service profile. The bridge may use platform/service
 manager mechanics such as `systemctl is-active` or Docker inspection, but
 network-control responses must expose only safe status summaries, adapter or
@@ -314,7 +314,7 @@ names, host addresses, credentials, stdout, or stderr.
 The one allowed exception is a local self-restart of Oracle Brain. A process
 cannot reliably restart its own systemd unit, wait, verify, and still return a
 stable HTTP response to the UI. Such entries must be explicitly marked in the
-service-control bridge config with `restart_mode: deferred_self_restart`.
+service-control adapter config with `restart_mode: deferred_self_restart`.
 Oracle may then return `result_status: executed` with
 `execution.verification_status: deferred` and `execution.deferred: true` after
 the bridge schedules the restart. The caller must verify Oracle Brain through
@@ -326,7 +326,7 @@ For the legacy local systemd path, `execution` may contain:
 
 - `method`: `systemd`
 - `unit`: explicit systemd service unit name, such as
-  `plexmediaserver.service`
+  `example-media.service`
 - `restart_timeout_seconds`: bounded timeout for the systemd restart request
 - `wait_seconds`: bounded wait before availability verification
 
@@ -446,7 +446,7 @@ not a general process-control surface.
 
 `restart_host` is a host-level service-control action. The Oracle target must be
 a curated host, and the local service-control host profile must separately
-enable the action. The bridge owns the fixed platform command:
+enable the action. The platform adapter owns the fixed platform command:
 
 - Linux over SSH: fixed privileged reboot operation;
 - Windows over SSH: fixed `shutdown.exe` restart operation;
@@ -461,7 +461,7 @@ reports deferred verification because the Brain cannot verify its own machine
 after shutdown.
 
 Remote host recovery is necessary but not sufficient for success. After SSH
-returns, the service-control bridge must evaluate the host's allowlisted
+returns, the network domain must evaluate the host's allowlisted
 readiness profile. A readiness profile may reference bridge-owned service keys
 and fixed HTTP health checks. Linux services use existing systemd or Docker
 status checks; Windows satellites use existing scheduled-task and Edge-process
@@ -502,7 +502,7 @@ fail closed.
 Brain startup may complete the pending request only when the Linux boot ID has
 changed. A normal Brain service restart on the same boot must leave the request
 pending and must not claim host recovery. After a changed boot, the
-service-control bridge runs the configured host readiness profile. Readiness
+network lifecycle owner runs the configured host readiness profile through typed adapters. Readiness
 may include curated services, fixed health endpoints, and fixed
 `read_write_mounts`. A mount check passes only when the configured path is
 mounted and a private temporary file can be created and removed there. Provider

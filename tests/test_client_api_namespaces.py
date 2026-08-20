@@ -33,7 +33,7 @@ class ClientApiNamespaceRouteTests(unittest.TestCase):
             registered.add((str(path), tuple(sorted(methods))))
         return registered
 
-    def test_voice_namespace_routes_are_registered(self) -> None:
+    def test_voice_namespace_routes_are_retired(self) -> None:
         registered = self._registered_http_routes()
 
         expected = {
@@ -45,6 +45,22 @@ class ClientApiNamespaceRouteTests(unittest.TestCase):
             ("/api/voice/alerts/pending", ("GET",)),
             ("/api/voice/tts", ("POST",)),
             ("/api/voice/stt", ("POST",)),
+        }
+
+        for route in expected:
+            self.assertNotIn(route, registered)
+
+    def test_canonical_conversation_and_speech_routes_are_registered(self) -> None:
+        registered = self._registered_http_routes()
+
+        expected = {
+            ("/api/conversation/command", ("POST",)),
+            ("/api/conversation/route", ("POST",)),
+            ("/api/conversation/session", ("GET",)),
+            ("/api/conversation/command-events", ("GET",)),
+            ("/api/speech/tts", ("POST",)),
+            ("/api/speech/stt", ("POST",)),
+            ("/api/satellite/media/audiobooks/{playback_id}/tracks/{track_index}", ("GET",)),
         }
 
         for route in expected:
@@ -71,6 +87,7 @@ class ClientApiNamespaceRouteTests(unittest.TestCase):
             ("/api/admin/log-targets", ("GET",)),
             ("/api/admin/logs", ("GET",)),
             ("/api/admin/memory/diagnostics/summary", ("GET",)),
+            ("/api/admin/caches", ("GET",)),
             ("/api/admin/network/status", ("GET",)),
             ("/api/admin/network/control/dry-run", ("POST",)),
             ("/api/admin/network/control/confirm", ("POST",)),

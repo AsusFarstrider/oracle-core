@@ -7,7 +7,7 @@ TEXT="${2:-what time is it}"
 
 curl -sS \
   -X POST \
-  "${BASE_URL}/command" \
+  "${BASE_URL}/api/conversation/command" \
   -H "Content-Type: application/json" \
   -d "{
     \"text\": \"${TEXT}\",

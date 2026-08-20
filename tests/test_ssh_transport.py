@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from oracle_app.provider_bridges.ssh_transport import SshHostVerificationError, strict_ssh_options
+from oracle_app.network_runtime.platform_transport import SshHostVerificationError, strict_ssh_options
 
 
 class StrictSshTransportTests(unittest.TestCase):

@@ -381,7 +381,10 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                 composition = api.brain_application_composition()
                 self.assertIsInstance(composition, CanonicalBrainApplicationComposition)
                 resolve_startup.assert_called_once_with()
-                seed_sources.assert_called_once_with(composition.runtime.household)
+                seed_sources.assert_called_once_with(
+                    composition.runtime.household,
+                    composition.runtime.satellites,
+                )
                 complete_host_restart.assert_called_once_with(
                     canonical_execution=composition.network_execution,
                     canonical_authority=True,
@@ -418,7 +421,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
             satellite_projection_activation_ids=MappingProxyType({}),
             config_revision=inspection.normalized_candidate_revision,
             bundle_id="example-home",
-            schema_version=1,
+            schema_version=2,
             roles=inspection.bundle.roles,  # type: ignore[union-attr]
             secrets=inspection.secrets,  # type: ignore[arg-type]
         )

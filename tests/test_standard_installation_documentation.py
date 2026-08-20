@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,12 +84,5 @@ def test_distribution_no_longer_calls_the_validated_installer_non_operational() 
 
 def test_reusable_operator_docs_contain_no_private_household_locator() -> None:
     combined = RUNBOOK.read_text(encoding="utf-8") + CLI_REFERENCE.read_text(encoding="utf-8")
-
-    for private_marker in (
-        "/home/phil",
-        "192.168.4.",
-        "Molly",
-        "PJ",
-        "DeLong",
-    ):
-        assert private_marker not in combined
+    assert re.search(r"/home/[A-Za-z0-9._-]+", combined) is None
+    assert re.search(r"\b(?:10|192\.168|172\.(?:1[6-9]|2[0-9]|3[01]))\.[0-9.]+", combined) is None

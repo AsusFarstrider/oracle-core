@@ -172,7 +172,7 @@ class GenerationStore:
         root: Path,
         *,
         secret_root: Path | None = None,
-        supported_schema_versions: frozenset[int] = frozenset({1}),
+        supported_schema_versions: frozenset[int] = frozenset({2}),
     ) -> None:
         self.root = Path(root).resolve()
         self.secret_root = self.root if secret_root is None else Path(secret_root).resolve()

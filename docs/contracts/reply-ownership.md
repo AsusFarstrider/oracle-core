@@ -7,15 +7,15 @@ This document defines Oracle's reply ownership contract.
 It defines:
 
 - the canonical owner of spoken reply text
-- the required `reply_text` coverage on `/command`
+- the required `reply_text` coverage on `/api/conversation/command`
 - the allowed fallback behavior for satellites
 
 ## Ownership Rule
 
 The Oracle brain is the canonical owner of spoken reply text.
 
-- `reply_text` from `POST /command` is the canonical spoken source of truth for normal success paths
-- `reply_text` from `POST /command` is the canonical spoken source of truth for normal failure paths
+- `reply_text` from `POST /api/conversation/command` is the canonical spoken source of truth for normal success paths
+- `reply_text` from `POST /api/conversation/command` is the canonical spoken source of truth for normal failure paths
 - satellites must not reconstruct normal spoken replies from `dispatch.result`
 - satellites may keep only minimal fallback behavior for missing `reply_text`, transport failure, or intentionally silent responses
 
@@ -28,6 +28,8 @@ The brain owns:
 - pending confirmation prompts
 - pending clarification prompts
 - reply shaping for normal spoken outcomes
+- one pure target-specific shaper per dispatch target, selected by the
+  Brain-owned reply registry
 
 The satellite owns only:
 

@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from oracle_app import state
+from oracle_app import audiobook_state, state
 from oracle_app.configuration.household_runtime_settings import HouseholdRuntimeSettings
 from oracle_app.audiobook_runtime.canonical import CanonicalAudiobookExecution
 from oracle_app.media_execution_context import (
@@ -31,7 +31,10 @@ from oracle_app.audiobook import (
     search_audiobooks,
     sync_audiobook_session,
 )
-from oracle_app.provider_bridges.audiobookshelf_audiobook import normalize_audiobook_progress
+from oracle_app.provider_bridges.audiobookshelf_audiobook import (
+    AudiobookBridgeConfigurationError,
+    normalize_audiobook_progress,
+)
 from oracle_app.audiobook_runtime.pending import (
     analyze_pending_candidate_reply as analyze_pending_audiobook_reply,
     build_clarification_prompt as build_audiobook_clarification_prompt,
@@ -77,6 +80,17 @@ def execute_audiobook(
             "action": "audiobook_failed",
             "error": "audiobook_not_configured",
             "detail": "Audiobooks are not enabled in the selected canonical configuration.",
+        }
+        return dispatch
+    alert_target_error = str(
+        dispatch.payload.get("alert_delivery_target_error") or ""
+    ).strip()
+    if alert_target_error:
+        dispatch.status = "failed"
+        dispatch.result = {
+            "action": "sleep_timer",
+            "error": alert_target_error,
+            "detail": "A durable sleep timer requires an authorized managed alert destination.",
         }
         return dispatch
     payload = dispatch.payload
@@ -290,14 +304,14 @@ def execute_audiobook(
 
     try:
         candidates = search(intent.title, intent.narrator_preference, user_id=effective_user_id)
-    except HTTPException as exc:
-        if exc.status_code == 500 and effective_user_id:
+    except AudiobookBridgeConfigurationError as exc:
+        if effective_user_id:
             dispatch.status = "failed"
             dispatch.result = {
                 "action": "play",
                 "intent": intent.to_payload(),
                 "error": "audiobook_user_not_configured",
-                "detail": str(exc.detail),
+                "detail": exc.detail,
                 "requested_user_name": requested_user_name,
                 "user_id": effective_user_id,
             }
@@ -715,8 +729,8 @@ def _play_selected(
             user_id=user_id,
             start_paused=should_defer,
         ),
-        register_active_playback=state.register_active_audiobook_playback,
-        clear_active_playback=state.clear_active_audiobook_playback,
+        register_active_playback=audiobook_state.register_active_audiobook_playback,
+        clear_active_playback=audiobook_state.clear_active_audiobook_playback,
         execute_satellite_command=command,
         close_audiobook_session=close_session,
         create_sleep_timer=lambda current_source, current_session_id, duration: _create_sleep_timer(
@@ -934,7 +948,7 @@ def _set_sleep_timer(
         source=source,
         session_id=session_id,
         duration_seconds=duration_seconds,
-        get_active_playback_for_source=state.get_active_audiobook_playback_for_source,
+        get_active_playback_for_source=audiobook_state.get_active_audiobook_playback_for_source,
         create_sleep_timer=lambda current_source, current_session_id, duration: _create_sleep_timer(
             source=current_source,
             session_id=current_session_id,
@@ -999,11 +1013,11 @@ def _sync_then_control(
         source=source,
         action=action,
         close_session=close_session,
-        get_active_playback_for_source=state.get_active_audiobook_playback_for_source,
+        get_active_playback_for_source=audiobook_state.get_active_audiobook_playback_for_source,
         execute_satellite_command=command,
         close_audiobook_session=close_provider_session,
         sync_audiobook_session=sync_provider_session,
-        clear_active_playback=state.clear_active_audiobook_playback,
+        clear_active_playback=audiobook_state.clear_active_audiobook_playback,
     )
     dispatch.status = status
     dispatch.result = result

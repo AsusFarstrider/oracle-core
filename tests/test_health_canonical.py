@@ -92,6 +92,7 @@ class CanonicalCoreHealthTests(unittest.TestCase):
                 base_url="http://ollama.invalid",
                 model="example-model",
                 timeout_seconds=7,
+                version=Mock(return_value=(200, '{"version":"test"}')),
             ),
         )
         application = FastAPI()
@@ -116,7 +117,6 @@ class CanonicalCoreHealthTests(unittest.TestCase):
             patch("oracle_app.health.get_ollama_settings") as legacy_ollama,
             patch("oracle_app.health.get_stt_provider") as legacy_stt,
             patch("oracle_app.health.get_tts_provider") as legacy_tts,
-            patch("oracle_app.health.request.urlopen", return_value=opened) as urlopen,
             patch("oracle_app.health_routes.safe_observe_provider_health"),
         ):
             ollama = health_ollama_http(request)
@@ -126,7 +126,7 @@ class CanonicalCoreHealthTests(unittest.TestCase):
         self.assertEqual(ollama.status, "ok")
         self.assertEqual(stt.provider, "fast-whisper")
         self.assertEqual(tts.provider, "piper")
-        self.assertEqual(urlopen.call_args.kwargs["timeout"], 7)
+        core.inference.version.assert_called_once_with()
         legacy_ollama.assert_not_called()
         legacy_stt.assert_not_called()
         legacy_tts.assert_not_called()

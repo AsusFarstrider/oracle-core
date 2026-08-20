@@ -52,7 +52,7 @@ from .secret_transactions import (
     SecretRemovalBlocked,
     SecretTransactionJournal,
 )
-from .secrets import load_secret_companion
+from .secrets import SecretSnapshot, load_secret_companion
 from .selection_transactions import (
     SelectionCommittedAuditPending,
     SelectionRecoveryAmbiguous,
@@ -545,6 +545,7 @@ class ConfigurationService:
         expected_secret_generation_id: str | None,
         actor: Actor,
         acknowledgements: frozenset[str] = frozenset(),
+        initial_secret_snapshot: SecretSnapshot | None = None,
     ) -> ConfigurationTransactionResult:
         self._validate_actor(actor)
         self._validate_acknowledgements(acknowledgements)
@@ -553,6 +554,8 @@ class ConfigurationService:
             current = self._selected_or_none()
             actual_secret_id = None if current is None else current.secrets.generation_id
             self._assert_secret_generation(expected_secret_generation_id, actual_secret_id)
+            if current is not None and initial_secret_snapshot is not None:
+                raise SecretCompanionDrift("An initial secret snapshot cannot replace selected secret authority.")
 
             snapshot = snapshot_candidate(root)
             assert_authored_revision(snapshot, expected_authored_revision)
@@ -564,7 +567,9 @@ class ConfigurationService:
                         "Secret companion differs from the selected secret generation; use an explicit secret transaction."
                     )
             inspection = (
-                inspect_candidate(root)
+                inspect_candidate(root, secret_snapshot=initial_secret_snapshot)
+                if current is None and initial_secret_snapshot is not None
+                else inspect_candidate(root)
                 if current is None
                 else inspect_candidate(root, secret_snapshot=current.secrets.snapshot)
             )

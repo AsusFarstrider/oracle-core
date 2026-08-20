@@ -72,7 +72,7 @@ def load_runtime_cutover_marker(store: GenerationStore) -> RuntimeCutoverMarker:
         or not isinstance(marker.selection_revision, int)
         or marker.selection_revision < 1
         or not isinstance(marker.config_revision, str)
-        or not marker.config_revision.startswith("oracle-config-v1:sha256:")
+        or not marker.config_revision.startswith("oracle-config-v2:sha256:")
         or not isinstance(marker.committed_at, str)
         or not marker.committed_at
     ):

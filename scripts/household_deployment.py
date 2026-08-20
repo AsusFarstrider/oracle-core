@@ -255,6 +255,21 @@ def resolve(repo: Path, source: str, authority_path: str, household_id: str) -> 
         raise DeploymentError("compatibility and deployment metadata objects are required")
     if not isinstance(generated_configuration_inputs, dict) or not isinstance(migrations, list):
         raise DeploymentError("generated configuration inputs and migrations are required")
+    full_production = definition.get("full_production_brain")
+    if profiles == ["full-production-brain"]:
+        required_fields = {
+            "asset_manifest",
+            "data_migration",
+            "external_provider_requirements",
+            "host_capabilities",
+            "secret_assets",
+        }
+        if not isinstance(full_production, dict) or set(full_production) != required_fields:
+            raise DeploymentError("full-production profile requires its exact fixed runtime declaration")
+        if not isinstance(full_production.get("asset_manifest"), str):
+            raise DeploymentError("full-production asset manifest path is required")
+    elif full_production is not None:
+        raise DeploymentError("full-production runtime authority requires the full-production profile")
 
     revision_input = {
         "compatibility": compatibility,
@@ -277,6 +292,8 @@ def resolve(repo: Path, source: str, authority_path: str, household_id: str) -> 
         "migrations": migrations,
         "template": {"manifest_git_blob": template_blob, "manifest_sha256": template_sha256, "template_id": template_manifest["template_id"]},
     }
+    if full_production is not None:
+        revision_input["full_production_brain"] = full_production
     deployment_revision = deployment_revision_for_basis(revision_input)
     ledger = {
         "authority": {"git_blob": authority_blob, "path": authority_path, "sha256": authority_sha256},

@@ -209,11 +209,9 @@ class ReplyRuntime:
     ) -> float:
         if not interrupted_playback:
             return 0.0
-        raw_response = outcome.raw_response if isinstance(outcome.raw_response, dict) else {}
-        dispatch = raw_response.get("dispatch") if isinstance(raw_response.get("dispatch"), dict) else {}
-        result = dispatch.get("result") if isinstance(dispatch.get("result"), dict) else {}
-        action = str(result.get("action", "")).strip().lower()
-        if action in {"stop", "pause"}:
+        playback = (outcome.effects or {}).get("satellite_playback")
+        playback = playback if isinstance(playback, dict) else {}
+        if str(playback.get("disposition") or "") in {"stopped", "updated"}:
             return float(getattr(self._args, "reply_output_settle_seconds", 1.0) or 1.0)
         return 0.0
 
@@ -377,19 +375,17 @@ class ReplyRuntime:
         capture_elapsed_ms: float | None = None,
         capture_has_audio: bool | None = None,
     ) -> None:
-        raw_response = outcome.raw_response if outcome and isinstance(outcome.raw_response, dict) else {}
-        dispatch = raw_response.get("dispatch") if isinstance(raw_response.get("dispatch"), dict) else {}
-        route = raw_response.get("route") if isinstance(raw_response.get("route"), dict) else {}
-        result = dispatch.get("result") if isinstance(dispatch.get("result"), dict) else {}
+        playback = (outcome.effects or {}).get("satellite_playback") if outcome else None
+        playback = playback if isinstance(playback, dict) else {}
         self._logger.info(
             "%s source=%s session_id=%s route_target=%s dispatch_hook=%s status=%s action=%s detail=%s reply_chars=%d playback_ms=%s capture_ms=%s capture_has_audio=%s",
             event,
             self._args.source or "-",
             self._state.active_session_id or "-",
-            str(route.get("target") or dispatch.get("target") or "-"),
-            str(dispatch.get("hook") or "-"),
-            str(dispatch.get("status") or "-"),
-            str(result.get("action") or "-"),
+            "satellite_playback" if playback else "-",
+            "canonical_conversation_result",
+            outcome.status if outcome is not None else "-",
+            str(playback.get("disposition") or "-"),
             detail or "-",
             len(outcome.spoken_reply) if outcome is not None else 0,
             f"{playback_elapsed_ms:.1f}" if playback_elapsed_ms is not None else "-",

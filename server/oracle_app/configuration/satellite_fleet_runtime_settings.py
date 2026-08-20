@@ -31,6 +31,15 @@ class SatelliteBrainEdgeSettings:
             and (capabilities.music_playback or capabilities.audiobook_playback)
         )
 
+    @property
+    def alert_capable(self) -> bool:
+        capabilities = self.capabilities
+        return bool(
+            self.enabled
+            and capabilities is not None
+            and (capabilities.voice or capabilities.display)
+        )
+
 
 @dataclass(frozen=True)
 class SatelliteFleetRuntimeSettings:

@@ -19,6 +19,7 @@ from .installation import (
     select_activation,
 )
 from .installation_assembly import service_definition_identity
+from .installation_profiles import PROFILES
 
 
 STANDARD_UNIT_NAME = "oracle-brain.service"
@@ -65,10 +66,18 @@ def build_systemd_install_plan(
 ) -> SystemdInstallPlan:
     staged = load_selected_activation(layout, "staged")
     application = Path(staged.directory / "application").resolve(strict=True)
-    source = application / "scripts" / "oracle-brain-standard.service"
-    identity = service_definition_identity(source)
-    if staged.record.get("service_definition_identity") != identity:
+    expected_identity = staged.record.get("service_definition_identity")
+    matches = []
+    for profile in PROFILES.values():
+        candidate = application / profile.service_definition
+        if candidate.is_symlink() or not candidate.is_file():
+            continue
+        if service_definition_identity(candidate) == expected_identity:
+            matches.append(candidate)
+    if len(matches) != 1:
         raise StandardSystemdError("Staged activation and service definition identities disagree.")
+    source = matches[0]
+    identity = service_definition_identity(source)
     if unit_path.is_symlink() or (unit_path.exists() and not unit_path.is_file()):
         raise StandardSystemdError("Standard systemd unit destination is unsafe.")
     disposition = "reuse" if unit_path.is_file() and unit_path.read_bytes() == source.read_bytes() else "install"

@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from .interaction_synchronization import SynchronizationBoundary
 
 logger = logging.getLogger("oracle-brain.ui.snapshot_cache")
 
@@ -18,8 +19,10 @@ class _SnapshotCacheEntry:
 
 
 _CACHE: dict[str, _SnapshotCacheEntry] = {}
+_SYNCHRONIZATION = SynchronizationBoundary()
 
 
+@_SYNCHRONIZATION.synchronized
 def get_cached_snapshot(
     cache_key: str,
     *,
@@ -52,6 +55,7 @@ def get_cached_snapshot(
     return copy.deepcopy(payload)
 
 
+@_SYNCHRONIZATION.synchronized
 def invalidate_cached_snapshots(prefix: str | None = None) -> None:
     if prefix is None:
         _CACHE.clear()
@@ -65,5 +69,6 @@ def invalidate_cached_snapshots(prefix: str | None = None) -> None:
         logger.info("ui_snapshot_cache_invalidated prefix=%s count=%d", prefix, len(keys))
 
 
+@_SYNCHRONIZATION.synchronized
 def clear_cached_snapshots() -> None:
     invalidate_cached_snapshots()

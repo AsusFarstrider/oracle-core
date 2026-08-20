@@ -4,8 +4,7 @@ import os
 import subprocess
 from typing import Any
 
-from oracle_app.configuration.domain_models import RouterControlAdapter
-from oracle_app.provider_bridges.ssh_transport import SshHostVerificationError, strict_ssh_options
+from oracle_app.network_runtime.platform_transport import SshHostVerificationError, strict_ssh_options
 
 
 def get_available_router_actions(settings: dict[str, Any]) -> list[dict[str, str]]:
@@ -129,59 +128,5 @@ def execute_router_action(*, settings: dict[str, Any], router: str, action: str)
         "ok": True,
         "status": "restart_sent",
         "adapter": adapter,
-        "detail": "Router restart request was sent.",
-    }
-
-
-def execute_typed_router_action(
-    *,
-    adapter: RouterControlAdapter,
-    credential: str,
-    operation: str,
-) -> dict[str, Any]:
-    if operation != "restart_router" or adapter.mechanism != "ssh_reboot":
-        return {
-            "ok": False,
-            "error": "router_control_not_implemented",
-            "detail": "Approved router control adapter is not implemented.",
-        }
-    password = str(credential or "").strip()
-    if not password:
-        return {
-            "ok": False,
-            "error": "router_control_credentials_missing",
-            "detail": "Router-control SSH credential is unavailable.",
-        }
-    try:
-        command_environment = os.environ.copy()
-        command_environment["SSHPASS"] = password
-        result = subprocess.run(
-            [
-                "sshpass", "-e", "ssh", *strict_ssh_options(connect_timeout_seconds=8),
-                f"{adapter.user}@{adapter.address}", "reboot",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env=command_environment,
-        )
-    except subprocess.TimeoutExpired:
-        return {
-            "ok": True, "status": "restart_sent", "adapter": adapter.mechanism,
-            "detail": "Router restart connection closed while the reboot request was being sent.",
-        }
-    except (OSError, subprocess.SubprocessError, SshHostVerificationError):
-        return {
-            "ok": False, "error": "router_control_command_failed",
-            "detail": "Router-control restart request could not be sent.",
-        }
-    if result.returncode not in {0, 255}:
-        return {
-            "ok": False, "error": "router_control_command_failed",
-            "detail": "Router-control restart request returned a failure.",
-        }
-    return {
-        "ok": True, "status": "restart_sent", "adapter": adapter.mechanism,
         "detail": "Router restart request was sent.",
     }

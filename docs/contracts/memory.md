@@ -61,7 +61,7 @@ Memory must not:
 - change voice behavior
 - change routing behavior
 - change reply generation
-- act on suggestions or annotations automatically
+- act on suggestions automatically
 
 Memory writes are factual records from trusted internal callers.
 
@@ -71,11 +71,10 @@ Memory reads are for diagnostics, review, UI/admin display, tests, and future re
 
 Live Memory writes must fail open.
 
-Exception: durable runbook lifecycle persistence that is required to prevent an
-untracked or replay-unsafe mutation must fail closed before that mutation
-begins. This includes creating the run and planned operation records required
-by the runbook lifecycle contract. Optional audit/event writes remain
-fail-open.
+Exceptions are durable runbook lifecycle persistence needed to prevent an
+untracked or replay-unsafe mutation and required alert lifecycle mutations
+needed to prevent loss or duplicate delivery. Those owner paths fail closed.
+Optional audit/event writes remain fail-open.
 
 If a Memory write fails:
 
@@ -98,15 +97,15 @@ The canonical Oracle Memory SQLite path is:
 
 - `data/oracle-memory.sqlite3`
 
-The previous Suggestions SQLite store was provisional. Suggestion runs, suggestion packets, suggestion responses, suggestions, and suggestion reviews are operational memory records.
-
-Suggestions-specific tables may remain specialized, but durable Suggestions storage must live inside the Memory-owned database or behind a clearly transitional adapter.
+The previous Suggestions SQLite store was provisional migration input.
+Suggestion runs, the one current packet/response exchange, suggestions, and
+suggestion reviews are operational Memory records in the canonical database.
 
 Do not create separate durable SQLite stores for operational records without a documented reason and operator approval.
 
 ## Required Core Tables
 
-Initial Memory storage must include:
+Memory schema `0009_durable_alerts` includes:
 
 - `memory_schema_migrations`
 - `memory_users`
@@ -114,6 +113,16 @@ Initial Memory storage must include:
 - `memory_events`
 - `memory_orchestration_runs`
 - `memory_orchestration_steps`
+- `memory_sessions`
+- `memory_transcripts`
+- `memory_current_projections`
+- `memory_notification_deliveries`
+- `memory_alerts`
+- `memory_alert_transitions`
+- `suggestion_runs`
+- `suggestions`
+- `suggestion_reviews`
+- `suggestion_exchange_current`
 
 The orchestration tables are also the compatibility store for the staged
 runbook-kernel extraction. Schema version `0004_runbook_kernel_metadata` adds
@@ -121,23 +130,25 @@ definition domain/version, correlation, activation idempotency, controller
 state/version, and cancellation provenance without rewriting existing run
 history.
 
-Satellite activity may create or update a `memory_sources` row only when the
-canonical source ID is currently present as `source_type: satellite` in the
-current V1 Brain source registry. In canonical V2 the equivalent check uses the
-enabled household source plus managed satellite binding. Existing Memory rows do
-not authorize a retired source, and failure to load authoritative configuration
-fails closed for new activity writes. Memory must not carry a separate hard-
-coded satellite allowlist.
+Canonical configuration is the sole current identity authority. On startup or
+activation, Memory reconciles configured users and sources to `active`,
+`disabled`, or `retired` historical dimensions. Known V1 satellite aliases are
+rewritten only when the configured satellite-to-source binding proves a unique
+canonical owner; unknown identities fail closed and remain retired. Historical
+null users are not inferred. User dimensions contain no role vocabulary.
 
-Future tables may include:
+Only real internal producers (`brain`, `system`, `api`, `ui`, and `background`)
+have code-owned source dimensions. Conversation is a modality, not a generic
+source. Existing Memory rows do not authorize a retired source.
 
-- `memory_sessions`
-- `memory_transcripts`
-- `memory_snapshots`
-- `memory_cache_entries`
-- `memory_rollups`
-- `memory_evidence_refs`
-- `memory_annotations`
+`memory_current_projections` is a current-state upsert model. It is not snapshot
+history, is never age-pruned, and derives staleness from `observed_at`.
+
+The alerts domain owns alert behavior while Memory owns its transactions.
+Active alert rows carry payload and lease state; transition rows preserve the
+required mutation audit. Active rows block source retirement. Satellite
+notification outcomes also use `memory_notification_deliveries`; local timer,
+alarm, reminder, and sleep-timer records do not.
 
 ## Event Taxonomy
 
@@ -191,7 +202,6 @@ The following must be first-class columns where applicable:
 - `user_id`
 - route/domain decision
 - failure stage
-- fingerprint/classification
 
 `payload_json` is allowed for provider-specific details, low-frequency fields, non-critical metadata, raw response fragments, and transitional migration data.
 
@@ -199,7 +209,8 @@ The following must be first-class columns where applicable:
 
 Retention must be explicit, configurable, and testable.
 
-Planning defaults:
+Typed configuration is the only runtime retention authority. The approved
+defaults are:
 
 - successful raw transcripts: 14 days
 - failed or low-confidence raw transcripts: 30 days
@@ -210,54 +221,29 @@ Planning defaults:
 - critical events: 730 days
 - provider status events: 180 days
 - lifecycle events: 365 days
-- snapshots: hourly for 14 days, daily compacted for 90 days
-- cache history: 30 days where history is useful
-- rollups: 365 days by default, configurable
-- evidence refs: 90 days or until referenced raw evidence is expected to age out, whichever is shorter
+- session metadata: 90 days, with active sessions protected
+- orchestration terminal runs and steps: 365 days, atomically
+- terminal alerts: 90 days; pending and leased alerts protected
+- notification receipts: accepted/suppressed 90 days; failed/expired 365 days
+- Suggestions raw evidence and run diagnostics: 90 days
+- current Suggestions packet/response: 30 days, overwritten rather than versioned
+- completed Suggestions envelopes: 365 days; active envelopes protected
+- mock suggestions: 30 days
 
-Retention actions must emit structured Memory events once live retention is implemented.
+Real unreviewed suggestions remain until review. Compact reviewed records remain
+durable until explicitly deleted or superseded. Current projections do not
+expire by age.
+
+One Memory retention executor produces an exact class-by-class dry-run and
+fails closed for unknown classes, states, severities, categories, invalid
+timestamps, and future timestamps. It deletes transcripts before their session,
+protects active sessions and running/waiting work, transitions genuinely overdue
+notification receipts before later retention, and emits one aggregate
+`retention_pruned` event only when an apply changes data. Slice 6 does not enable
+destructive live enforcement; the reviewed first apply, bounded recovery point,
+and recovery-point disposal belong to the coordinated Slice 10 cutover.
 
 Raw transcript storage must be separable from derived transcript metadata.
-
-## Evidence References
-
-Memory should not copy raw logs wholesale.
-
-Memory may store:
-
-- fingerprints
-- counts
-- first seen time
-- last seen time
-- classifications
-- representative samples
-- raw evidence references
-
-Raw logs remain raw logs. Memory stores structured summaries and references.
-
-## Log Rollups
-
-Rollups must be deterministic, not fuzzy.
-
-Pipeline:
-
-1. parse
-2. normalize
-3. fingerprint
-4. classify by known rule
-5. store event, store rollup, or mark for review
-
-Unknown repetitive patterns must not be silently discarded. They must become review-needed rollups.
-
-Oracle Memory must not become a continuous raw-log-eating daemon.
-
-## Annotations
-
-Operator annotations are allowed, but they must remain separate from factual records.
-
-Annotations may attach to sessions, transcripts, events, rollups, snapshots, sources, or suggestions.
-
-Annotations do not alter factual records.
 
 ## V2 Configuration Reconciliation
 

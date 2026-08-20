@@ -335,7 +335,10 @@ create, resume, cancel, or mutate kernel runs.
 `CanonicalRoutineExecution` is the proportional execution boundary over the
 existing compatibility controller. It supplies the exact serialized typed
 definition, applied configuration revision, and an immutable finite adapter map
-for Home Assistant and audiobook operations. Voice requests, UI run requests,
+for Home Assistant, notification, and audiobook operations. Its bounded
+conditional steps compare only declared typed inputs, and spoken-duration Run
+controls reuse the session-scoped conversational-input state and shared duration
+parser. Voice requests, UI run requests,
 and satellite routine buttons select this object from the installed Brain
 composition and cannot fall back to V1 settings in canonical mode. The existing
 durable run stores the frozen definition and revision; no second routine store

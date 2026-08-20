@@ -155,6 +155,13 @@ from cached normalized results.
 Expired, corrupt, malformed, or unreadable cache entries are misses. Cache
 failure must not become a facts provider failure.
 
+The facts owner prunes expired and malformed entries, rejects older cache
+versions, and retains at most 512 newest valid entries. Maintenance runs at
+Brain startup and opportunistically after cache writes. Writes use locked
+atomic replacement so concurrent requests cannot lose an otherwise valid
+entry or expose partial JSON. Cache diagnostics are read-only and do not make
+the cache provider truth.
+
 ## V1 Provider Shape
 
 Temporary providers may include:
@@ -171,12 +178,12 @@ facts domain.
 
 `wikipedia_api` is a temporary facts provider bridge.
 
-The bridge:
+The facts domain owns question-intent shaping, search-plan construction,
+candidate scoring, and lifespan-evidence selection. The bridge:
 
-- uses Wikipedia search to select a page title;
+- executes the domain-provided Wikipedia search plan and retrieves candidate
+  page titles;
 - uses the Wikipedia REST page summary payload for answer/evidence;
-- may shape search text for known factual intents such as authorship or
-  lifespan while keeping the normalized response provider-neutral;
 - normalizes the result into Oracle's `FactsProviderResult`;
 - keeps Wikipedia-specific URL, title, language, and payload details inside the
   provider bridge.

@@ -157,23 +157,23 @@ async function submitLauncherPrompt(options = {}) {
   setLauncherStatus("Oracle is thinking...");
   chromeElements.launcherSend.disabled = true;
   try {
-    const response = await postJson("/api/voice/command", {
+    const response = await postJson("/api/conversation/command", {
       text,
       source: launcherSource(),
       session_id: state.launcher.sessionId,
     });
-    const replyText = String(response.reply_text || "Oracle did not return a reply.");
+    const replyText = String(response.reply_text || "");
     chromeElements.launcherReply.innerHTML = `
       <div><strong>You</strong><div>${escapeHtml(text)}</div></div>
-      <div><strong>Oracle</strong><div>${escapeHtml(replyText)}</div></div>
+      ${replyText ? `<div><strong>Oracle</strong><div>${escapeHtml(replyText)}</div></div>` : ""}
     `;
     chromeElements.launcherReply.classList.remove("is-hidden");
     chromeElements.launcherInput.value = "";
-    if (playReplyAudio) {
+    if (playReplyAudio && replyText) {
       await playLauncherReply(replyText);
       setLauncherStatus("Oracle replied out loud.");
     } else {
-      setLauncherStatus("Oracle replied.");
+      setLauncherStatus(replyText ? "Oracle replied." : "No reply required.");
     }
   } catch (error) {
     setLauncherStatus(error instanceof Error ? error.message : "Unable to reach Oracle.", "error");
@@ -186,7 +186,7 @@ async function playLauncherReply(text) {
   if (!text) {
     return;
   }
-  const response = await fetch("/api/voice/tts", {
+  const response = await fetch("/api/speech/tts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
@@ -265,7 +265,7 @@ async function stopLauncherMic() {
     const blob = new Blob(state.launcher.chunks, { type: mimeType });
     const formData = new FormData();
     formData.append("audio", blob, mimeType.includes("mp4") ? "oracle-mic.m4a" : "oracle-mic.webm");
-    const sttResponse = await fetch("/api/voice/stt", {
+    const sttResponse = await fetch("/api/speech/stt", {
       method: "POST",
       body: formData,
     });
@@ -465,17 +465,14 @@ function buildCompactDetails(response) {
     return "";
   }
   const lines = [];
-  if (response.route?.target) {
-    lines.push(`Route: ${response.route.target}`);
+  if (response.status) {
+    lines.push(`Status: ${response.status}`);
   }
-  if (response.dispatch?.hook) {
-    lines.push(`Dispatch: ${response.dispatch.hook}`);
+  if (response.session_id) {
+    lines.push(`Session: ${response.session_id}`);
   }
-  if (response.dispatch?.status) {
-    lines.push(`Status: ${response.dispatch.status}`);
-  }
-  if (response.effective_session_id) {
-    lines.push(`Effective Session: ${response.effective_session_id}`);
+  if (response.trace_id) {
+    lines.push(`Trace: ${response.trace_id}`);
   }
   return lines.join(" | ");
 }
@@ -557,7 +554,7 @@ function initOraclePage() {
     rememberDefaults("oracle", elements.source.value, elements.session.value);
     setButtonBusy(elements.send, true, "Sending...");
     try {
-      const response = await postJson("/api/voice/command", payload);
+      const response = await postJson("/api/conversation/command", payload);
       oracleRuntime.lastReplyText = response.reply_text || "";
       elements.reply.textContent = response.reply_text || "(empty reply)";
       elements.compactDetails.textContent = buildCompactDetails(response);
@@ -596,7 +593,7 @@ async function playOracleReply(elements, text, options = {}) {
     setButtonBusy(elements.playReply, true, "Loading...");
   }
   try {
-    const response = await fetch("/api/voice/tts", {
+    const response = await fetch("/api/speech/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
@@ -665,7 +662,7 @@ async function stopOracleMic(elements, runtime) {
     const blob = new Blob(runtime.chunks, { type: mimeType });
     const formData = new FormData();
     formData.append("audio", blob, mimeType.includes("mp4") ? "oracle-mic.m4a" : "oracle-mic.webm");
-    const sttResponse = await fetch("/api/voice/stt", {
+    const sttResponse = await fetch("/api/speech/stt", {
       method: "POST",
       body: formData,
     });
@@ -790,7 +787,7 @@ function initTracePage() {
     rememberDefaults("trace", elements.source.value, elements.session.value);
     setButtonBusy(elements.routeOnly, true, "Routing...");
     try {
-      const route = await postJson("/api/voice/route", payload);
+      const route = await postJson("/api/conversation/route", payload);
       elements.routePreview.textContent = JSON.stringify(route, null, 2);
     } catch (error) {
       elements.routePreview.textContent = error instanceof Error ? error.message : "Unknown error";
@@ -808,7 +805,7 @@ function initTracePage() {
     rememberDefaults("trace", elements.source.value, elements.session.value);
     setButtonBusy(elements.send, true, "Executing...");
     try {
-      const response = await postJson("/api/voice/command", payload);
+      const response = await postJson("/api/conversation/command", payload);
       elements.latestRaw.textContent = JSON.stringify(response, null, 2);
       const entry = {
         id: buildLocalId(),
@@ -855,7 +852,7 @@ function renderTraceHistory(container) {
   for (const entry of state.recentCommands) {
     const buttonClass = entry.id === state.selectedCommandId ? "trace-history-button active" : "trace-history-button";
     const source = entry.request.source || "no-source";
-    const status = entry.response?.dispatch?.status || "unknown";
+    const status = entry.response?.status || "unknown";
     const node = document.createElement("button");
     node.type = "button";
     node.className = buttonClass;
@@ -901,18 +898,24 @@ async function showTraceEntry(elements, commandId) {
 
   const source = entry.request.source || "";
   const sessionId = entry.request.session_id || "";
-  elements.summaryStatus.textContent = `${entry.request.text} | ${source || "no-source"} | ${entry.response?.route?.target || "no-route"}`;
+  elements.summaryStatus.textContent = `${entry.request.text} | ${source || "no-source"} | ${entry.response?.status || "unknown"}`;
 
   await hydrateTraceEntry(entry);
   renderTraceSummary(elements.summaryStrip, entry);
   renderTraceSection(elements.sections.request, "Request", entry.request);
-  renderTraceSection(elements.sections.route, "Route", entry.response?.route || {});
-  renderTraceSection(elements.sections.dispatch, "Dispatch", entry.response?.dispatch || {});
-  renderTraceSection(elements.sections.result, "Result", entry.response?.dispatch?.result || {});
+  renderTraceSection(elements.sections.route, "Identity", {
+    source_id: entry.response?.source_id || source,
+    trace_id: entry.response?.trace_id || "",
+  });
+  renderTraceSection(elements.sections.dispatch, "Outcome", {
+    status: entry.response?.status || "unknown",
+    failure_code: entry.response?.failure_code || null,
+  });
+  renderTraceSection(elements.sections.result, "Effects", entry.response?.effects || {});
   renderTraceSection(elements.sections.reply, "Reply", {
     reply_text: entry.response?.reply_text || "",
     session_id: entry.response?.session_id || sessionId,
-    effective_session_id: entry.response?.effective_session_id || "",
+    trace_id: entry.response?.trace_id || "",
   });
   renderTraceSection(elements.sections.session, "Session", entry.sessionSnapshot || { detail: "No session snapshot." });
   renderTraceSection(elements.sections.playback, "Playback", entry.playbackSnapshot || { detail: "No playback snapshot." });
@@ -920,11 +923,11 @@ async function showTraceEntry(elements, commandId) {
 
 async function hydrateTraceEntry(entry) {
   const source = entry.request?.source || null;
-  const effectiveSessionId = entry.response?.effective_session_id || entry.request?.session_id || null;
+  const effectiveSessionId = entry.response?.session_id || entry.request?.session_id || null;
   if (source && effectiveSessionId) {
     try {
       entry.sessionSnapshot = await fetchJson(
-        `/api/voice/session?${new URLSearchParams({ source, session_id: effectiveSessionId }).toString()}`,
+        `/api/conversation/session?${new URLSearchParams({ source, session_id: effectiveSessionId }).toString()}`,
       );
     } catch (error) {
       entry.sessionSnapshot = { ok: false, detail: error instanceof Error ? error.message : "Unknown error" };
@@ -952,10 +955,9 @@ function renderTraceSummary(container, entry) {
     ["Request", entry.request?.text || ""],
     ["Source", entry.request?.source || "none"],
     ["Session", entry.request?.session_id || "none"],
-    ["Effective Session", entry.response?.effective_session_id || "none"],
-    ["Route", entry.response?.route?.target || "none"],
-    ["Dispatch", entry.response?.dispatch?.hook || "none"],
-    ["Status", entry.response?.dispatch?.status || "none"],
+    ["Effective Session", entry.response?.session_id || "none"],
+    ["Trace", entry.response?.trace_id || "none"],
+    ["Status", entry.response?.status || "none"],
     ["Reply", entry.response?.reply_text || "(empty)"],
   ];
   container.innerHTML = items

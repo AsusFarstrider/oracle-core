@@ -6,7 +6,6 @@ from datetime import datetime
 from oracle_app import state
 from oracle_app.alerts import build_alert_response, format_duration, list_alerts
 from oracle_app.calculations import build_calculation_response
-from oracle_app.conversation import clear_conversation
 from oracle_app.constants import CACHE_PATH, SYNC_SCRIPT_PATH
 from oracle_app.configuration.household_runtime_settings import HouseholdRuntimeSettings
 from oracle_app.session_state import clear_session_state, set_user_context
@@ -84,10 +83,6 @@ class SystemHandler:
             source = dispatch.payload.get("source")
             session_id = dispatch.payload.get("session_id")
             reset_result = clear_session_state(source, session_id, reason="explicit_cancel")
-            clear_conversation(
-                str(source) if source is not None else None,
-                str(session_id) if session_id is not None else None,
-            )
             dispatch.status = "executed"
             dispatch.result = {
                 "action": "cancel_pending",
@@ -154,10 +149,23 @@ class SystemHandler:
             return dispatch
 
         if action == "alerts":
+            target_error = str(dispatch.payload.get("alert_delivery_target_error") or "").strip()
+            if target_error:
+                dispatch.status = "failed"
+                dispatch.result = {
+                    "action": "alerts",
+                    "error": target_error,
+                    "detail": "A durable alert requires an authorized managed alert destination.",
+                }
+                return dispatch
+            alert_source = (
+                dispatch.payload.get("alert_delivery_target_source_id")
+                or dispatch.payload.get("source")
+            )
             try:
                 speech, details = build_alert_response(
                     str(dispatch.payload.get("text", "")),
-                    dispatch.payload.get("source"),
+                    alert_source,
                     dispatch.payload.get("session_id"),
                 )
             except Exception as exc:
@@ -171,7 +179,7 @@ class SystemHandler:
             speech = _augment_timer_status_with_sleep_timer(
                 speech,
                 details,
-                source=dispatch.payload.get("source"),
+                source=alert_source,
             )
             dispatch.status = "executed"
             dispatch.result = {

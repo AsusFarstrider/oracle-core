@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -35,6 +36,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--test-list", type=Path, help="Developer-only explicit test path list.")
     parser.add_argument("--record-skips", type=Path, help="Write observed skip IDs instead of enforcing the baseline.")
+    parser.add_argument(
+        "--coverage-json",
+        type=Path,
+        help="Measure branch coverage and enforce the tracked per-surface policy.",
+    )
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
@@ -48,7 +54,17 @@ def main() -> int:
 
     collector = SkipCollector()
     extra = args.pytest_args[1:] if args.pytest_args[:1] == ["--"] else args.pytest_args
-    result = pytest.main([*tests, "--strict-markers", *extra], plugins=[collector])
+    coverage_args: list[str] = []
+    if args.coverage_json:
+        coverage_path = args.coverage_json.resolve()
+        coverage_args = [
+            "--cov",
+            "--cov-branch",
+            f"--cov-report=json:{coverage_path}",
+        ]
+    result = pytest.main(
+        [*tests, "--strict-markers", *coverage_args, *extra], plugins=[collector]
+    )
     observed = sorted(collector.node_ids)
     if args.record_skips:
         args.record_skips.write_text("\n".join(observed) + ("\n" if observed else ""), encoding="utf-8")
@@ -61,7 +77,19 @@ def main() -> int:
             for node_id in sorted(expected - actual):
                 print(f"declared skip did not occur: {node_id}", file=sys.stderr)
             return 3
-    return int(result)
+    if result:
+        return int(result)
+    if args.coverage_json:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "coverage_gate.py"),
+                str(args.coverage_json.resolve()),
+            ],
+            cwd=ROOT,
+            check=False,
+        ).returncode
+    return 0
 
 
 if __name__ == "__main__":

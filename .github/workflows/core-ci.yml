@@ -38,7 +38,9 @@ jobs:
           .ci-test/bin/python -m pip install --require-hashes -r requirements-test.lock
           .ci-test/bin/python -m pip check
       - name: Run required clean-core tests
-        run: PYTHONPATH=server .ci-test/bin/python scripts/run-clean-core-ci.py -- -q
+        run: >-
+          PYTHONPATH=server .ci-test/bin/python scripts/run-clean-core-ci.py
+          --coverage-json /tmp/oracle-clean-core-coverage.json -- -q
       - name: Build and verify exact core artifact round trip
         run: |
           .ci-test/bin/python scripts/core_artifact.py build --source "$GITHUB_SHA" --output /tmp/oracle-core.tar

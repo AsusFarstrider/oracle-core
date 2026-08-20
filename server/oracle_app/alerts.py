@@ -1,117 +1,25 @@
 from __future__ import annotations
 
-import json
 import re
-import threading
-import uuid
-from dataclasses import replace
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
-from .constants import ALERTS_STATE_PATH
+from .memory.alerts import (
+    ACTIVE_ALERT_STATUSES,
+    AlertRecord,
+    cancel_alert_records,
+    clear_alert_records,
+    claim_due_alerts,
+    create_alert_record,
+    create_alert_records,
+    list_alert_records,
+)
+from .memory.store import DB_PATH
 
 
-@dataclass
-class ScheduledAlert:
-    alert_id: str
-    kind: str
-    source: str | None
-    session_id: str | None
-    due_at: datetime
-    created_at: datetime
-    message: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-    expires_at: datetime | None = None
-    delivered: bool = False
-
-
-_ALERTS: list[ScheduledAlert] = []
-_LOCK = threading.Lock()
-
-
-def _copy_alert(alert: ScheduledAlert) -> ScheduledAlert:
-    return replace(alert, metadata=dict(alert.metadata))
-
-
-def _serialize_alert(alert: ScheduledAlert) -> dict[str, Any]:
-    return {
-        "alert_id": alert.alert_id,
-        "kind": alert.kind,
-        "source": alert.source,
-        "session_id": alert.session_id,
-        "due_at": alert.due_at.isoformat(),
-        "created_at": alert.created_at.isoformat(),
-        "message": alert.message,
-        "metadata": dict(alert.metadata),
-        "expires_at": alert.expires_at.isoformat() if alert.expires_at is not None else None,
-        "delivered": bool(alert.delivered),
-    }
-
-
-def _deserialize_alert(payload: dict[str, Any]) -> ScheduledAlert | None:
-    try:
-        due_at = datetime.fromisoformat(str(payload.get("due_at") or ""))
-        created_at = datetime.fromisoformat(str(payload.get("created_at") or ""))
-    except ValueError:
-        return None
-    expires_at: datetime | None = None
-    if payload.get("expires_at") not in (None, ""):
-        try:
-            expires_at = datetime.fromisoformat(str(payload.get("expires_at")))
-        except ValueError:
-            return None
-    alert_id = str(payload.get("alert_id") or "").strip()
-    kind = str(payload.get("kind") or "").strip()
-    message = str(payload.get("message") or "").strip()
-    if not alert_id or not kind or not message:
-        return None
-    metadata = payload.get("metadata") or {}
-    if not isinstance(metadata, dict):
-        metadata = {}
-    return ScheduledAlert(
-        alert_id=alert_id,
-        kind=kind,
-        source=str(payload.get("source") or "").strip() or None,
-        session_id=str(payload.get("session_id") or "").strip() or None,
-        due_at=due_at,
-        created_at=created_at,
-        message=message,
-        metadata=dict(metadata),
-        expires_at=expires_at,
-        delivered=bool(payload.get("delivered")),
-    )
-
-
-def _save_alerts_unlocked() -> None:
-    ALERTS_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = ALERTS_STATE_PATH.with_suffix(".tmp")
-    payload = [_serialize_alert(alert) for alert in _ALERTS]
-    with tmp_path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True)
-    tmp_path.replace(ALERTS_STATE_PATH)
-
-
-def _load_alerts_from_disk() -> None:
-    if not ALERTS_STATE_PATH.exists():
-        with _LOCK:
-            _ALERTS.clear()
-        return
-    try:
-        with ALERTS_STATE_PATH.open("r", encoding="utf-8") as handle:
-            raw = json.load(handle)
-    except (OSError, json.JSONDecodeError):
-        raw = []
-    loaded: list[ScheduledAlert] = []
-    if isinstance(raw, list):
-        for item in raw:
-            if not isinstance(item, dict):
-                continue
-            alert = _deserialize_alert(item)
-            if alert is not None:
-                loaded.append(alert)
-    with _LOCK:
-        _ALERTS[:] = loaded
+ScheduledAlert = AlertRecord
+ALERT_DB_PATH: Path = DB_PATH
 
 
 def _now_local() -> datetime:
@@ -441,20 +349,6 @@ def parse_clock_time(text: str, *, now: datetime | None = None) -> datetime | No
     return candidate
 
 
-def _prune_old_alerts(now: datetime | None = None) -> None:
-    current = now or _now_local()
-    cutoff = current - timedelta(days=2)
-    with _LOCK:
-        original_count = len(_ALERTS)
-        _ALERTS[:] = [
-            alert
-            for alert in _ALERTS
-            if not (alert.delivered and alert.due_at < cutoff)
-        ]
-        if len(_ALERTS) != original_count:
-            _save_alerts_unlocked()
-
-
 def create_alert(
     *,
     kind: str,
@@ -465,20 +359,18 @@ def create_alert(
     metadata: dict[str, Any] | None = None,
     expires_at: datetime | None = None,
 ) -> ScheduledAlert:
-    alert = ScheduledAlert(
-        alert_id=uuid.uuid4().hex[:12],
+    if source is None:
+        raise ValueError("Durable alerts require an explicit canonical source.")
+    alert, _created = create_alert_record(
         kind=kind,
-        source=source,
+        source_id=source,
         session_id=session_id,
         due_at=due_at,
-        created_at=_now_local(),
         message=message,
         metadata=dict(metadata or {}),
         expires_at=expires_at,
+        db_path=ALERT_DB_PATH,
     )
-    with _LOCK:
-        _ALERTS.append(alert)
-        _save_alerts_unlocked()
     return alert
 
 
@@ -493,104 +385,34 @@ def create_alert_batch(
     expires_at: datetime | None = None,
     idempotency_key: str | None = None,
 ) -> tuple[list[ScheduledAlert], bool]:
-    clean_key = str(idempotency_key or "").strip()
-    with _LOCK:
-        if clean_key and any(
-            str(alert.metadata.get("idempotency_key") or "").strip() == clean_key
-            for alert in _ALERTS
-        ):
-            return [], True
-
-        created_at = _now_local()
-        created: list[ScheduledAlert] = []
-        for source in sources:
-            alert_metadata = dict(metadata or {})
-            if clean_key:
-                alert_metadata["idempotency_key"] = clean_key
-            alert = ScheduledAlert(
-                alert_id=uuid.uuid4().hex[:12],
-                kind=kind,
-                source=str(source),
-                session_id=session_id,
-                due_at=due_at,
-                created_at=created_at,
-                message=message,
-                metadata=alert_metadata,
-                expires_at=expires_at,
-            )
-            _ALERTS.append(alert)
-            created.append(alert)
-        _save_alerts_unlocked()
-    return [_copy_alert(alert) for alert in created], False
-
-
-def record_alert_idempotency_key(
-    idempotency_key: str,
-    *,
-    metadata: dict[str, Any] | None = None,
-) -> bool:
-    clean_key = str(idempotency_key or "").strip()
-    if not clean_key:
-        raise ValueError("idempotency_key is required")
-    with _LOCK:
-        if any(
-            str(alert.metadata.get("idempotency_key") or "").strip() == clean_key
-            for alert in _ALERTS
-        ):
-            return True
-        now = _now_local()
-        receipt_metadata = dict(metadata or {})
-        receipt_metadata["idempotency_key"] = clean_key
-        _ALERTS.append(
-            ScheduledAlert(
-                alert_id=uuid.uuid4().hex[:12],
-                kind="idempotency_receipt",
-                source=None,
-                session_id=None,
-                due_at=now,
-                created_at=now,
-                message="Notification occurrence receipt.",
-                metadata=receipt_metadata,
-                delivered=True,
-            )
-        )
-        _save_alerts_unlocked()
-    return False
+    return create_alert_records(
+        kind=kind,
+        due_at=due_at,
+        message=message,
+        source_ids=sources,
+        session_id=session_id,
+        metadata=metadata,
+        expires_at=expires_at,
+        idempotency_key=idempotency_key,
+        db_path=ALERT_DB_PATH,
+    )
 
 
 def clear_alerts() -> None:
-    with _LOCK:
-        _ALERTS.clear()
-        _save_alerts_unlocked()
-
-
-def _matching_alerts(
-    *,
-    source: str | None = None,
-    kind: str | None = None,
-    delivered: bool | None = None,
-) -> list[ScheduledAlert]:
-    with _LOCK:
-        alerts = list(_ALERTS)
-    results: list[ScheduledAlert] = []
-    for alert in alerts:
-        if source is not None and alert.source != source:
-            continue
-        if kind is not None and alert.kind != kind:
-            continue
-        if delivered is not None and alert.delivered != delivered:
-            continue
-        results.append(alert)
-    return sorted(results, key=lambda item: item.due_at)
+    clear_alert_records(db_path=ALERT_DB_PATH)
 
 
 def list_due_alerts(source: str | None, *, kind: str | None = None) -> list[ScheduledAlert]:
+    if source is None:
+        return []
     current = _now_local()
-    return [
-        _copy_alert(alert)
-        for alert in _matching_alerts(source=source, kind=kind, delivered=False)
-        if alert.due_at <= current
-    ]
+    return list_alert_records(
+        source_id=source,
+        kind=kind,
+        statuses=ACTIVE_ALERT_STATUSES,
+        due_before=current,
+        db_path=ALERT_DB_PATH,
+    )
 
 
 def consume_due_alerts(
@@ -598,81 +420,61 @@ def consume_due_alerts(
     *,
     notification_decisions: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    current = _now_local()
-    _prune_old_alerts(current)
-    due_alerts = [
-        alert
-        for alert in _matching_alerts(source=source, delivered=False)
-        if alert.due_at <= current
-    ]
-    if not due_alerts:
+    """Temporary lease-only adapter retained until Slice 9 client cutover."""
+    if source is None:
         return []
-
-    payload_alerts: list[ScheduledAlert] = []
-    with _LOCK:
-        by_id = {alert.alert_id: alert for alert in _ALERTS}
-        changed = False
-        for alert in due_alerts:
-            stored = by_id.get(alert.alert_id)
-            if stored is None:
-                continue
-            if alert.expires_at is not None and alert.expires_at <= current:
-                stored.delivered = True
-                changed = True
-                continue
-            if alert.kind == "notification":
-                decision = str((notification_decisions or {}).get(alert.alert_id) or "defer")
-                if decision == "defer":
-                    continue
-                stored.delivered = True
-                changed = True
-                if decision == "deliver":
-                    payload_alerts.append(alert)
-                continue
-            stored.delivered = True
-            changed = True
-            payload_alerts.append(alert)
-        if changed:
-            _save_alerts_unlocked()
-
-    payload: list[dict[str, Any]] = []
-    for alert in payload_alerts:
-        payload.append(
-            {
-                "alert_id": alert.alert_id,
-                "kind": alert.kind,
-                "message": alert.message,
-                "due_at": alert.due_at.isoformat(),
-                "source": alert.source,
-                "session_id": alert.session_id,
-                "metadata": dict(alert.metadata),
-            }
+    return [
+        _alert_payload(alert)
+        for alert in claim_due_alerts(
+            source_id=source,
+            now=_now_local(),
+            notification_decisions=notification_decisions,
+            exclude_kinds=("sleep_timer",),
+            db_path=ALERT_DB_PATH,
         )
-    return payload
+    ]
 
 
 def list_alerts(source: str | None, kind: str) -> list[ScheduledAlert]:
+    if source is None:
+        return []
     current = _now_local()
-    _prune_old_alerts(current)
-    return [
-        _copy_alert(alert)
-        for alert in _matching_alerts(source=source, kind=kind, delivered=False)
-        if alert.due_at >= current
-    ]
+    return list_alert_records(
+        source_id=source,
+        kind=kind,
+        statuses=ACTIVE_ALERT_STATUSES,
+        due_after=current,
+        db_path=ALERT_DB_PATH,
+    )
 
 
 def cancel_alerts(source: str | None, kind: str, *, all_matches: bool) -> int:
-    with _LOCK:
-        matches = [
-            alert for alert in _ALERTS if alert.source == source and alert.kind == kind and not alert.delivered
-        ]
-        if not matches:
-            return 0
-        matches.sort(key=lambda item: item.due_at)
-        remove_ids = {alert.alert_id for alert in matches} if all_matches else {matches[0].alert_id}
-        _ALERTS[:] = [alert for alert in _ALERTS if alert.alert_id not in remove_ids]
-        _save_alerts_unlocked()
-    return len(remove_ids)
+    if source is None:
+        return 0
+    return cancel_alert_records(
+        source_id=source,
+        kind=kind,
+        all_matches=all_matches,
+        db_path=ALERT_DB_PATH,
+    )
+
+
+def _alert_payload(alert: ScheduledAlert) -> dict[str, Any]:
+    return {
+        "alert_id": alert.alert_id,
+        "kind": alert.kind,
+        "message": alert.message,
+        "due_at": alert.due_at.isoformat(),
+        "source": alert.source,
+        "session_id": alert.session_id,
+        "metadata": dict(alert.metadata),
+        "lease_id": alert.lease_id,
+        "lease_expires_at": (
+            alert.lease_expires_at.isoformat()
+            if alert.lease_expires_at is not None
+            else None
+        ),
+    }
 
 
 def _format_alert_listing(kind: str, alerts: list[ScheduledAlert], *, mode: str = "status") -> str:
@@ -884,4 +686,21 @@ def build_alert_response(text: str, source: str | None, session_id: str | None) 
     raise ValueError("I could not tell whether that was a timer, alarm, or reminder request.")
 
 
-_load_alerts_from_disk()
+def classify_alert_operation(text: str) -> str | None:
+    normalized = _normalize_text(text)
+    kind = next(
+        (item for item in ("timer", "alarm", "reminder") if item in normalized),
+        None,
+    )
+    if kind is None and "countdown" not in normalized and "remind me" not in normalized:
+        return None
+    resolved_kind = kind or ("timer" if "countdown" in normalized else "reminder")
+    if _is_cancel_query(normalized, resolved_kind):
+        return "cancel"
+    if (
+        (resolved_kind == "timer" and _is_timer_status_query(normalized))
+        or (resolved_kind == "alarm" and _is_alarm_status_query(normalized))
+        or (resolved_kind == "reminder" and _is_reminder_status_query(normalized))
+    ):
+        return "status"
+    return "create"

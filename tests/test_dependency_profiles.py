@@ -12,6 +12,7 @@ class DependencyProfileTests(unittest.TestCase):
         for relative in (
             "server/requirements.lock",
             "server/requirements-fast-whisper.lock",
+            "server/requirements-full-production.lock",
             "satellite/requirements.lock",
             "requirements-test.lock",
         ):
@@ -31,9 +32,12 @@ class DependencyProfileTests(unittest.TestCase):
 
     def test_optional_profiles_remain_additive_and_distinct(self) -> None:
         fast_whisper = (ROOT / "server/requirements-fast-whisper.txt").read_text(encoding="utf-8")
+        full_production = (ROOT / "server/requirements-full-production.txt").read_text(encoding="utf-8")
         satellite = (ROOT / "satellite/requirements.txt").read_text(encoding="utf-8")
         self.assertIn("-r requirements.txt", fast_whisper)
         self.assertIn("faster-whisper==1.2.1", fast_whisper)
+        self.assertIn("-r requirements-fast-whisper.txt", full_production)
+        self.assertIn("piper-tts==1.4.1", full_production)
         self.assertIn("openwakeword==0.6.0", satellite)
         self.assertNotIn("faster-whisper", satellite)
 

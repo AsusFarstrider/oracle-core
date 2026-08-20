@@ -116,7 +116,7 @@ def observe_satellite_activity(
             status=clean_status,
             payload={
                 **clean_payload,
-                "snapshot_id": satellite_status_snapshot_id(clean_source_id),
+                "projection_id": satellite_status_projection_id(clean_source_id),
             },
             db_path=path,
         )
@@ -144,7 +144,7 @@ def safe_observe_satellite_activity(**kwargs: Any) -> bool:
     return True
 
 
-def satellite_status_snapshot_id(source_id: str) -> str:
+def satellite_status_projection_id(source_id: str) -> str:
     return f"satellite_status:{_snapshot_part(_clean_required(source_id, 'source_id'))}"
 
 
@@ -158,8 +158,8 @@ def get_latest_satellite_status(source_id: str, *, db_path: Path | None = None) 
     ensure_schema(path, copy_provisional_suggestions=False)
     with transaction(path) as conn:
         row = conn.execute(
-            "SELECT * FROM memory_snapshots WHERE snapshot_id = ? AND snapshot_type = ?",
-            (satellite_status_snapshot_id(clean_source_id), "satellite_status"),
+            "SELECT * FROM memory_current_projections WHERE projection_id = ? AND projection_type = ?",
+            (satellite_status_projection_id(clean_source_id), "satellite_status"),
         ).fetchone()
     return _row_to_snapshot(row) if row else None
 
@@ -172,7 +172,7 @@ def query_satellite_status_snapshots(
     query = query or SatelliteStatusQuery()
     path = db_path or DB_PATH
     ensure_schema(path, copy_provisional_suggestions=False)
-    sql = "SELECT * FROM memory_snapshots WHERE snapshot_type = ?"
+    sql = "SELECT * FROM memory_current_projections WHERE projection_type = ?"
     args: list[Any] = ["satellite_status"]
     source_id = _clean_required(query.source_id, "source_id") if query.source_id else None
     status = _clean_optional(query.status)
@@ -186,7 +186,7 @@ def query_satellite_status_snapshots(
         args.append(status)
     limit = _clamp_limit(query.limit)
     offset = max(0, int(query.offset or 0))
-    sql += " ORDER BY observed_at DESC, snapshot_id ASC LIMIT ? OFFSET ?"
+    sql += " ORDER BY observed_at DESC, projection_id ASC LIMIT ? OFFSET ?"
     args.extend([limit, offset])
     with transaction(path) as conn:
         rows = conn.execute(sql, args).fetchall()
@@ -212,7 +212,7 @@ def _upsert_satellite_snapshot(
     snapshot: dict[str, Any],
     db_path: Path,
 ) -> dict[str, Any] | None:
-    snapshot_id = satellite_status_snapshot_id(source_id)
+    projection_id = satellite_status_projection_id(source_id)
     now = utc_now_iso()
     snapshot_payload = dict(snapshot)
     snapshot_payload.pop("status", None)
@@ -229,14 +229,14 @@ def _upsert_satellite_snapshot(
     with transaction(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO memory_snapshots (
-                snapshot_id, created_at, updated_at, observed_at, snapshot_type,
+            INSERT INTO memory_current_projections (
+                projection_id, created_at, updated_at, observed_at, projection_type,
                 source_id, provider, domain, status, correlation_id, payload_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(snapshot_id) DO UPDATE SET
+            ON CONFLICT(projection_id) DO UPDATE SET
                 updated_at = excluded.updated_at,
                 observed_at = excluded.observed_at,
-                snapshot_type = excluded.snapshot_type,
+                projection_type = excluded.projection_type,
                 source_id = excluded.source_id,
                 provider = excluded.provider,
                 domain = excluded.domain,
@@ -245,7 +245,7 @@ def _upsert_satellite_snapshot(
                 payload_json = excluded.payload_json
             """,
             (
-                snapshot_id,
+                projection_id,
                 now,
                 now,
                 observed_at,
@@ -320,11 +320,11 @@ def _last_error(*, event_type: str | None, payload: dict[str, Any]) -> str | Non
 
 def _row_to_snapshot(row: Any) -> dict[str, Any]:
     return {
-        "snapshot_id": row["snapshot_id"],
+        "projection_id": row["projection_id"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "observed_at": row["observed_at"],
-        "snapshot_type": row["snapshot_type"],
+        "projection_type": row["projection_type"],
         "source_id": row["source_id"],
         "provider": row["provider"],
         "domain": row["domain"],

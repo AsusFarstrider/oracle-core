@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import re
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -48,6 +49,7 @@ _NETWORK_EXACT_PATTERNS = (
 )
 _NETWORK_STATUS_CACHE_TTL_SECONDS = 30.0
 _NETWORK_STATUS_CACHE: dict[str, Any] = {}
+_NETWORK_STATUS_CACHE_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -119,40 +121,41 @@ def get_network_status_snapshot(
         return canonical_execution.status_snapshot(force_refresh=force_refresh)
     if canonical_authority:
         raise RuntimeError("Canonical network capability is not configured.")
-    now_monotonic = time.monotonic()
-    cached_snapshot = _NETWORK_STATUS_CACHE.get("snapshot")
-    cached_monotonic = float(_NETWORK_STATUS_CACHE.get("stored_monotonic") or 0.0)
-    if not force_refresh and isinstance(cached_snapshot, dict) and cached_monotonic:
-        age_seconds = max(0.0, now_monotonic - cached_monotonic)
-        if age_seconds <= _NETWORK_STATUS_CACHE_TTL_SECONDS:
-            return _with_cache_metadata(
-                cached_snapshot,
-                cached_at=str(_NETWORK_STATUS_CACHE.get("cached_at") or ""),
-                age_seconds=age_seconds,
-                cache_hit=True,
-            )
+    with _NETWORK_STATUS_CACHE_LOCK:
+        now_monotonic = time.monotonic()
+        cached_snapshot = _NETWORK_STATUS_CACHE.get("snapshot")
+        cached_monotonic = float(_NETWORK_STATUS_CACHE.get("stored_monotonic") or 0.0)
+        if not force_refresh and isinstance(cached_snapshot, dict) and cached_monotonic:
+            age_seconds = max(0.0, now_monotonic - cached_monotonic)
+            if age_seconds <= _NETWORK_STATUS_CACHE_TTL_SECONDS:
+                return _with_cache_metadata(
+                    cached_snapshot,
+                    cached_at=str(_NETWORK_STATUS_CACHE.get("cached_at") or ""),
+                    age_seconds=age_seconds,
+                    cache_hit=True,
+                )
 
-    raw_probe = NetworkProbeBridge().get_internet_status(settings=get_network_probe_settings())
-    raw_monitoring = LibreNmsBridge().get_monitoring_status(settings=get_librenms_settings())
-    probe = _observation_dict(raw_probe)
-    monitoring = _observation_dict(raw_monitoring)
-    inventory = get_network_inventory_settings()
-    snapshot = build_network_status_snapshot(
-        inventory=inventory,
-        probe=probe,
-        monitoring=monitoring,
-        satellite_control=_get_satellite_control_status(inventory=inventory),
-    )
-    cached_at = datetime.now().astimezone().isoformat()
-    _NETWORK_STATUS_CACHE["snapshot"] = copy.deepcopy(snapshot)
-    _NETWORK_STATUS_CACHE["stored_monotonic"] = now_monotonic
-    _NETWORK_STATUS_CACHE["cached_at"] = cached_at
-    return _with_cache_metadata(
-        snapshot,
-        cached_at=cached_at,
-        age_seconds=0.0,
-        cache_hit=False,
-    )
+        raw_probe = NetworkProbeBridge().get_internet_status(settings=get_network_probe_settings())
+        raw_monitoring = LibreNmsBridge().get_monitoring_status(settings=get_librenms_settings())
+        probe = _observation_dict(raw_probe)
+        monitoring = _observation_dict(raw_monitoring)
+        inventory = get_network_inventory_settings()
+        snapshot = build_network_status_snapshot(
+            inventory=inventory,
+            probe=probe,
+            monitoring=monitoring,
+            satellite_control=_get_satellite_control_status(inventory=inventory),
+        )
+        cached_at = datetime.now().astimezone().isoformat()
+        _NETWORK_STATUS_CACHE["snapshot"] = copy.deepcopy(snapshot)
+        _NETWORK_STATUS_CACHE["stored_monotonic"] = now_monotonic
+        _NETWORK_STATUS_CACHE["cached_at"] = cached_at
+        return _with_cache_metadata(
+            snapshot,
+            cached_at=cached_at,
+            age_seconds=0.0,
+            cache_hit=False,
+        )
 
 
 def _observation_dict(value: Any) -> dict[str, Any]:
@@ -269,7 +272,8 @@ def _probe_satellite_control_monitor(
 
 
 def clear_network_status_cache() -> None:
-    _NETWORK_STATUS_CACHE.clear()
+    with _NETWORK_STATUS_CACHE_LOCK:
+        _NETWORK_STATUS_CACHE.clear()
 
 
 def _with_cache_metadata(

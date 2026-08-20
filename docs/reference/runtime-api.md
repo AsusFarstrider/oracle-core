@@ -140,15 +140,16 @@ Response detail:
 - media type set in the response
 - provider may be exposed in response headers
 
-### `GET /alerts/pending`
+### `POST /api/satellite/alerts/claim`
 
 Purpose:
 
-- deliver due timers, alarms, and reminders to a polling client for a given source
+- lease due alerts to an authenticated managed satellite without completing them
 
 Request detail:
 
-- optional query parameter: `source`
+- Bearer projection credential
+- JSON `source_id`, `lease_seconds`, and `limit`; credential identity is authoritative
 
 Response shape:
 
@@ -157,10 +158,12 @@ Response shape:
   "alerts": [
     {
       "alert_id": "abc123",
+      "lease_id": "lease-abc123",
+      "lease_expires_at": "2026-03-17T21:00:30Z",
       "kind": "timer",
       "message": "Your pasta timer is done.",
       "due_at": "2026-03-17T21:00:00Z",
-      "source": "kitchen-satellite",
+      "source_id": "kitchen-satellite",
       "session_id": "kitchen-session",
       "metadata": {}
     }
@@ -181,9 +184,16 @@ Required alert fields:
 
 Optional alert fields:
 
-- `source`
 - `session_id`
 - `metadata`
+
+### `POST /api/satellite/alerts/{alert_id}/acknowledge`
+
+The authenticated source supplies the active `lease_id` and an
+`acknowledged` or `completed` status. Duplicate acknowledgement with the same
+lease is idempotent. A source mismatch, different lease, or expired lease is
+rejected. The former `GET /alerts/pending` surface remains only for bounded
+Slice 9 client migration.
 
 ## Satellite Control Plane
 

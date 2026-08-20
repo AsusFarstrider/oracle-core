@@ -747,11 +747,25 @@ class IntegerRoutineInput(ConfigurationModel):
     default: int
     minimum: int
     maximum: int
+    prompt: DisplayText | None = Field(default=None, exclude_if=lambda value: value is None)
+    spoken_duration: bool = Field(default=False, exclude_if=lambda value: value is False)
+    no_timer_value: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    confirm_duration: bool = Field(default=False, exclude_if=lambda value: value is False)
 
     @model_validator(mode="after")
     def validate_bounds(self) -> IntegerRoutineInput:
         if self.minimum > self.default or self.default > self.maximum:
             raise ValueError("Routine input default must be inside its bounds.")
+        if self.spoken_duration and self.prompt is None:
+            raise ValueError("Spoken-duration routine input requires a prompt.")
+        if self.no_timer_value is not None and not self.spoken_duration:
+            raise ValueError("no_timer_value requires spoken_duration.")
+        if self.confirm_duration and not self.spoken_duration:
+            raise ValueError("confirm_duration requires spoken_duration.")
+        if self.no_timer_value is not None and not (
+            self.minimum <= self.no_timer_value <= self.maximum
+        ):
+            raise ValueError("no_timer_value must be inside the input bounds.")
         return self
 
 
@@ -771,11 +785,18 @@ class StringRoutineInput(ConfigurationModel):
 RoutineInput = Annotated[IntegerRoutineInput | StringRoutineInput, Field(discriminator="type")]
 
 
+class RoutineStepCondition(ConfigurationModel):
+    input_id: CanonicalId
+    operator: Literal["equals", "not_equals", "greater_than"]
+    value: int | str
+
+
 class RoutineStepBase(ConfigurationModel):
     id: CanonicalId
     label: DisplayText
     required: bool
     on_failure: Literal["stop", "continue"]
+    when: RoutineStepCondition | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def required_steps_stop(self) -> RoutineStepBase:
@@ -851,8 +872,20 @@ class StateCheckStep(RoutineStepBase):
     remediation_action_id: CanonicalId | None = None
 
 
+class NotificationStep(RoutineStepBase):
+    type: Literal["notification"]
+    notification_id: CanonicalId
+    timeout_seconds: PositiveSeconds = 15
+
+
+class TimerSoundStep(RoutineStepBase):
+    type: Literal["timer_sound"]
+    source_id: CanonicalId
+    timeout_seconds: PositiveSeconds = 15
+
+
 RoutineStep = Annotated[
-    UiActionStep | AudiobookStartStep | SleepTimerStep | WaitStep | PlaybackCheckStep | StateCheckStep,
+    UiActionStep | AudiobookStartStep | SleepTimerStep | WaitStep | PlaybackCheckStep | StateCheckStep | NotificationStep | TimerSoundStep,
     Field(discriminator="type"),
 ]
 
@@ -872,6 +905,8 @@ class RoutineDefinition(ConfigurationModel):
     def validate_definition(self) -> RoutineDefinition:
         _reject_duplicates([step.id for step in self.steps], label="Routine step IDs")
         for step in self.steps:
+            if step.when is not None and step.when.input_id not in self.inputs:
+                raise ValueError(f"Routine step {step.id!r} condition references an undefined input.")
             duration_input = getattr(step, "duration_input", None)
             if duration_input is not None and duration_input not in self.inputs:
                 raise ValueError(f"Routine step {step.id!r} references an undefined input.")

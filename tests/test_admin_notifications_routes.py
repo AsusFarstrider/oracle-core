@@ -167,7 +167,7 @@ class AdminNotificationsRouteTests(unittest.TestCase):
             }
         )
         settings = SimpleNamespace(
-            config_revision="oracle-config-v1:sha256:canonical",
+            config_revision="oracle-config-v2:sha256:canonical",
             types={"door_open": SimpleNamespace(definition=definition)},
             recipient_groups={},
             providers={},

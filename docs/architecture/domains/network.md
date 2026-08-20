@@ -22,8 +22,8 @@ The current domain is split across:
 - `server/oracle_app/handlers/network.py` for dispatch-target execution
 - `server/oracle_app/provider_bridges/network_probe.py` for Oracle-owned direct DNS/HTTP reachability checks
 - `server/oracle_app/provider_bridges/librenms.py` for optional LibreNMS visibility
-- `server/oracle_app/provider_bridges/service_control.py` for typed approved service-control adapters
-- `server/oracle_app/provider_bridges/router_control.py` for typed approved router-control adapters
+- `server/oracle_app/network_runtime/service_control.py` for Brain-owned lifecycle, recovery, and rollback
+- `server/oracle_app/network_runtime/platform_adapters.py` and `platform_transport.py` for typed service, router, local, SSH, systemd, Docker, Windows, storage, mount/RAID, and reboot mechanics
 - capability routing in `server/oracle_app/capabilities/plugins.py`, which recognizes simple network-health questions
 
 ## Provider Bridge Roles
@@ -32,10 +32,12 @@ The current bridge roles are intentionally narrow:
 
 - `network_probe` verifies connectivity directly through Oracle-owned checks
 - `librenms` provides monitoring visibility only
-- `service_control` executes only planned and allowlisted Oracle service actions
-- `router_control` executes only planned and allowlisted router actions
+- network platform adapters execute only the finite service, host, and router operations selected by canonical policy
 
-These bridges do not interpret overall health, decide user actions, or combine multiple systems. The `network` domain owns that work.
+Observation bridges do not interpret overall health or decide user actions. The
+`network` domain owns that work, including allowlists, confirmation,
+preconditions, lifecycle, recovery, and rollback. Typed platform adapters own
+only fixed execution and observation mechanics and return immutable outcomes.
 
 The direct-probe and LibreNMS read bridges return immutable Oracle-owned
 observation DTOs from `provider_bridges/network_observations.py`. Provider
@@ -166,3 +168,7 @@ target, credential, command, or mount detail enters the public control model.
 
 Canonical requests and workers use only the installed typed network view; no
 field-level precedence or alternate runtime authority exists.
+
+The canonical execution path does not call the dictionary-shaped V1
+service/router generators. Those compatibility functions remain reachable only
+from the isolated V1 surface scheduled for deletion in Stage 5 Slice 11.

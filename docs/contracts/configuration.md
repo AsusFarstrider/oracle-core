@@ -79,11 +79,14 @@ utilities do not earn dedicated files.
 
 V2 has no `domains/alerts.yaml`. Timer, alarm, and reminder records are
 operational state, while interpretation remains code- and contract-owned.
-Brain persistence mechanics belong to `brain.yaml:storage`; satellite polling,
+Brain persistence mechanics belong to `brain.yaml:storage.memory`, including
+the configurable 90-day terminal alert horizon; satellite claim,
 cue assets, and local playback behavior enter the satellite projection; and
 notification delivery/suppression policy remains in
 `domains/notifications.yaml`. A future alert role requires evidence of
-substantial operator-owned policy plus schema review.
+substantial operator-owned policy plus schema review. The old
+`storage.alerts` JSON declaration is transitional migration input until the
+coordinated Stage 5 data/configuration cutover removes it.
 
 V2 also has no `domains/playback.yaml`. Shared pause, resume, interruption, and
 authority behavior remains code- and contract-owned. Music and audiobook policy
@@ -104,9 +107,10 @@ The whole authored bundle has one integer `schema_version`. Domain files do not
 evolve independently. Oracle versions declare the bundle-schema versions they
 can validate and activate.
 
-The first canonical V2 bundle uses `schema_version: 1`; this counter is
-independent of Oracle product/roadmap versioning. Canonical serialization begins
-at `oracle-config-v1`, and the independently versioned satellite projection
+Stage 5 advances the canonical bundle to `schema_version: 2` and removes the
+dormant Memory fields from schema 1 without a dual-schema runtime. This counter
+is independent of Oracle product/roadmap versioning. Canonical serialization is
+`oracle-config-v2`, and the independently versioned satellite projection
 format begins at `projection_schema_version: 1`.
 
 `bundle_id` is the stable configuration-lineage identity bound to an installed
@@ -588,11 +592,11 @@ transactions update the companion and immutable secret generation atomically.
 After failure, System Mode requires value re-entry because Oracle never reads it
 back.
 
-The revision format is `oracle-config-v1:sha256:<digest>`. Defaults expanded
+The revision format is `oracle-config-v2:sha256:<digest>`. Defaults expanded
 during normalization are part of the hash. Comments, authored ordering, and
 whether a value equal to a default was written explicitly are not semantic.
 
-`oracle-config-v1` canonicalizes the normalized hash payload using RFC 8785 JSON
+`oracle-config-v2` canonicalizes the normalized hash payload using RFC 8785 JSON
 Canonicalization Scheme semantics, encodes canonical bytes as UTF-8, and hashes
 them with SHA-256. Values outside the interoperable JSON data model are invalid.
 Golden fixtures fix canonical bytes and digests across implementations. A

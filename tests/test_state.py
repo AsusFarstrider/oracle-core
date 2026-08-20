@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import sys
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
@@ -13,47 +16,7 @@ from oracle_app.session_state import clear_all_sessions, inspect_session
 
 class StateTests(unittest.TestCase):
     def tearDown(self) -> None:
-        state.clear_all_active_audiobook_playbacks()
         clear_all_sessions()
-
-    def test_register_active_audiobook_playback_replaces_previous_source_mapping(self) -> None:
-        state.register_active_audiobook_playback(
-            "playback-1",
-            {
-                "playback_id": "playback-1",
-                "source": "test_satellite_bravo",
-                "abs_session_id": "session-1",
-            },
-        )
-        state.register_active_audiobook_playback(
-            "playback-2",
-            {
-                "playback_id": "playback-2",
-                "source": "test_satellite_bravo",
-                "abs_session_id": "session-2",
-            },
-        )
-
-        self.assertIsNone(state.get_active_audiobook_playback("playback-1"))
-        self.assertEqual(
-            state.get_active_audiobook_playback_for_source("test_satellite_bravo")["playback_id"],
-            "playback-2",
-        )
-
-    def test_clear_active_audiobook_playback_removes_source_mapping(self) -> None:
-        state.register_active_audiobook_playback(
-            "playback-1",
-            {
-                "playback_id": "playback-1",
-                "source": "test_satellite_bravo",
-                "abs_session_id": "session-1",
-            },
-        )
-
-        state.clear_active_audiobook_playback("playback-1")
-
-        self.assertIsNone(state.get_active_audiobook_playback("playback-1"))
-        self.assertIsNone(state.get_active_audiobook_playback_for_source("test_satellite_bravo"))
 
     def test_load_pending_music_request_returns_deep_copy(self) -> None:
         state.store_pending_music_request(
@@ -74,25 +37,6 @@ class StateTests(unittest.TestCase):
         self.assertEqual(
             fresh_payload["candidates"][0]["title"],
             "Heroes",
-        )
-
-    def test_get_active_audiobook_playback_returns_deep_copy(self) -> None:
-        state.register_active_audiobook_playback(
-            "playback-1",
-            {
-                "playback_id": "playback-1",
-                "source": "test_satellite_bravo",
-                "tracks": [{"content_url": "/audio/book.mp3"}],
-            },
-        )
-
-        payload = state.get_active_audiobook_playback("playback-1")
-
-        assert payload is not None
-        payload["tracks"][0]["content_url"] = "/mutated"
-        self.assertEqual(
-            state.ACTIVE_AUDIOBOOK_PLAYBACKS["playback-1"]["tracks"][0]["content_url"],
-            "/audio/book.mp3",
         )
 
     def test_pending_state_logs_create_and_resolve_events(self) -> None:
@@ -127,6 +71,43 @@ class StateTests(unittest.TestCase):
         self.assertEqual(session["pending_state"]["domain"], "music")
         self.assertEqual(session["pending_state"]["type"], "clarification")
         self.assertEqual(session["pending_state"]["payload"]["intent"]["title"], "heroes")
+
+    def test_pending_and_active_context_publish_as_one_atomic_mutation(self) -> None:
+        active_context_entered = Event()
+        allow_active_context = Event()
+        original_set_active_context = state.session_state.set_active_context
+
+        def delayed_set_active_context(*args, **kwargs):
+            active_context_entered.set()
+            allow_active_context.wait(timeout=2.0)
+            return original_set_active_context(*args, **kwargs)
+
+        with patch.object(state.session_state, "set_active_context", delayed_set_active_context):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                writer = executor.submit(
+                    state.store_pending_music_request,
+                    "test_satellite_bravo",
+                    "session-atomic",
+                    {
+                        "intent": {"intent": "play", "title": "heroes"},
+                        "candidates": [{"title": "Heroes"}],
+                    },
+                )
+                self.assertTrue(active_context_entered.wait(timeout=1.0))
+                reader = executor.submit(
+                    inspect_session,
+                    "test_satellite_bravo",
+                    "session-atomic",
+                )
+                self.assertFalse(reader.done())
+                allow_active_context.set()
+
+                self.assertTrue(writer.result(timeout=1.0))
+                session = reader.result(timeout=1.0)
+
+        assert session is not None
+        self.assertEqual(session["pending_state"]["domain"], "music")
+        self.assertEqual(session["active_context"]["route_target"], "music")
 
 
 if __name__ == "__main__":

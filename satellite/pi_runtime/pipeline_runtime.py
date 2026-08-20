@@ -172,7 +172,12 @@ class CapturePipeline:
             )
             outcome = request_result.outcome
             if request_result.tts_wav:
-                deferred_transport_resume = extract_deferred_transport_resume(outcome)
+                deferred_transport_resume = extract_deferred_transport_resume(
+                    outcome,
+                    oracle_url=getattr(self._args, "oracle_url", ""),
+                    source=getattr(self._args, "source", ""),
+                    credential=getattr(self._args, "brain_api_key", ""),
+                )
                 foreground_handoff = self._begin_reply_foreground_handoff(
                     outcome=outcome,
                     interrupted_playback=interrupted_playback,

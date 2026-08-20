@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .correlation import get_correlation_id
-from .retention import DEFAULT_RETENTION_POLICY
+from .retention import RetentionPolicy
 from .schema import ensure_schema
 from .store import DB_PATH, transaction
 
@@ -80,6 +80,7 @@ def record_transcript(
     failure_stage: str | None = None,
     payload: dict[str, Any] | None = None,
     transcript_id: str | None = None,
+    retention_policy: RetentionPolicy,
     db_path: Path | None = None,
 ) -> dict[str, Any]:
     path = db_path or DB_PATH
@@ -96,6 +97,7 @@ def record_transcript(
         final_status=clean_final_status,
         failure_stage=failure_stage,
         confidence=confidence,
+        policy=retention_policy,
     )
     with transaction(path) as conn:
         conn.execute(
@@ -317,18 +319,19 @@ def _retention_until_values(
     final_status: str,
     failure_stage: str | None,
     confidence: float | None,
+    policy: RetentionPolicy,
 ) -> tuple[str | None, str | None]:
     captured = _parse_datetime(captured_at)
     if captured is None:
         return None, None
     raw_days = (
-        DEFAULT_RETENTION_POLICY.failed_raw_transcript_days
+        policy.failed_raw_transcript_days
         if _uses_failed_raw_retention(final_status=final_status, failure_stage=failure_stage, confidence=confidence)
-        else DEFAULT_RETENTION_POLICY.successful_raw_transcript_days
+        else policy.successful_raw_transcript_days
     )
     return (
         (captured + timedelta(days=raw_days)).isoformat(),
-        (captured + timedelta(days=DEFAULT_RETENTION_POLICY.transcript_metadata_days)).isoformat(),
+        (captured + timedelta(days=policy.transcript_metadata_days)).isoformat(),
     )
 
 

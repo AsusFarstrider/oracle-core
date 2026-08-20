@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
 
@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
 from oracle_app.orchestration_routine_routes import cancel_routine_run, run_routine
 from oracle_app.schemas import UiRoutineCancelRequest, UiRoutineRunRequest
+from oracle_app.ui_context import handle_pending_ui_context
 
 
 ROUTINE = {
@@ -23,6 +24,78 @@ ROUTINE = {
 
 
 class OrchestrationRoutineRouteTests(unittest.TestCase):
+    @patch("oracle_app.orchestration_routine_routes.state.store_pending_ui_context", return_value=True)
+    def test_run_control_prompts_for_declared_spoken_duration(self, mock_store) -> None:
+        definition = {
+            "id": "child_bedtime_prompt", "display_name": "Child Bedtime", "enabled": True,
+            "source_ids": ["satellite-child"], "triggers": {"ui": True}, "steps": [],
+            "inputs": {"delay": {"type": "integer", "default": 1200, "minimum": 0, "maximum": 14400, "spoken_duration": True, "no_timer_value": 0, "prompt": "How long would you like the timer to be?"}},
+        }
+        execution = Mock()
+        execution.definition_payload.return_value = definition
+
+        result = run_routine(
+            "child_bedtime_prompt",
+            UiRoutineRunRequest(client_id="ui", source="satellite-child", ui_session_id="session", inputs={}),
+            routine_execution=execution,
+            canonical_authority=True,
+        )
+
+        self.assertTrue(result["pending_input"])
+        self.assertEqual(result["prompt"], "How long would you like the timer to be?")
+        execution.start.assert_not_called()
+        self.assertEqual(mock_store.call_args.args[:2], ("satellite-child", "session"))
+
+    @patch("oracle_app.ui_context.state.clear_pending_ui_context")
+    @patch("oracle_app.ui_context.state.load_pending_ui_context")
+    def test_spoken_duration_and_no_timer_continue_the_prompted_routine(self, load, clear) -> None:
+        pending = {
+            "action": "routine_input", "client_id": "child-ui", "target_source_id": "child-room",
+            "routine_id": "child_bedtime", "input_id": "bedtime_delay_seconds",
+            "input_spec": {"type": "integer", "minimum": 0, "maximum": 14400, "spoken_duration": True, "no_timer_value": 0, "confirm_duration": True},
+        }
+        load.return_value = pending
+        starter = Mock(return_value={"run_id": "routine-1", "status": "waiting"})
+
+        duration = handle_pending_ui_context(
+            "one hour and thirty minutes", "child-room", "session-1",
+            audio_search=Mock(), routine_start=starter,
+        )
+        self.assertEqual(duration.dispatch.status, "executed")
+        self.assertEqual(duration.reply_text, "Timer has been set for 1 hour, 30 minutes.")
+        starter.assert_called_once_with(
+            routine_id="child_bedtime", client_id="child-ui", inputs={"bedtime_delay_seconds": 5400},
+        )
+        clear.assert_called_once_with("child-room", "session-1")
+
+        starter.reset_mock()
+        clear.reset_mock()
+        no_timer = handle_pending_ui_context(
+            "no timer", "child-room", "session-2",
+            audio_search=Mock(), routine_start=starter,
+        )
+        self.assertEqual(no_timer.reply_text, "Starting bedtime now.")
+        self.assertTrue(no_timer.dispatch.result["no_timer"])
+        starter.assert_called_once_with(
+            routine_id="child_bedtime", client_id="child-ui", inputs={"bedtime_delay_seconds": 0},
+        )
+
+    @patch("oracle_app.ui_context.state.clear_pending_ui_context")
+    @patch("oracle_app.ui_context.state.load_pending_ui_context")
+    def test_invalid_prompted_duration_remains_pending(self, load, clear) -> None:
+        load.return_value = {
+            "action": "routine_input", "client_id": "child-ui", "target_source_id": "child-room",
+            "routine_id": "child_bedtime", "input_id": "delay",
+            "input_spec": {"minimum": 0, "maximum": 14400, "no_timer_value": 0},
+        }
+        starter = Mock()
+        response = handle_pending_ui_context(
+            "later", "child-room", "session-3", audio_search=Mock(), routine_start=starter,
+        )
+        self.assertEqual(response.dispatch.status, "pending_clarification")
+        self.assertEqual(response.dispatch.result["error"], "routine_duration_required")
+        starter.assert_not_called()
+        clear.assert_not_called()
     @patch(
         "oracle_app.orchestration_routine_routes.get_orchestration_settings",
         side_effect=AssertionError("canonical route used V1 routine settings"),

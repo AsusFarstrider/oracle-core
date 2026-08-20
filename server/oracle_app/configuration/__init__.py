@@ -77,7 +77,6 @@ from .brain_runtime_settings import (
 from .brain_effective_runtime_settings import BrainEffectiveRuntimeSettings
 from .brain_core_runtime_consumers import (
     BrainCoreRuntimeConsumers,
-    InferenceExecutionSettings,
 )
 from .household_runtime_settings import HouseholdRuntimeSettings
 from .access_runtime_settings import (
@@ -328,7 +327,6 @@ __all__ = [
     "BrainRuntimeSettings",
     "BrainEffectiveRuntimeSettings",
     "BrainCoreRuntimeConsumers",
-    "InferenceExecutionSettings",
     "SelectedInferenceConfiguration",
     "SelectedSttConfiguration",
     "SelectedTtsConfiguration",

@@ -1,0 +1,233 @@
+[
+  {
+    "id": "shared-pending-confirmation",
+    "dispatch": {
+      "target": "system",
+      "hook": "system.confirm_pending",
+      "payload": {"action": "confirm_pending"},
+      "status": "pending_confirmation",
+      "result": {"prompt": "Do you want me to continue?"}
+    },
+    "expected_reply": "Do you want me to continue?"
+  },
+  {
+    "id": "shared-pending-clarification",
+    "dispatch": {
+      "target": "music",
+      "hook": "music.execute",
+      "payload": {"text": "play heroes"},
+      "status": "pending_clarification",
+      "result": {"prompt": "Which version of Heroes did you mean?"}
+    },
+    "expected_reply": "Which version of Heroes did you mean?"
+  },
+  {
+    "id": "home-success-nested-speech",
+    "dispatch": {
+      "target": "home_assistant",
+      "hook": "home_assistant.execute",
+      "payload": {"text": "turn on the lights"},
+      "status": "executed",
+      "result": {"response": {"speech": {"plain": {"speech": "Turned on the lights"}}}}
+    },
+    "expected_reply": "Turned on the lights"
+  },
+  {
+    "id": "home-failed-verification",
+    "dispatch": {
+      "target": "home_assistant",
+      "hook": "home_assistant.execute",
+      "payload": {"text": "turn on the guest room lights"},
+      "status": "failed",
+      "result": {
+        "error": "home_assistant_state_verification_failed",
+        "verification_failed_targets": [
+          {"entity_id": "light.guest_room", "name": "Guest Room", "expected_state": "on"}
+        ]
+      }
+    },
+    "expected_reply": "Guest Room did not turn on."
+  },
+  {
+    "id": "calendar-find-event",
+    "dispatch": {
+      "target": "calendar",
+      "hook": "calendar.execute",
+      "payload": {"text": "when is breakfast"},
+      "status": "executed",
+      "result": {
+        "action": "find_event",
+        "query": "breakfast",
+        "events": [
+          {"summary": "Breakfast", "start": "2026-04-05T08:00:00-04:00", "all_day": false}
+        ]
+      }
+    },
+    "expected_reply": "Breakfast is on Sunday at 8 AM."
+  },
+  {
+    "id": "calendar-write-unavailable",
+    "dispatch": {
+      "target": "calendar",
+      "hook": "calendar.commit_event",
+      "payload": {"action": "commit_event"},
+      "status": "failed",
+      "result": {"error": "calendar_write_unavailable"}
+    },
+    "expected_reply": "I can't add calendar events right now."
+  },
+  {
+    "id": "facts-answered",
+    "dispatch": {
+      "target": "facts",
+      "hook": "facts.lookup",
+      "payload": {"query": "Who wrote Frankenstein?"},
+      "status": "executed",
+      "result": {
+        "facts_status": "answered",
+        "query": "Who wrote Frankenstein?",
+        "answer": {"text": "Frankenstein was written by Mary Shelley."},
+        "summarized_by_model": false
+      }
+    },
+    "expected_reply": "Frankenstein was written by Mary Shelley."
+  },
+  {
+    "id": "facts-provider-error",
+    "dispatch": {
+      "target": "facts",
+      "hook": "facts.lookup",
+      "payload": {"query": "What is x?"},
+      "status": "failed",
+      "result": {"facts_status": "provider_error"}
+    },
+    "expected_reply": "I couldn't look that up right now."
+  },
+  {
+    "id": "fallback-failed",
+    "dispatch": {
+      "target": "fallback_router",
+      "hook": "fallback_router.execute",
+      "payload": {"query": "flurble"},
+      "status": "failed",
+      "result": {"error": "fallback_unresolved"}
+    },
+    "expected_reply": "I'm sorry, I didn't understand what you said."
+  },
+  {
+    "id": "audiobook-resume-selection",
+    "dispatch": {
+      "target": "audiobook",
+      "hook": "audiobook.execute",
+      "payload": {"text": "resume my audiobook", "effective_user_id": "resident"},
+      "status": "executed",
+      "result": {
+        "action": "play",
+        "selected": {"title": "Dune", "author": "Frank Herbert", "start_position_seconds": 812.0}
+      }
+    },
+    "expected_reply": "Resuming Dune by Frank Herbert."
+  },
+  {
+    "id": "audiobook-user-failure",
+    "dispatch": {
+      "target": "audiobook",
+      "hook": "audiobook.execute",
+      "payload": {"text": "play Alex's audiobook"},
+      "status": "failed",
+      "result": {"error": "unknown_user", "requested_user_name": "Alex"}
+    },
+    "expected_reply": "I don't know a user named Alex."
+  },
+  {
+    "id": "news-headlines",
+    "dispatch": {
+      "target": "news",
+      "hook": "news.execute",
+      "payload": {"text": "latest from npr"},
+      "status": "executed",
+      "result": {"source_label": "NPR", "headlines": [{"title": "First story"}, {"title": "Second story"}]}
+    },
+    "expected_reply": "From NPR: First story. Also, Second story."
+  },
+  {
+    "id": "network-success",
+    "dispatch": {
+      "target": "network",
+      "hook": "network.execute",
+      "payload": {"action": "network_summary"},
+      "status": "executed",
+      "result": {"action": "network_summary", "speech": "The network looks healthy."}
+    },
+    "expected_reply": "The network looks healthy."
+  },
+  {
+    "id": "system-intentional-silence",
+    "dispatch": {
+      "target": "system",
+      "hook": "system.ignore",
+      "payload": {"action": "ignore"},
+      "status": "executed",
+      "result": {"action": "ignore", "ignored": true}
+    },
+    "expected_reply": ""
+  },
+  {
+    "id": "system-confirmed-nested-failure",
+    "dispatch": {
+      "target": "system",
+      "hook": "system.confirm_pending",
+      "payload": {"action": "confirm_pending"},
+      "status": "failed",
+      "result": {
+        "action": "confirm_pending",
+        "confirmed_dispatch": {
+          "target": "music",
+          "hook": "music.execute",
+          "payload": {"text": "play hamilton"},
+          "status": "failed",
+          "result": {"action": "play", "error": "satellite_command_failed"}
+        }
+      }
+    },
+    "expected_reply": "I couldn't reach the playback satellite."
+  },
+  {
+    "id": "weather-remote-location-failure",
+    "dispatch": {
+      "target": "weather",
+      "hook": "weather.remote_current_weather",
+      "payload": {"action": "remote_current_weather", "text": "weather in nowhere"},
+      "status": "failed",
+      "result": {"error": "remote_weather_location_unresolved", "detail": "I couldn't resolve Nowhere."}
+    },
+    "expected_reply": "I couldn't resolve Nowhere."
+  },
+  {
+    "id": "music-artist-play",
+    "dispatch": {
+      "target": "music",
+      "hook": "music.execute",
+      "payload": {"text": "play david bowie", "playback_target_source_id": "satellite-alpha"},
+      "status": "executed",
+      "result": {"action": "play", "selected": {"type": "artist", "title": "David Bowie"}}
+    },
+    "expected_reply": "Playing songs by David Bowie."
+  },
+  {
+    "id": "music-degraded-dual-active-stop",
+    "dispatch": {
+      "target": "music",
+      "hook": "music.execute",
+      "payload": {"text": "stop"},
+      "status": "executed",
+      "result": {
+        "action": "stop",
+        "degraded_state_fallback": "dual_active_stop_all",
+        "satellite": {"ok": true, "state": "stopped"},
+        "longform": {"ok": true, "state": "stopped"}
+      }
+    },
+    "expected_reply": "Stopping all active media."
+  }
+]

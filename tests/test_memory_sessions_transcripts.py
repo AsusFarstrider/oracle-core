@@ -10,7 +10,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
 from oracle_app.memory import schema, sessions, sources, transcripts
+from oracle_app.memory.retention import retention_policy_from_configuration
+from oracle_app.configuration.runtime_models import MemoryRetentionConfiguration
 from oracle_app.memory.store import transaction
+
+
+POLICY = retention_policy_from_configuration(MemoryRetentionConfiguration())
+record_transcript = lambda **kwargs: transcripts.record_transcript(retention_policy=POLICY, **kwargs)
 
 
 class OracleMemorySessionTranscriptTests(unittest.TestCase):
@@ -72,7 +78,7 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
         )
         first = sessions.record_session(
             session_id="session-1",
-            mode="voice",
+            mode="conversation",
             started_at="2026-04-25T10:00:00+00:00",
             correlation_id="corr-1",
             source_id="test_satellite_bravo",
@@ -90,7 +96,7 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
         )
 
         self.assertEqual(first["payload"], {"entry": "wake"})
-        self.assertEqual(sessions.get_session("session-1", db_path=self.db_path)["mode"], "voice")
+        self.assertEqual(sessions.get_session("session-1", db_path=self.db_path)["mode"], "conversation")
         self.assertEqual(
             [item["session_id"] for item in sessions.query_sessions(db_path=self.db_path)],
             [second["session_id"], first["session_id"]],
@@ -111,7 +117,7 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
     def test_update_session_status_merges_payload(self) -> None:
         sessions.record_session(
             session_id="session-1",
-            mode="voice",
+            mode="conversation",
             started_at="2026-04-25T10:00:00+00:00",
             payload={"entry": "wake"},
             db_path=self.db_path,
@@ -130,19 +136,19 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
         self.assertEqual(updated["payload"], {"entry": "wake", "turns": 1})
 
     def test_insert_and_query_transcripts_omit_raw_text_by_default(self) -> None:
-        sources.upsert_source(source_id="voice", source_type="voice", display_name="Voice", db_path=self.db_path)
+        sources.upsert_source(source_id="satellite", source_type="satellite", display_name="Voice", db_path=self.db_path)
         sessions.record_session(
             session_id="session-1",
-            mode="voice",
+            mode="conversation",
             started_at="2026-04-25T10:00:00+00:00",
-            source_id="voice",
+            source_id="satellite",
             db_path=self.db_path,
         )
-        created = transcripts.record_transcript(
+        created = record_transcript(
             transcript_id="transcript-1",
             session_id="session-1",
             correlation_id="corr-1",
-            source_id="voice",
+            source_id="satellite",
             captured_at="2026-04-25T10:01:00+00:00",
             raw_transcript="turn on the kitchen lights",
             normalized_text="turn on the kitchen lights",
@@ -166,7 +172,7 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
         self.assertNotIn("raw_transcript", transcripts.recent_transcripts(db_path=self.db_path)[0])
 
     def test_raw_transcript_can_be_explicitly_included(self) -> None:
-        transcripts.record_transcript(
+        record_transcript(
             transcript_id="transcript-1",
             captured_at="2026-04-25T10:01:00+00:00",
             raw_transcript="raw household speech",
@@ -191,21 +197,21 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
         )
 
     def test_query_transcripts_filters_and_orders_newest_first(self) -> None:
-        sources.upsert_source(source_id="voice", source_type="voice", display_name="Voice", db_path=self.db_path)
-        sessions.record_session(session_id="session-1", mode="voice", started_at="2026-04-25T10:00:00+00:00", db_path=self.db_path)
-        sessions.record_session(session_id="session-2", mode="voice", started_at="2026-04-25T10:00:00+00:00", db_path=self.db_path)
-        transcripts.record_transcript(
+        sources.upsert_source(source_id="satellite", source_type="satellite", display_name="Voice", db_path=self.db_path)
+        sessions.record_session(session_id="session-1", mode="conversation", started_at="2026-04-25T10:00:00+00:00", db_path=self.db_path)
+        sessions.record_session(session_id="session-2", mode="conversation", started_at="2026-04-25T10:00:00+00:00", db_path=self.db_path)
+        record_transcript(
             transcript_id="transcript-1",
             session_id="session-1",
             correlation_id="corr-1",
-            source_id="voice",
+            source_id="satellite",
             captured_at="2026-04-25T10:00:00+00:00",
             fallback_used=False,
             final_domain="home_assistant",
             final_status="succeeded",
             db_path=self.db_path,
         )
-        transcripts.record_transcript(
+        record_transcript(
             transcript_id="transcript-2",
             session_id="session-2",
             correlation_id="corr-2",
@@ -217,7 +223,7 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
             failure_stage="routing",
             db_path=self.db_path,
         )
-        transcripts.record_transcript(
+        record_transcript(
             transcript_id="transcript-3",
             session_id="session-1",
             correlation_id="corr-1",
@@ -242,7 +248,7 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
             ["transcript-2"],
         )
         self.assertEqual(
-            [item["transcript_id"] for item in transcripts.query_transcripts(transcripts.TranscriptQuery(source_id="voice"), db_path=self.db_path)],
+            [item["transcript_id"] for item in transcripts.query_transcripts(transcripts.TranscriptQuery(source_id="satellite"), db_path=self.db_path)],
             ["transcript-1"],
         )
         self.assertEqual(
@@ -272,7 +278,7 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
 
     def test_query_transcripts_limits_and_offsets(self) -> None:
         for index in range(3):
-            transcripts.record_transcript(
+            record_transcript(
                 transcript_id=f"transcript-{index}",
                 captured_at=f"2026-04-25T10:0{index}:00+00:00",
                 final_status="succeeded",
@@ -288,14 +294,14 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
         )
 
     def test_transcript_retention_fields_are_schema_ready(self) -> None:
-        successful = transcripts.record_transcript(
+        successful = record_transcript(
             transcript_id="success",
             captured_at="2026-04-25T10:00:00+00:00",
             confidence=0.9,
             final_status="succeeded",
             db_path=self.db_path,
         )
-        failed = transcripts.record_transcript(
+        failed = record_transcript(
             transcript_id="failed",
             captured_at="2026-04-25T10:00:00+00:00",
             confidence=0.1,
@@ -310,7 +316,7 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
         self.assertIsNone(successful["raw_transcript_pruned_at"])
 
     def test_nullable_raw_transcript_preserves_metadata(self) -> None:
-        created = transcripts.record_transcript(
+        created = record_transcript(
             transcript_id="metadata-only",
             captured_at="2026-04-25T10:00:00+00:00",
             raw_transcript=None,
@@ -361,7 +367,7 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
                     """
                     INSERT INTO memory_sessions (
                         session_id, created_at, updated_at, mode, started_at, payload_json
-                    ) VALUES ('rolled-back-session', 'now', 'now', 'voice', 'now', '{}')
+                    ) VALUES ('rolled-back-session', 'now', 'now', 'conversation', 'now', '{}')
                     """
                 )
                 conn.execute(
@@ -390,8 +396,8 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
         self.assertFalse({"raw_audio", "raw_audio_path", "audio_blob", "audio_bytes"}.intersection(columns))
 
     def test_query_helpers_do_not_write_or_modify_rows(self) -> None:
-        sessions.record_session(session_id="session-1", mode="voice", started_at="2026-04-25T10:00:00+00:00", db_path=self.db_path)
-        transcripts.record_transcript(transcript_id="transcript-1", session_id="session-1", final_status="succeeded", db_path=self.db_path)
+        sessions.record_session(session_id="session-1", mode="conversation", started_at="2026-04-25T10:00:00+00:00", db_path=self.db_path)
+        record_transcript(transcript_id="transcript-1", session_id="session-1", final_status="succeeded", db_path=self.db_path)
         with transaction(self.db_path) as conn:
             before = {
                 "sessions": conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_sessions").fetchone(),

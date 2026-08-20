@@ -659,7 +659,7 @@ class ConfigValidationTests(unittest.TestCase):
                     "adapter": "systemd_service_restart",
                     "requires_confirmation": True,
                     "required_preconditions": ["plex_no_active_streams"],
-                    "execution": {"method": "systemd", "unit": "plexmediaserver.service", "wait_seconds": 10},
+                    "execution": {"method": "systemd", "unit": "example-media.service", "wait_seconds": 10},
                     "enabled": False,
                 }
             ]

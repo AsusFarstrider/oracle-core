@@ -3,13 +3,13 @@
 Status: ratified architecture; executable schema implementation in progress.
 Code-owned composed Pydantic v2 models are executable field authority while
 remaining subordinate to the configuration contract. All fixed roles now have
-typed schema-v1 leaves; later authoring transport, migration, projection, and
+typed schema-v2 leaves; later authoring transport, migration, projection, and
 runtime-adoption work is described by the installation contracts.
 Generated JSON Schema is versioned/tested System Mode and tooling output, not a
 separate hand-maintained authority.
 
 The current checked-in generated output is
-`docs/reference/generated/configuration-v1.schema.json`. It is reproduced and
+`docs/reference/generated/configuration-v2.schema.json`. It is reproduced and
 drift-checked from executable models by
 `scripts/generate-config-schema.py`; edits to the generated file are never a
 schema-authority change by themselves.
@@ -99,7 +99,7 @@ plain primitives for Pydantic validation.
 
 ```yaml
 kind: oracle_configuration_bundle
-schema_version: 1
+schema_version: 2
 bundle_id: example-home
 ```
 
@@ -169,8 +169,10 @@ control timeout. Listener addresses and the Brain's own public/base URL remain
 bootstrap/access concerns and are not admitted here.
 
 `storage.memory` selects the one Memory-owned SQLite store and its bounded
-retention policy. `storage.alerts` selects the current restart-safe JSON-file
-mechanism. The checked-in example uses package-relative paths; deployments may
+retention policy, including the default 90-day terminal alert horizon.
+`storage.alerts` remains a transitional accepted JSON-file setting until the
+coordinated Stage 5 configuration/data cutover; runtime alert authority is
+already Memory-owned. The checked-in example uses package-relative paths; deployments may
 use machine paths at these owning edges, but cannot redirect the configuration
 bundle or installed store through these fields.
 
@@ -787,15 +789,27 @@ processing, and sanitized diagnostics use those typed views and never consult
 compatibility notification, Home Assistant, or Apprise settings getters.
 - `routines.yaml` owns identity, bounded inputs, triggers, and ordered typed
   steps. Schema-v1 steps are `ui_action`, `audiobook_start`, `sleep_timer`,
-  `wait`, `state_check`, and `playback_check`. Action/check IDs resolve through
-  registered Oracle mappings; scripts, URLs, service names, raw entity IDs,
-  commands, credentials, and provider targets remain invalid.
+  `wait`, `state_check`, `playback_check`, `notification`, and `timer_sound`.
+  A timer-sound step targets one of the routine's declared canonical sources
+  and queues the existing standard timer alert; it cannot select a sound asset.
+  Notification IDs
+  resolve to enabled definitions in `domains/notifications.yaml`; message and
+  audience remain notification-owned. A step may use a bounded input condition
+  (`equals`, `not_equals`, or `greater_than`) to select a path without admitting
+  arbitrary expressions. Integer inputs may declare a spoken-duration prompt
+  and an in-range `no_timer_value` for the exact `no timer` response. An
+  opt-in `confirm_duration` flag selects the code-owned accepted-duration
+  confirmation phrase without admitting a configurable reply template.
+  Action/check IDs resolve through registered Oracle mappings; scripts, URLs,
+  service names, raw entity IDs, commands, credentials, and provider targets
+  remain invalid.
 
 `RoutineRuntimeSettings.from_effective_config` retains only enabled composite
 definitions and binds each to its enabled owning user, enabled source records,
 typed steps, and exact applied capability edges. Home Assistant action/check
 references bind to the adapter-owned mapping records; audiobook operations bind
-to the canonical user account and admitted applied playback target; the bounded
+to the canonical user account and admitted applied playback target; notification
+steps bind to enabled notification definitions; the bounded
 `stop_audiobook` remediation remains a code-known Oracle-native operation.
 Global and source-scoped voice phrases are frozen into unambiguous indexes.
 Disabled definitions become neither executable entries nor trigger owners.
@@ -1018,11 +1032,11 @@ non-secret metadata and the normalized graph:
 
 ```json
 {
-  "format": "oracle-config-v1",
-  "config_revision": "oracle-config-v1:sha256:<digest>",
+  "format": "oracle-config-v2",
+  "config_revision": "oracle-config-v2:sha256:<digest>",
   "configuration": {
     "kind": "oracle_configuration_bundle",
-    "schema_version": 1,
+    "schema_version": 2,
     "bundle_id": "example-home",
     "roles": {}
   }
@@ -1140,7 +1154,7 @@ that result as the strict versioned envelope below:
   },
   "activation": {
     "activation_id": "sat_activation_<opaque>",
-    "source_config_revision": "oracle-config-v1:sha256:<digest>"
+    "source_config_revision": "oracle-config-v2:sha256:<digest>"
   },
   "projection": {
     "generation_id": "sat_projection_<opaque>",

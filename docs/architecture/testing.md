@@ -24,6 +24,33 @@ unittest-compatibility subtests exercised by the run.
 `unittest discover` remains usable as a partial developer convenience, but it
 does not collect module-level pytest tests and is not a validation gate.
 
+## Coverage Contract
+
+Branch coverage is measured for every tracked Python module under `server/`
+and `satellite/`. The authoritative ownership and ratchet policy is
+`tests/coverage-policy.json`; an exclusion must name one exact tracked module
+and record why measuring it is inappropriate. Generated coverage data is a
+temporary validation artifact and is not committed.
+
+Run the measured suite and reconcile it from the project root:
+
+```bash
+python -m pytest --cov --cov-branch --cov-report=json:/tmp/oracle-coverage.json
+python scripts/coverage_gate.py /tmp/oracle-coverage.json
+```
+
+The gate reports Brain and satellite totals separately, rejects an unmeasured
+tracked production module, and enforces the reviewed per-surface ratchets.
+Ratchets may initially be null only while establishing the first clean measured
+baseline; they are then set from that evidence rather than from an arbitrary
+target percentage.
+
+The initial reviewed floors use the lower of the complete private-repository
+and independently materialized clean-core measurements, so private-only tests
+cannot overstate reusable-core coverage. Clean-core CI runs its complete test
+and skip-baseline gate once with `--coverage-json` and enforces the same policy
+from that single measured pass.
+
 ## Current Test Tree Shape
 
 The current test tree is a flat `tests/` directory with module-per-surface test files.
@@ -65,6 +92,9 @@ Representative modules by area include:
 
 - `tests/test_session_state.py`
 - `tests/test_state.py`
+- `tests/test_audiobook_state.py`
+- `tests/test_ui_calendar_drafts.py`
+- `tests/test_ui_snapshot_cache.py`
 - `tests/test_conversation.py`
 - `tests/test_room_context.py`
 - `tests/test_user_context.py`
@@ -76,14 +106,23 @@ Representative modules by area include:
 - `tests/test_audiobook_matching.py`
 - `tests/test_audiobook_stream_api.py`
 - `tests/test_audiobook_sleep_timer.py`
+- `tests/test_audiobook_state.py`
 - `tests/test_media_rescue_policy.py`
 
 ### Satellite and Runtime
 
-- `tests/test_control_service.py`
+- `tests/test_control_service_request_state_cache_server.py`
+- `tests/test_control_service_interruption_authority.py`
+- `tests/test_control_service_longform_local_playback.py`
+- `tests/test_control_service_plexamp_queue_transport.py`
+- `tests/test_control_service_volume.py`
 - `tests/test_control_service_logging.py`
 - `tests/test_satellite_cli.py`
-- `tests/test_satellite_playback_resume.py`
+- `tests/test_satellite_foreground_handoff.py`
+- `tests/test_satellite_capture_request_pipeline.py`
+- `tests/test_satellite_reply_followup_runtime.py`
+- `tests/test_satellite_runtime_config_audio_capture.py`
+- `tests/test_satellite_resume_duck_policy.py`
 - `tests/test_satellite_reply_fallback.py`
 - `tests/test_wake_capture.py`
 - `tests/test_wake_tuning.py`
@@ -99,8 +138,8 @@ Representative modules by area include:
 
 - `tests/test_smoke_flows.py`
 - `tests/test_phase_a_failures.py`
-- `tests/test_phase_c_utterance_bank.py`
-- `tests/test_phase_c_utterance_execution.py`
+- `tests/test_utterance_ledger_schema.py`
+- `tests/test_utterance_ledger_execution.py`
 
 ## Cross-Surface Smoke Coverage
 

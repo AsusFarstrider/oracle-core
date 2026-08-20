@@ -83,10 +83,6 @@ EVENT_TAXONOMY: dict[str, tuple[str, ...]] = {
     ),
     "memory": (
         "retention_pruned",
-        "rollup_created",
-        "rollup_updated",
-        "unknown_fingerprint_seen",
-        "fingerprint_classified",
     ),
 }
 

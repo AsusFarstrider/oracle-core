@@ -222,6 +222,20 @@ class StandardInstallationRuntimeTests(unittest.TestCase):
             entrypoint.index("from oracle_app.api import app"),
         )
 
+    def test_full_production_unit_keeps_household_material_out_of_core(self) -> None:
+        unit = (REPO_ROOT / "scripts" / "oracle-brain-full-production.service").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("User=oracle", unit)
+        self.assertIn("SupplementaryGroups=oracle-admin", unit)
+        self.assertNotIn("docker", unit)
+        self.assertNotIn("media", unit)
+        self.assertIn("ORACLE_SSH_KNOWN_HOSTS_FILE=/srv/oracle/selection/active/deployment/", unit)
+        self.assertIn("--host 0.0.0.0 --port 8011", unit)
+        self.assertIn("Restart=always", unit)
+        self.assertNotIn("/home/", unit)
+        self.assertNotIn("secrets.env", unit)
+
     def test_standard_entrypoint_import_is_clean_in_a_fresh_process(self) -> None:
         completed = subprocess.run(
             [

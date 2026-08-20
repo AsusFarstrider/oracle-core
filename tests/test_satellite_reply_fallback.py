@@ -15,83 +15,77 @@ SPEC.loader.exec_module(MODULE)
 extract_spoken_reply = MODULE.extract_spoken_reply
 
 
-class SatelliteReplyFallbackTests(unittest.TestCase):
-    def test_uses_reply_text_when_present(self) -> None:
+class SatelliteReplyContractTests(unittest.TestCase):
+    def test_uses_reply_text_for_finite_status(self) -> None:
         payload = {
             "reply_text": "Playing Dune by Frank Herbert.",
-            "dispatch": {
-                "target": "audiobook",
-                "status": "executed",
-                "result": {"action": "play"},
+            "status": "executed",
+            "effects": {
+                "follow_up": None, "satellite_playback": None,
+                "deferred_satellite_playback": None, "ui_presentation": None,
             },
         }
 
         self.assertEqual(extract_spoken_reply(payload), "Playing Dune by Frank Herbert.")
 
-    def test_pending_confirmation_uses_prompt_when_reply_text_missing(self) -> None:
+    def test_nonignored_status_rejects_missing_reply(self) -> None:
         payload = {
             "reply_text": "",
-            "dispatch": {
-                "target": "system",
-                "status": "pending_confirmation",
-                "result": {"prompt": "Please confirm before I proceed."},
+            "status": "pending_confirmation",
+            "effects": {
+                "follow_up": {"expected": True, "kind": "confirmation"},
+                "satellite_playback": None, "deferred_satellite_playback": None,
+                "ui_presentation": None,
             },
         }
 
-        self.assertEqual(extract_spoken_reply(payload), "Please confirm before I proceed.")
+        with self.assertRaisesRegex(RuntimeError, "without reply text"):
+            extract_spoken_reply(payload)
 
-    def test_pending_clarification_uses_prompt_when_reply_text_missing(self) -> None:
+    def test_unknown_status_is_rejected(self) -> None:
         payload = {
-            "dispatch": {
-                "target": "music",
-                "status": "pending_clarification",
-                "result": {"prompt": "I found multiple matches. Which one did you want?"},
+            "reply_text": "Maybe.",
+            "status": "pending_integration",
+            "effects": {
+                "follow_up": None, "satellite_playback": None,
+                "deferred_satellite_playback": None, "ui_presentation": None,
             },
         }
 
-        self.assertEqual(
-            extract_spoken_reply(payload),
-            "I found multiple matches. Which one did you want?",
-        )
+        with self.assertRaisesRegex(RuntimeError, "unknown conversation status"):
+            extract_spoken_reply(payload)
 
     def test_ignore_stays_silent_when_reply_text_missing(self) -> None:
         payload = {
-            "dispatch": {
-                "target": "system",
-                "status": "executed",
-                "result": {"action": "ignore"},
+            "reply_text": "",
+            "status": "ignored",
+            "effects": {
+                "follow_up": None, "satellite_playback": None,
+                "deferred_satellite_playback": None, "ui_presentation": None,
             },
         }
 
         self.assertEqual(extract_spoken_reply(payload), "")
 
-    def test_failed_request_uses_generic_failure_when_reply_text_missing(self) -> None:
+    def test_effect_vocabulary_is_exact(self) -> None:
         payload = {
-            "dispatch": {
-                "target": "music",
-                "status": "failed",
-                "result": {"action": "play", "error": "satellite_command_failed"},
-            },
+            "reply_text": "Could not play that.",
+            "status": "failed",
+            "effects": {"follow_up": None, "unexpected": {}},
         }
 
-        self.assertEqual(extract_spoken_reply(payload), "I couldn't complete that request.")
+        with self.assertRaisesRegex(RuntimeError, "invalid conversation effects"):
+            extract_spoken_reply(payload)
 
-    def test_success_without_reply_text_uses_minimal_done_fallback(self) -> None:
+    def test_effects_must_be_an_object(self) -> None:
         payload = {
-            "dispatch": {
-                "target": "calendar",
-                "status": "executed",
-                "result": {
-                    "action": "list_events",
-                    "events": [
-                        {"summary": "Event one"},
-                        {"summary": "Event two"},
-                    ],
-                },
-            },
+            "reply_text": "Done.",
+            "status": "executed",
+            "effects": [],
         }
 
-        self.assertEqual(extract_spoken_reply(payload), "Done.")
+        with self.assertRaisesRegex(RuntimeError, "invalid conversation effects"):
+            extract_spoken_reply(payload)
 
 
 if __name__ == "__main__":

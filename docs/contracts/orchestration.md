@@ -22,6 +22,18 @@ source; globally unique phrases may resolve from any authorized source.
 Recognizing a step type in configuration does not make it executable unless a
 registered controller provides that operation.
 
+Registered composite operations include provider-neutral notification calls;
+their text and audience remain owned by canonical notification definitions.
+A registered timer-sound operation queues the existing source-scoped standard
+timer alert and cannot select arbitrary audio or bypass alert delivery.
+A step may select a path only through bounded comparisons against declared
+typed inputs, never through arbitrary expressions. A declared spoken-duration
+input reuses Oracle's session-scoped conversational input and shared duration
+parser. A definition may map the exact response `no timer` to an in-range value;
+that value selects the authored immediate path and does not imply cancellation.
+An opt-in duration confirmation uses code-owned formatting rather than a
+configuration-authored reply template.
+
 ## Recovery Preview And Approval
 
 A recovery must:
@@ -64,6 +76,11 @@ context, bounded UI-session context, and only declared input overrides. Voice
 activation uses exact normalized configured phrases and authenticated source
 context. Unknown sources, unbound sources, unknown inputs, disabled definitions,
 unsupported trigger families, and duplicate active starts fail closed.
+
+When a Run control omits a declared conversational input, Oracle stores the
+bounded prompt under that UI session and begins no run or domain action until a
+valid response is resolved. Invalid responses leave the prompt pending; only an
+explicit cancellation response cancels it.
 
 Compatibility request fields cannot establish trust, authorization, preview
 ownership, or audit identity. A routine remains active while running or

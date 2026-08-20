@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime
 import re
+from collections.abc import Callable
 
 from .schemas import DispatchPlan
 
 
 DEFAULT_REPLY = "Done."
+ReplyShaper = Callable[[DispatchPlan], str]
 
 
 def _extract_home_assistant_speech(payload: dict) -> str:
@@ -18,11 +20,75 @@ def _extract_home_assistant_speech(payload: dict) -> str:
 
 def build_reply_text(dispatch: DispatchPlan) -> str:
     result = dispatch.result or {}
-
     if dispatch.status == "pending_confirmation":
         return str(result.get("prompt", "Please confirm before I proceed.")).strip()
     if dispatch.status == "pending_clarification":
         return str(result.get("prompt", "I found multiple matches. Which one did you want?")).strip()
+    return REPLY_SHAPERS[dispatch.target](dispatch)
+
+
+def _shape_owned_target(dispatch: DispatchPlan, *, target: str) -> str:
+    if dispatch.target != target:
+        raise ValueError(f"{target} reply shaper received {dispatch.target} dispatch")
+    return _shape_dispatch_reply(dispatch)
+
+
+def shape_audiobook_reply(dispatch: DispatchPlan) -> str:
+    return _shape_owned_target(dispatch, target="audiobook")
+
+
+def shape_calendar_reply(dispatch: DispatchPlan) -> str:
+    return _shape_owned_target(dispatch, target="calendar")
+
+
+def shape_facts_reply(dispatch: DispatchPlan) -> str:
+    return _shape_owned_target(dispatch, target="facts")
+
+
+def shape_fallback_router_reply(dispatch: DispatchPlan) -> str:
+    return _shape_owned_target(dispatch, target="fallback_router")
+
+
+def shape_home_assistant_reply(dispatch: DispatchPlan) -> str:
+    return _shape_owned_target(dispatch, target="home_assistant")
+
+
+def shape_music_reply(dispatch: DispatchPlan) -> str:
+    return _shape_owned_target(dispatch, target="music")
+
+
+def shape_network_reply(dispatch: DispatchPlan) -> str:
+    return _shape_owned_target(dispatch, target="network")
+
+
+def shape_news_reply(dispatch: DispatchPlan) -> str:
+    return _shape_owned_target(dispatch, target="news")
+
+
+def shape_system_reply(dispatch: DispatchPlan) -> str:
+    return _shape_owned_target(dispatch, target="system")
+
+
+def shape_weather_reply(dispatch: DispatchPlan) -> str:
+    return _shape_owned_target(dispatch, target="weather")
+
+
+REPLY_SHAPERS: dict[str, ReplyShaper] = {
+    "audiobook": shape_audiobook_reply,
+    "calendar": shape_calendar_reply,
+    "facts": shape_facts_reply,
+    "fallback_router": shape_fallback_router_reply,
+    "home_assistant": shape_home_assistant_reply,
+    "music": shape_music_reply,
+    "network": shape_network_reply,
+    "news": shape_news_reply,
+    "system": shape_system_reply,
+    "weather": shape_weather_reply,
+}
+
+
+def _shape_dispatch_reply(dispatch: DispatchPlan) -> str:
+    result = dispatch.result or {}
 
     if dispatch.target == "home_assistant":
         if dispatch.status == "failed":

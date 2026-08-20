@@ -83,7 +83,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
         snapshot = satellite_activity.get_satellite_status_snapshot("satellite-beta", db_path=self.db_path)
         self.assertIsNotNone(snapshot)
         assert snapshot is not None
-        self.assertEqual(snapshot["snapshot_type"], "satellite_status")
+        self.assertEqual(snapshot["projection_type"], "satellite_status")
         self.assertEqual(snapshot["source_id"], "satellite-beta")
         self.assertEqual(snapshot["provider"], "satellite-beta")
         self.assertEqual(snapshot["domain"], "satellite")
@@ -110,7 +110,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
         schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
         with transaction(self.db_path) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_events").fetchone()[0], 0)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_snapshots").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_current_projections").fetchone()[0], 0)
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_sources").fetchone()[0], 3)
 
     def test_non_satellite_source_is_rejected(self) -> None:
@@ -139,7 +139,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
         schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
         with transaction(self.db_path) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_events").fetchone()[0], 0)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_snapshots").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_current_projections").fetchone()[0], 0)
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_sources").fetchone()[0], 3)
 
     def test_snapshot_only_update_creates_no_event(self) -> None:
@@ -221,7 +221,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
         schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
         with transaction(self.db_path) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_events").fetchone()[0], 0)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_snapshots").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_current_projections").fetchone()[0], 0)
 
     def test_api_endpoint_memory_write_failure_still_accepts(self) -> None:
         request = SatelliteActivityRequest(source_id="satellite-beta", event_type="wake_detected")
@@ -302,8 +302,8 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
         with transaction(self.db_path) as conn:
             conn.execute(
                 """
-                INSERT INTO memory_snapshots (
-                    snapshot_id, created_at, updated_at, observed_at, snapshot_type,
+                INSERT INTO memory_current_projections (
+                    projection_id, created_at, updated_at, observed_at, projection_type,
                     source_id, provider, domain, status, payload_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -332,7 +332,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
             db_path=self.db_path,
         )
         with transaction(self.db_path) as conn:
-            before = conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_snapshots").fetchone()
+            before = conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_current_projections").fetchone()
 
         satellite_activity.query_satellite_status_snapshots(db_path=self.db_path)
         satellite_activity.list_satellite_status_snapshots(db_path=self.db_path)
@@ -340,7 +340,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
         satellite_activity.get_satellite_status_snapshot("satellite-beta", db_path=self.db_path)
 
         with transaction(self.db_path) as conn:
-            after = conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_snapshots").fetchone()
+            after = conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_current_projections").fetchone()
 
         self.assertEqual(tuple(after), tuple(before))
 

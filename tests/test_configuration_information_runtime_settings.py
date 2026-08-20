@@ -18,6 +18,7 @@ from oracle_app.configuration.domain_models import (
 from oracle_app.admin_facts_routes import admin_facts_lookup
 from oracle_app.dispatch import build_dispatch_plan, build_dispatch_registry, execute_dispatch
 from oracle_app.information_runtime import CanonicalFactsExecution, CanonicalNewsExecution
+from oracle_app.inference import InferenceClient, InferenceExecutionSettings
 from oracle_app.news import check_news_health
 from oracle_app.routing import build_route_capability_registry, choose_route
 from oracle_app.schemas import CommandRequest, RouteResponse
@@ -191,7 +192,21 @@ class InformationRuntimeSettingsTests(unittest.TestCase):
                 }
             )
         )
-        execution = CanonicalFactsExecution(information.facts)
+        execution = CanonicalFactsExecution(
+            information.facts,
+            inference=InferenceClient(
+                InferenceExecutionSettings(
+                    enabled=False,
+                    base_url=None,
+                    model=None,
+                    timeout_seconds=None,
+                    keep_alive=None,
+                    options={},
+                    fallback_model=None,
+                    fallback_timeout_seconds=None,
+                )
+            ),
+        )
 
         with patch(
             "oracle_app.config.get_facts_settings",
@@ -341,7 +356,7 @@ class InformationRuntimeSettingsTests(unittest.TestCase):
                 satellite_projection_activation_ids=MappingProxyType({}),
                 config_revision=inspection.normalized_candidate_revision,
                 bundle_id="example-home",
-                schema_version=1,
+                schema_version=2,
                 roles=inspection.bundle.roles,  # type: ignore[union-attr]
                 secrets=inspection.secrets,  # type: ignore[arg-type]
             )

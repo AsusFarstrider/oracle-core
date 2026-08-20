@@ -33,6 +33,8 @@ def configure_routine_adapters(
     sleep_timer: RoutineAdapter,
     state_check: RoutineAdapter,
     playback_check: RoutineAdapter,
+    notification: RoutineAdapter | None = None,
+    timer_sound: RoutineAdapter | None = None,
 ) -> None:
     _ADAPTERS.update(
         {
@@ -42,6 +44,8 @@ def configure_routine_adapters(
             "sleep_timer": sleep_timer,
             "state_check": state_check,
             "playback_check": playback_check,
+            **({"notification": notification} if notification is not None else {}),
+            **({"timer_sound": timer_sound} if timer_sound is not None else {}),
         }
     )
 
@@ -158,6 +162,24 @@ def advance_routine(
         while index < len(steps):
             step = steps[index]
             step_id = str(step["id"])
+            if not _step_enabled(step, payload.get("inputs") or {}):
+                _complete_step(
+                    run_id,
+                    index,
+                    step,
+                    {"ok": True, "skipped": True, "detail": "Condition did not match."},
+                    repository=repository,
+                )
+                index += 1
+                payload["next_step_index"] = index
+                repository.transition_run(
+                    run_id,
+                    status="running",
+                    summary=f"{definition.get('display_name') or definition.get('id') or 'Routine'} is running.",
+                    controller_state={"next_step_index": index},
+                    payload=payload,
+                )
+                continue
             if str(step.get("type") or "") == "wait":
                 duration_seconds = _duration_seconds(step, payload.get("inputs") or {})
                 if duration_seconds > 0:
@@ -208,7 +230,6 @@ def advance_routine(
                     step,
                     {"ok": True, "duration_seconds": 0},
                     repository=repository,
-                    adapters=adapters,
                 )
             else:
                 outcome = _execute_step(
@@ -523,6 +544,19 @@ def _call_adapter(
         return adapter(check_id=str(step["check_id"]), expected_state=str(step["expected_state"]), **common)
     if step_type == "playback_check":
         return adapter(source_id=str(step["source_id"]), check_id=str(step["check_id"]), **common)
+    if step_type == "notification":
+        return adapter(
+            notification_id=str(step["notification_id"]),
+            occurrence_id=f"{run['run_id']}:{step['id']}",
+            correlation_id=str(run["run_id"]),
+            **common,
+        )
+    if step_type == "timer_sound":
+        return adapter(
+            source_id=str(step["source_id"]),
+            occurrence_id=f"{run['run_id']}:{step['id']}",
+            **common,
+        )
     raise RuntimeError(f"Unsupported routine step type {step_type!r}")
 
 
@@ -690,6 +724,25 @@ def _duration_seconds(step: dict[str, Any], inputs: dict[str, Any]) -> int:
         return int(step["duration_seconds"])
     value = int(inputs[str(step["duration_input"])])
     return value * 60 if step.get("duration_unit") == "minutes" else value
+
+
+def _step_enabled(step: dict[str, Any], inputs: dict[str, Any]) -> bool:
+    condition = step.get("when")
+    if not isinstance(condition, dict):
+        return True
+    actual = inputs.get(str(condition.get("input_id") or ""))
+    expected = condition.get("value")
+    operator = str(condition.get("operator") or "")
+    if operator == "equals":
+        return actual == expected
+    if operator == "not_equals":
+        return actual != expected
+    if operator == "greater_than":
+        try:
+            return float(actual) > float(expected)
+        except (TypeError, ValueError):
+            return False
+    return False
 
 
 def _stops_on_failure(step: dict[str, Any]) -> bool:

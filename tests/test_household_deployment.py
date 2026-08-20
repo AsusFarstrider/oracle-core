@@ -137,6 +137,17 @@ class HouseholdDeploymentTests(unittest.TestCase):
         with self.assertRaisesRegex(household_deployment.DeploymentError, "duplicate payload source"):
             self._resolve()
 
+    def test_full_production_profile_requires_the_fixed_runtime_declaration(self) -> None:
+        definition_path = self.repo / "ops/households/test-home/deployment.json"
+        definition = json.loads(definition_path.read_text())
+        definition["installation_profiles"] = ["full-production-brain"]
+        self._write("ops/households/test-home/deployment.json", definition)
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "incomplete full production")
+
+        with self.assertRaisesRegex(household_deployment.DeploymentError, "exact fixed runtime"):
+            self._resolve()
+
     def test_overlapping_household_roots_are_rejected(self) -> None:
         authority = json.loads((self.repo / "ops/households/authority.json").read_text())
         authority["households"].append({"household_id": "nested_home", "root": "ops/households/test-home/nested"})

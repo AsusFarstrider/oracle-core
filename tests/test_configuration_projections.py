@@ -28,7 +28,7 @@ from oracle_satellite_projection import SatelliteProjectionLocalStore
 
 
 EXAMPLE_ROOT = Path(__file__).resolve().parents[1] / "examples" / "config"
-SOURCE_REVISION = f"oracle-config-v1:sha256:{'1' * 64}"
+SOURCE_REVISION = f"oracle-config-v2:sha256:{'1' * 64}"
 
 
 class SatelliteProjectionTests(unittest.TestCase):
@@ -53,7 +53,7 @@ class SatelliteProjectionTests(unittest.TestCase):
         self.assertEqual(first.canonical_bytes, rotated.canonical_bytes)
         newer_brain_revision = generate_satellite_projection(
             bundle,
-            source_config_revision=f"oracle-config-v1:sha256:{'2' * 64}",
+            source_config_revision=f"oracle-config-v2:sha256:{'2' * 64}",
             satellite_id="living_room_satellite",
             runtime_compatibility=self._compatibility(),
             secrets=self._secrets("first"),
@@ -245,7 +245,7 @@ class SatelliteProjectionTests(unittest.TestCase):
             runtime_compatibility=self._compatibility(),
             secrets=self._secrets("first"),
         )
-        second_revision = f"oracle-config-v1:sha256:{'2' * 64}"
+        second_revision = f"oracle-config-v2:sha256:{'2' * 64}"
         second_generated = replace(first_generated, source_config_revision=second_revision)
         with tempfile.TemporaryDirectory() as temporary:
             store = GenerationStore(Path(temporary) / "store")
@@ -392,7 +392,7 @@ class SatelliteProjectionTests(unittest.TestCase):
                     selection_revision=2,
                     satellite_projection_activation_ids={
                         "living_room_satellite": projections.install(
-                            replace(generated, source_config_revision=f"oracle-config-v1:sha256:{'2' * 64}")
+                            replace(generated, source_config_revision=f"oracle-config-v2:sha256:{'2' * 64}")
                         ).activation.generation_id
                     },
                 )

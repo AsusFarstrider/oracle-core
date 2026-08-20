@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .configuration.brain_core_runtime_consumers import InferenceExecutionSettings
+from .inference import InferenceClient
 from .configuration.home_assistant_runtime_settings import HomeAssistantRuntimeSettings
 from .configuration.household_runtime_settings import HouseholdRuntimeSettings
 from .audiobook_runtime.canonical import CanonicalAudiobookExecution
@@ -23,6 +23,7 @@ from .handlers import (
     WeatherHandler,
 )
 from .schemas import CommandRequest, DispatchPlan, RouteResponse
+from .dispatch_dtos import target_outcome, validate_target_payload
 from .system_intents import build_system_hook, classify_system_intent, system_action_requires_text
 from .weather_intents import build_weather_hook, classify_weather_intent
 
@@ -112,8 +113,8 @@ def _plan_system_target(
 ) -> tuple[str, dict[str, str | None]]:
     intent = classify_system_intent(route.normalized_text)
     if intent is None:
-        action = "refresh_cache"
-        hook = "system.refresh_cache"
+        action = "unknown_system_operation"
+        hook = "system.unknown_operation"
     else:
         action = intent.action
         hook = build_system_hook(intent.action)
@@ -121,6 +122,7 @@ def _plan_system_target(
         "action": action,
         "source": payload.source,
         "session_id": payload.session_id,
+        "alert_delivery_target_source_id": payload.alert_delivery_target_source_id,
     }
     if system_action_requires_text(action):
         upstream_payload["text"] = route.normalized_text
@@ -183,7 +185,7 @@ def _plan_facts_target(
 
 def build_dispatch_registry(
     *,
-    inference_settings: InferenceExecutionSettings | None = None,
+    inference_client: InferenceClient | None = None,
     household_settings: HouseholdRuntimeSettings | None = None,
     home_assistant_settings: HomeAssistantRuntimeSettings | None = None,
     canonical_configuration: bool = False,
@@ -207,7 +209,7 @@ def build_dispatch_registry(
     )
     registry.register(FactsHandler(facts_execution, canonical_authority=canonical_configuration))
     registry.register(SystemHandler(household_settings))
-    registry.register(FallbackRouterHandler(inference_settings))
+    registry.register(FallbackRouterHandler(inference_client))
     registry.register(
         HomeAssistantHandler(
             household_settings,
@@ -223,6 +225,7 @@ def build_dispatch_registry(
             canonical_playback_target=canonical_media_targets,
             canonical_execution=music_execution,
             audiobook_execution=audiobook_execution,
+            inference=inference_client,
             canonical_authority=canonical_configuration,
         )
     )
@@ -244,4 +247,7 @@ def execute_dispatch(
     *,
     registry: HandlerRegistry | None = None,
 ) -> DispatchPlan:
-    return (registry or DISPATCH_REGISTRY).execute(dispatch)
+    validate_target_payload(dispatch)
+    executed = (registry or DISPATCH_REGISTRY).execute(dispatch)
+    target_outcome(executed)
+    return executed

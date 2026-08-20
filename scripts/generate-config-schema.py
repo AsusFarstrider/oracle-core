@@ -14,7 +14,7 @@ from oracle_app.configuration.models import ROLE_MODELS, SecretMutationInput  # 
 from oracle_app.configuration.roles import OPTIONAL_ROLE_PATHS, REQUIRED_ROLE_PATHS  # noqa: E402
 
 
-OUTPUT_PATH = REPO_ROOT / "docs" / "reference" / "generated" / "configuration-v1.schema.json"
+OUTPUT_PATH = REPO_ROOT / "docs" / "reference" / "generated" / "configuration-v2.schema.json"
 
 ROLE_OWNERS = {
     "bundle.yaml": "configuration",
@@ -77,7 +77,7 @@ def build_schema() -> dict[str, object]:
     secret_mutation["x-oracle-restart-impact"] = "restart_required"
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "urn:oracle:configuration-schema:v1",
+        "$id": "urn:oracle:configuration-schema:v2",
         "title": "Oracle V2 Configuration Bundle Roles",
         "description": "Generated tooling output; executable Pydantic models remain field authority.",
         "type": "object",

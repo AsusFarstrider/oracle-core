@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 import tempfile
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from types import MappingProxyType
 from types import SimpleNamespace
 import unittest
@@ -23,18 +26,48 @@ from oracle_app.configuration.domain_models import ServiceControlAdapter
 from oracle_app.network import build_network_response, build_ui_network_health_snapshot
 from oracle_app.network_runtime import CanonicalNetworkExecution
 from oracle_app.network_runtime.control import _execute_host, _preconditions
+from oracle_app.network_runtime.platform_adapters import (
+    PlatformActionOutcome,
+    PlatformObservation,
+    ServicePlatformAdapter,
+)
 from oracle_app.network_runtime.service_control import TypedServiceControl
 from oracle_app.provider_bridges.network_observations import (
     NetworkMonitoringObservation,
     NetworkProbeObservation,
 )
-from oracle_app.provider_bridges.service_control import execute_typed_service_action
 
 
 EXAMPLE_ROOT = Path(__file__).resolve().parents[1] / "examples" / "config"
 
 
 class CanonicalNetworkExecutionTests(unittest.TestCase):
+    def test_canonical_status_cache_serializes_concurrent_misses(self) -> None:
+        execution = CanonicalNetworkExecution.__new__(CanonicalNetworkExecution)
+        execution._cache = {}
+        execution._cache_lock = threading.RLock()
+        counter_lock = threading.Lock()
+        build_count = 0
+
+        execution.internet_health = lambda: SimpleNamespace()
+        execution.monitoring = lambda: {}
+
+        def build_status_snapshot(*, probe, monitoring):
+            nonlocal build_count
+            with counter_lock:
+                build_count += 1
+            time.sleep(0.01)
+            return {"status": "healthy"}
+
+        execution._build_status_snapshot = build_status_snapshot
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(lambda _index: execution.status_snapshot(), range(8)))
+
+        self.assertEqual(build_count, 1)
+        self.assertEqual(sum(not result["cache_hit"] for result in results), 1)
+        self.assertTrue(all(result["status"] == "healthy" for result in results))
+
     @patch("oracle_app.admin_network_routes.safe_get_network_control_verification_snapshot", return_value={})
     def test_canonical_admin_status_preserves_power_action_on_owning_host(self, _verification) -> None:
         execution = Mock()
@@ -170,15 +203,14 @@ class CanonicalNetworkExecutionTests(unittest.TestCase):
         legacy_probe.assert_not_called()
         legacy_librenms.assert_not_called()
 
-    @patch("oracle_app.network_runtime.control.check_typed_service_available")
-    @patch("oracle_app.network_runtime.control.execute_typed_service_action")
+    @patch("oracle_app.network_runtime.control.ServicePlatformAdapter")
     def test_canonical_confirmed_control_uses_bound_typed_adapter(
         self,
-        execute_service,
-        check_service,
+        platform_adapter,
     ) -> None:
-        execute_service.return_value = {"ok": True, "status": "executed"}
-        check_service.return_value = {"ok": True, "status": "available"}
+        platform = platform_adapter.return_value
+        platform.restart.return_value = PlatformActionOutcome(True, "executed")
+        platform.available.return_value = PlatformObservation(True, "available")
         execution = self._execution(enable_control=True)
         payload = {
             "target_type": "service",
@@ -205,9 +237,9 @@ class CanonicalNetworkExecutionTests(unittest.TestCase):
         self.assertTrue(admitted["allowed"])
         self.assertEqual(completed["result_status"], "executed")
         self.assertEqual(completed["execution"]["verification_status"], "passed")
-        self.assertEqual(execute_service.call_args.kwargs["adapter"].service_target, "example-service.service")
+        self.assertEqual(platform_adapter.call_args.args[0].service_target, "example-service.service")
 
-    @patch("oracle_app.provider_bridges.service_control.subprocess.run")
+    @patch("oracle_app.network_runtime.platform_transport.subprocess.run")
     def test_typed_docker_restart_preserves_companion_lifecycle_order(self, run) -> None:
         run.return_value = SimpleNamespace(returncode=0, stdout="", stderr="")
         adapter = ServiceControlAdapter(
@@ -221,27 +253,24 @@ class CanonicalNetworkExecutionTests(unittest.TestCase):
             service_adapter="docker",
         )
 
-        result = execute_typed_service_action(
-            adapter=adapter,
-            credential=None,
-            operation="restart_service",
-        )
+        result = ServicePlatformAdapter(adapter, None).restart("restart_service")
 
-        self.assertTrue(result["ok"])
+        self.assertTrue(result.ok)
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual(commands[0], ["docker", "stop", "nextcloud-cron"])
         self.assertEqual(commands[1], ["docker", "restart", "nextcloud-app"])
         self.assertEqual(commands[2], ["docker", "start", "nextcloud-cron"])
 
     @patch("oracle_app.network_runtime.control._wait_reachable", return_value=True)
-    @patch("oracle_app.network_runtime.control.execute_typed_service_action", return_value={"ok": True})
+    @patch("oracle_app.network_runtime.control.ServicePlatformAdapter")
     @patch("oracle_app.network_runtime.control.TypedServiceControl")
     def test_graceful_host_recovery_restores_host_services_before_readiness_and_clients_last(
         self,
         service_control,
-        _execute,
+        platform_adapter,
         _reachable,
     ) -> None:
+        platform_adapter.return_value.restart.return_value = PlatformActionOutcome(True, "restart_sent")
         calls = Mock()
         service = service_control.return_value
         service.prepare.return_value = {"ok": True, "completed_phase_ids": ["stop_host_services"]}
@@ -286,11 +315,11 @@ class CanonicalNetworkExecutionTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(calls.mock_calls, [unittest.mock.call.host_services(), unittest.mock.call.readiness(), unittest.mock.call.client()])
 
-    @patch(
-        "oracle_app.network_runtime.control.check_typed_service_available",
-        side_effect=[{"ok": False, "available": False}, {"ok": False, "available": False}],
-    )
-    def test_pihole_continuity_allows_restart_when_target_is_already_down(self, _check) -> None:
+    @patch("oracle_app.network_runtime.control.ServicePlatformAdapter")
+    def test_pihole_continuity_allows_restart_when_target_is_already_down(self, platform_adapter) -> None:
+        platform_adapter.return_value.available.side_effect = [
+            PlatformObservation(False, "failed"), PlatformObservation(False, "failed")
+        ]
         adapter = ServiceControlAdapter(
             type="service_control",
             target_kind="service",
@@ -334,8 +363,9 @@ class CanonicalNetworkExecutionTests(unittest.TestCase):
         self.assertEqual(results[0]["status"], "passed")
         self.assertEqual(results[0]["observed_value"]["target"], "down")
 
-    @patch("oracle_app.network_runtime.control.check_typed_service_available", return_value={"ok": True})
-    def test_pihole_continuity_derives_peer_from_policy_without_household_ids(self, _check) -> None:
+    @patch("oracle_app.network_runtime.control.ServicePlatformAdapter")
+    def test_pihole_continuity_derives_peer_from_policy_without_household_ids(self, platform_adapter) -> None:
+        platform_adapter.return_value.available.return_value = PlatformObservation(True, "available")
         definition = ServiceControlAdapter(
             type="service_control",
             target_kind="service",
@@ -419,17 +449,19 @@ class CanonicalNetworkExecutionTests(unittest.TestCase):
         host = Mock()
         profile = SimpleNamespace(
             host_id="oracle_host",
-            mount_path="/mnt/storage",
-            mount_service_target="mnt-storage-mount.service",
+            mount_path="/srv/example-storage",
+            mount_service_target="example-storage-mount.service",
             service_adapter_ids=("plex_restart",),
         )
         control._host_for_id = Mock(return_value=host)  # type: ignore[method-assign]
-        control._run = Mock(side_effect=[  # type: ignore[method-assign]
-            {"ok": True},
-            {"ok": True, "stdout": "/dev/md0 /mnt/storage ro"},
-            {"ok": True},
-            {"ok": True, "stdout": "/dev/md0 /mnt/storage rw"},
-        ])
+        platform = Mock()
+        platform.restart_mount_service.return_value = True
+        platform.inspect_mount.side_effect = [
+            PlatformObservation(True, "available", "/dev/md0 /srv/example-storage ro"),
+            PlatformObservation(True, "available", "/dev/md0 /srv/example-storage rw"),
+        ]
+        platform.remount_read_write.return_value = True
+        control._platform = Mock(return_value=platform)  # type: ignore[method-assign]
         control._set_services = Mock(return_value={"ok": True})  # type: ignore[method-assign]
 
         result = control._restore_client(profile, 10)
@@ -452,15 +484,17 @@ class CanonicalNetworkExecutionTests(unittest.TestCase):
         adapters = Mock()
         adapters.adapter.return_value = runtime
         control = TypedServiceControl(adapters)
-        control._run = Mock(return_value={"ok": True})  # type: ignore[method-assign]
-        control._target_has_state = Mock(side_effect=[True, False])  # type: ignore[method-assign]
+        platform = Mock()
+        platform.set_service_state.return_value = PlatformActionOutcome(True)
+        platform.service_has_state.side_effect = [True, False]
+        control._platform = Mock(return_value=platform)  # type: ignore[method-assign]
 
         result = control._set_services(["nextcloud_restart"], "stopped", 10)
 
         self.assertFalse(result["ok"])
-        commands = [call.args[1] for call in control._run.call_args_list]
-        self.assertEqual(commands[-2], ["docker", "start", "nextcloud-app"])
-        self.assertEqual(commands[-1], ["docker", "start", "nextcloud-cron"])
+        calls = platform.set_service_state.call_args_list
+        self.assertEqual(calls[-2].args, ("nextcloud-app", "started"))
+        self.assertEqual(calls[-1].args, ("nextcloud-cron", "started"))
 
     def _execution(self, *, enable_control: bool = False) -> CanonicalNetworkExecution:
         with tempfile.TemporaryDirectory() as temporary:
@@ -507,7 +541,7 @@ class CanonicalNetworkExecutionTests(unittest.TestCase):
                 satellite_projection_activation_ids=MappingProxyType({}),
                 config_revision=str(inspection.normalized_candidate_revision),
                 bundle_id="example-home",
-                schema_version=1,
+                schema_version=2,
                 roles=inspection.bundle.roles,  # type: ignore[union-attr]
                 secrets=inspection.secrets,  # type: ignore[arg-type]
             )

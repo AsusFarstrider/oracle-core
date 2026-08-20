@@ -25,6 +25,12 @@ class CommandOutcome:
     transcript: str
     spoken_reply: str
     raw_response: Dict[str, Any]
+    status: str = ""
+    failure_code: str = ""
+    effects: Dict[str, Any] | None = None
+    source_id: str = ""
+    session_id: str = ""
+    trace_id: str = ""
 
 
 @dataclass(frozen=True)

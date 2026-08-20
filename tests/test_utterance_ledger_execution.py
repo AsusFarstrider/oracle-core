@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
+from dataclasses import replace
 import json
 import sys
+from types import MappingProxyType
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -10,7 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
-from oracle_app import state
+from oracle_app import audiobook_state, state
 from oracle_app.audiobook import build_longform_payload as _build_longform_payload
 from oracle_app.handlers.audiobook import execute_audiobook as _execute_audiobook
 from oracle_app.handlers.music import execute_music as _execute_music
@@ -21,14 +23,20 @@ from oracle_app.user_context import resolve_effective_user as _resolve_effective
 from canonical_test_support import neutral_brain_runtime_settings
 
 
-FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "phase_c_utterance_bank.json"
+FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "utterance_ledger.json"
 _NEUTRAL_RUNTIME = neutral_brain_runtime_settings()
 _NEUTRAL_HOUSEHOLD = _NEUTRAL_RUNTIME.household
+_TEST_NEWS_SETTINGS = replace(
+    _NEUTRAL_RUNTIME.information.news,
+    enabled=True,
+    resolution_terms=MappingProxyType({"npr": "example_news"}),
+)
+_TEST_CALENDAR_SETTINGS = replace(_NEUTRAL_RUNTIME.calendar, enabled=True)
 _CANONICAL_ROUTE_ARGUMENTS = {
     "facts_enabled": False,
-    "news_settings": _NEUTRAL_RUNTIME.information.news if _NEUTRAL_RUNTIME.information else None,
+    "news_settings": _TEST_NEWS_SETTINGS,
     "canonical_information": True,
-    "calendar_settings": _NEUTRAL_RUNTIME.calendar,
+    "calendar_settings": _TEST_CALENDAR_SETTINGS,
     "canonical_calendar": True,
 }
 _NEUTRAL_ROUTE_REGISTRY = build_route_capability_registry(
@@ -37,6 +45,9 @@ _NEUTRAL_ROUTE_REGISTRY = build_route_capability_registry(
 )
 _BASELINE_ROUTE_REGISTRY = build_route_capability_registry(
     **_CANONICAL_ROUTE_ARGUMENTS,
+)
+_FACTS_ROUTE_REGISTRY = build_route_capability_registry(
+    **(_CANONICAL_ROUTE_ARGUMENTS | {"facts_enabled": True}),
 )
 _CANONICAL_HOME_ROUTE_IDS = {
     "home-room-first-color",
@@ -56,6 +67,12 @@ def choose_route(text: str, **kwargs):
     """Evaluate general fixtures with explicit canonical non-household dependencies."""
 
     kwargs.setdefault("registry", _BASELINE_ROUTE_REGISTRY)
+    kwargs.setdefault("household_settings", _NEUTRAL_HOUSEHOLD)
+    return _BASE_CHOOSE_ROUTE(text, **kwargs)
+
+
+def _choose_canonical_facts_route(text: str, **kwargs):
+    kwargs.setdefault("registry", _FACTS_ROUTE_REGISTRY)
     kwargs.setdefault("household_settings", _NEUTRAL_HOUSEHOLD)
     return _BASE_CHOOSE_ROUTE(text, **kwargs)
 
@@ -114,7 +131,7 @@ def _add_canonical_playback_target(dispatch: DispatchPlan) -> None:
         dispatch.payload["playback_target_resolution"] = "authenticated_request_source"
 
 
-class PhaseCUtteranceExecutionTests(unittest.TestCase):
+class UtteranceLedgerExecutionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.entries = json.loads(FIXTURE_PATH.read_text())
@@ -122,7 +139,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         clear_all_sessions()
-        state.clear_all_active_audiobook_playbacks()
+        audiobook_state.clear_all_active_audiobook_playbacks()
 
     def _entries_with_behavior(self, behavior: str) -> list[dict[str, str]]:
         return [entry for entry in self.entries if entry["expected_behavior"] == behavior]
@@ -171,6 +188,8 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
     def _route_with_fixture_setup(self, entry: dict[str, str]):
         setup = entry.get("setup")
         utterance = entry["utterance"]
+        if entry["owner"] == "facts":
+            return _choose_canonical_facts_route(utterance)
         if entry["id"] in _CANONICAL_HOME_ROUTE_IDS:
             return _choose_canonical_home_route(utterance)
         if not setup:
@@ -179,72 +198,72 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
         with ExitStack() as stack:
             if setup == "pending_audiobook_two_candidates":
                 source = "satellite-alpha"
-                session_id = f"phase-c-{entry['id']}"
+                session_id = f"utterance-ledger-{entry['id']}"
                 self._store_two_candidate_audiobook_pending(session_id, source=source)
                 return choose_route(utterance, source=source, session_id=session_id)
             if setup == "pending_music_two_candidates":
                 source = "satellite-alpha"
-                session_id = f"phase-c-{entry['id']}"
+                session_id = f"utterance-ledger-{entry['id']}"
                 self._store_two_candidate_music_pending(session_id)
                 return choose_route(utterance, source=source, session_id=session_id)
             if setup == "strong_home_context_guest_room_off":
                 set_active_context(
                     "satellite-alpha",
-                    f"phase-c-{entry['id']}",
+                    f"utterance-ledger-{entry['id']}",
                     route_target="home_assistant",
                     dispatch_hook="home_assistant.execute",
                     action="execute",
                     anchor_strength="strong",
                     context_text="turn off the guest room lights",
                 )
-                return choose_route(utterance, source="satellite-alpha", session_id=f"phase-c-{entry['id']}")
+                return choose_route(utterance, source="satellite-alpha", session_id=f"utterance-ledger-{entry['id']}")
             if setup == "strong_home_context_generic":
                 set_active_context(
                     "satellite-alpha",
-                    f"phase-c-{entry['id']}",
+                    f"utterance-ledger-{entry['id']}",
                     route_target="home_assistant",
                     dispatch_hook="home_assistant.execute",
                     action="execute",
                     anchor_strength="strong",
                     context_text="turn off the kitchen lights",
                 )
-                return choose_route(utterance, source="satellite-alpha", session_id=f"phase-c-{entry['id']}")
+                return choose_route(utterance, source="satellite-alpha", session_id=f"utterance-ledger-{entry['id']}")
             if setup == "strong_music_context_no_live_media":
                 stack.enter_context(patch("oracle_app.route_refinement.fetch_satellite_music_session", return_value=None))
                 stack.enter_context(patch("oracle_app.route_refinement.fetch_satellite_audiobook_session", return_value=None))
                 stack.enter_context(patch("oracle_app.route_refinement.fetch_satellite_reply_audio_session", return_value=None))
                 set_active_context(
                     "satellite-alpha",
-                    f"phase-c-{entry['id']}",
+                    f"utterance-ledger-{entry['id']}",
                     route_target="music",
                     dispatch_hook="music.execute",
                     action="play",
                     anchor_strength="strong",
                 )
-                return choose_route(utterance, source="satellite-alpha", session_id=f"phase-c-{entry['id']}")
+                return choose_route(utterance, source="satellite-alpha", session_id=f"utterance-ledger-{entry['id']}")
             if setup == "strong_audiobook_context_no_live_media":
                 stack.enter_context(patch("oracle_app.route_refinement.fetch_satellite_music_session", return_value=None))
                 stack.enter_context(patch("oracle_app.route_refinement.fetch_satellite_audiobook_session", return_value=None))
                 stack.enter_context(patch("oracle_app.route_refinement.fetch_satellite_reply_audio_session", return_value=None))
                 set_active_context(
                     "satellite-alpha",
-                    f"phase-c-{entry['id']}",
+                    f"utterance-ledger-{entry['id']}",
                     route_target="audiobook",
                     dispatch_hook="audiobook.execute",
                     action="play",
                     anchor_strength="strong",
                 )
-                return choose_route(utterance, source="satellite-alpha", session_id=f"phase-c-{entry['id']}")
+                return choose_route(utterance, source="satellite-alpha", session_id=f"utterance-ledger-{entry['id']}")
             if setup == "weak_facts_context":
                 set_active_context(
                     "satellite-alpha",
-                    f"phase-c-{entry['id']}",
+                    f"utterance-ledger-{entry['id']}",
                     route_target="facts",
                     dispatch_hook="facts.lookup",
                     action="facts_lookup",
                     anchor_strength="weak",
                 )
-                return choose_route(utterance, source="satellite-alpha", session_id=f"phase-c-{entry['id']}")
+                return choose_route(utterance, source="satellite-alpha", session_id=f"utterance-ledger-{entry['id']}")
 
         raise AssertionError(f"Unknown fixture setup: {setup}")
 
@@ -295,7 +314,8 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
         missing = [
             entry["id"]
             for entry in self.entries
-            if entry.get("risk") == "high" and entry.get("coverage") == "fixture_only"
+            if entry.get("risk") == "high"
+            and entry.get("execution_level") not in {"route_executed", "handler_executed"}
         ]
 
         self.assertEqual(missing, [])
@@ -325,9 +345,9 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
         for entry in self.entries:
             with self.subTest(entry_id=entry["id"]):
                 if entry["id"] in handler_executed_ids:
-                    self.assertEqual(entry.get("coverage"), "handler_executed")
+                    self.assertEqual(entry.get("execution_level"), "handler_executed")
                 elif entry["id"] in route_executed_ids:
-                    self.assertEqual(entry.get("coverage"), "route_executed")
+                    self.assertEqual(entry.get("execution_level"), "route_executed")
                 else:
                     self.fail(f"Entry {entry['id']} is not mapped to an execution coverage class")
 
@@ -338,7 +358,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
                     continue
                 if entry.get("category") not in {"cross_domain_rescue_miss", "clarification_policy_miss", "hard_not_found"}:
                     continue
-                self.assertEqual(entry.get("coverage"), "handler_executed")
+                self.assertEqual(entry.get("execution_level"), "handler_executed")
 
     @patch("oracle_app.handlers.music.search_music_catalog")
     @patch("oracle_app.handlers.music.choose_best_guess_with_ollama")
@@ -366,7 +386,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
                     "text": entry["utterance"],
                     "normalized_text": entry["utterance"],
                     "source": "satellite-alpha",
-                    "session_id": "phase-c-weak-single-match",
+                    "session_id": "utterance-ledger-weak-single-match",
                 },
                 status="planned",
             )
@@ -466,7 +486,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
                             "text": entry["utterance"],
                             "normalized_text": entry["utterance"],
                             "source": "satellite-alpha",
-                            "session_id": f"phase-c-{entry_id}",
+                            "session_id": f"utterance-ledger-{entry_id}",
                         },
                         status="planned",
                     )
@@ -495,7 +515,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
                     "text": entry["utterance"],
                     "normalized_text": entry["utterance"],
                     "source": "satellite-alpha",
-                    "session_id": "phase-c-hard-not-found",
+                    "session_id": "utterance-ledger-hard-not-found",
                 },
                 status="planned",
             )
@@ -640,7 +660,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
                         "text": entry["utterance"],
                         "normalized_text": entry["utterance"],
                         "source": "satellite-alpha",
-                        "session_id": f"phase-c-{entry_id}",
+                        "session_id": f"utterance-ledger-{entry_id}",
                     },
                     status="planned",
                 )
@@ -678,7 +698,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
             for entry_id, expected_library_item_id, playback_session_id in deterministic_entries:
                 with self.subTest(entry_id=entry_id):
                     entry = self.entries_by_id[entry_id]
-                    session_id = f"phase-c-{entry_id}"
+                    session_id = f"utterance-ledger-{entry_id}"
                     self._store_two_candidate_audiobook_pending(session_id)
                     mock_open_audiobook_playback_session.return_value = {
                         "id": playback_session_id,
@@ -721,7 +741,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
         entry = self.entries_by_id["audiobook-negative-narrow-reprompt"]
         state.store_pending_audiobook_request(
             "satellite-alpha",
-            "phase-c-book-narrow",
+            "utterance-ledger-book-narrow",
             {
                 "intent": {"intent": "play", "title": "harry potter and the prisoner of azkaban"},
                 "candidates": [
@@ -756,7 +776,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
                 "text": entry["utterance"],
                 "normalized_text": entry["utterance"],
                 "source": "satellite-alpha",
-                "session_id": "phase-c-book-narrow",
+                "session_id": "utterance-ledger-book-narrow",
             },
             status="planned",
         )
@@ -773,7 +793,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
 
     def test_fixture_safe_other_pronoun_resolves_pending_clarification(self) -> None:
         entry = self.entries_by_id["audiobook-safe-other-pronoun"]
-        self._store_two_candidate_audiobook_pending("phase-c-other-one")
+        self._store_two_candidate_audiobook_pending("utterance-ledger-other-one")
 
         with patch("oracle_app.handlers.audiobook.fetch_audiobook_item") as mock_fetch_audiobook_item, patch(
             "oracle_app.handlers.audiobook.open_audiobook_playback_session"
@@ -810,7 +830,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
                     "text": entry["utterance"],
                     "normalized_text": entry["utterance"],
                     "source": "satellite-beta",
-                    "session_id": "phase-c-other-one",
+                    "session_id": "utterance-ledger-other-one",
                 },
                 status="planned",
             )
@@ -842,7 +862,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
                 },
             ],
         }
-        self._store_two_candidate_audiobook_pending("phase-c-vague-followup")
+        self._store_two_candidate_audiobook_pending("utterance-ledger-vague-followup")
 
         dispatch = DispatchPlan(
             target="audiobook",
@@ -851,7 +871,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
                 "text": entry["utterance"],
                 "normalized_text": entry["utterance"],
                 "source": "satellite-beta",
-                "session_id": "phase-c-vague-followup",
+                "session_id": "utterance-ledger-vague-followup",
             },
             status="planned",
         )
@@ -862,7 +882,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.result["error"], "audiobook_unrecognized")
         self.assertEqual(
-            state.load_pending_audiobook_request("satellite-beta", "phase-c-vague-followup"),
+            state.load_pending_audiobook_request("satellite-beta", "utterance-ledger-vague-followup"),
             pending_payload,
         )
 
@@ -887,7 +907,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
                 },
             ],
         }
-        self._store_two_candidate_audiobook_pending("phase-c-unsafe-pronoun")
+        self._store_two_candidate_audiobook_pending("utterance-ledger-unsafe-pronoun")
 
         dispatch = DispatchPlan(
             target="audiobook",
@@ -896,7 +916,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
                 "text": entry["utterance"],
                 "normalized_text": entry["utterance"],
                 "source": "satellite-beta",
-                "session_id": "phase-c-unsafe-pronoun",
+                "session_id": "utterance-ledger-unsafe-pronoun",
             },
             status="planned",
         )
@@ -907,7 +927,7 @@ class PhaseCUtteranceExecutionTests(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.result["error"], "audiobook_unrecognized")
         self.assertEqual(
-            state.load_pending_audiobook_request("satellite-beta", "phase-c-unsafe-pronoun"),
+            state.load_pending_audiobook_request("satellite-beta", "utterance-ledger-unsafe-pronoun"),
             pending_payload,
         )
 

@@ -46,7 +46,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
     def _insert_snapshot(
         self,
         *,
-        snapshot_id: str,
+        projection_id: str,
         observed_at: str,
         provider: str,
         domain: str,
@@ -57,13 +57,13 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
         with transaction(self.db_path) as conn:
             conn.execute(
                 """
-                INSERT INTO memory_snapshots (
-                    snapshot_id, created_at, updated_at, observed_at, snapshot_type,
+                INSERT INTO memory_current_projections (
+                    projection_id, created_at, updated_at, observed_at, projection_type,
                     provider, domain, status, payload_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    snapshot_id,
+                    projection_id,
                     observed_at,
                     observed_at,
                     observed_at,
@@ -75,10 +75,10 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
                 ),
             )
 
-    def test_schema_creates_memory_snapshots(self) -> None:
+    def test_schema_creates_memory_current_projections(self) -> None:
         schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
 
-        self.assertIn("memory_snapshots", schema.table_names(self.db_path))
+        self.assertIn("memory_current_projections", schema.table_names(self.db_path))
 
     def test_normalize_provider_health_maps_ok_and_failed(self) -> None:
         available = provider_status.normalize_provider_health(
@@ -293,7 +293,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
 
     def test_get_latest_provider_status_without_domain_returns_newest_provider_snapshot(self) -> None:
         self._insert_snapshot(
-            snapshot_id="provider_status:alpha:shared",
+            projection_id="provider_status:alpha:shared",
             observed_at="2026-04-25T10:00:00+00:00",
             provider="shared",
             domain="alpha",
@@ -301,7 +301,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
             payload_json='{"domain": "alpha"}',
         )
         self._insert_snapshot(
-            snapshot_id="provider_status:beta:shared",
+            projection_id="provider_status:beta:shared",
             observed_at="2026-04-25T10:01:00+00:00",
             provider="shared",
             domain="beta",
@@ -316,21 +316,21 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
 
     def test_query_provider_status_snapshots_filters_and_orders_newest_first(self) -> None:
         self._insert_snapshot(
-            snapshot_id="provider_status:home_assistant:home_assistant",
+            projection_id="provider_status:home_assistant:home_assistant",
             observed_at="2026-04-25T10:00:00+00:00",
             provider="home_assistant",
             domain="home_assistant",
             status="available",
         )
         self._insert_snapshot(
-            snapshot_id="provider_status:ollama:ollama",
+            projection_id="provider_status:ollama:ollama",
             observed_at="2026-04-25T10:02:00+00:00",
             provider="ollama",
             domain="ollama",
             status="unavailable",
         )
         self._insert_snapshot(
-            snapshot_id="provider_status:music:plex",
+            projection_id="provider_status:music:plex",
             observed_at="2026-04-25T10:02:00+00:00",
             provider="plex",
             domain="music",
@@ -338,7 +338,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            [snapshot["snapshot_id"] for snapshot in provider_status.query_provider_status_snapshots(db_path=self.db_path)],
+            [snapshot["projection_id"] for snapshot in provider_status.query_provider_status_snapshots(db_path=self.db_path)],
             [
                 "provider_status:music:plex",
                 "provider_status:ollama:ollama",
@@ -347,7 +347,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
         )
         self.assertEqual(
             [
-                snapshot["snapshot_id"]
+                snapshot["projection_id"]
                 for snapshot in provider_status.query_provider_status_snapshots(
                     provider_status.ProviderStatusQuery(provider="ollama"),
                     db_path=self.db_path,
@@ -357,7 +357,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
         )
         self.assertEqual(
             [
-                snapshot["snapshot_id"]
+                snapshot["projection_id"]
                 for snapshot in provider_status.query_provider_status_snapshots(
                     provider_status.ProviderStatusQuery(domain="music"),
                     db_path=self.db_path,
@@ -367,7 +367,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
         )
         self.assertEqual(
             [
-                snapshot["snapshot_id"]
+                snapshot["projection_id"]
                 for snapshot in provider_status.query_provider_status_snapshots(
                     provider_status.ProviderStatusQuery(status="unavailable"),
                     db_path=self.db_path,
@@ -377,7 +377,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
         )
         self.assertEqual(
             [
-                snapshot["snapshot_id"]
+                snapshot["projection_id"]
                 for snapshot in provider_status.query_provider_status_snapshots(
                     provider_status.ProviderStatusQuery(provider="plex", domain="music", status="degraded"),
                     db_path=self.db_path,
@@ -387,7 +387,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
         )
         self.assertEqual(
             [
-                snapshot["snapshot_id"]
+                snapshot["projection_id"]
                 for snapshot in provider_status.list_provider_status_snapshots(
                     db_path=self.db_path,
                     status="available",
@@ -399,7 +399,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
     def test_query_provider_status_snapshots_limits_offsets_and_clamps(self) -> None:
         for index in range(3):
             self._insert_snapshot(
-                snapshot_id=f"provider_status:domain-{index}:provider-{index}",
+                projection_id=f"provider_status:domain-{index}:provider-{index}",
                 observed_at=f"2026-04-25T10:0{index}:00+00:00",
                 provider=f"provider-{index}",
                 domain=f"domain-{index}",
@@ -408,7 +408,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
 
         self.assertEqual(len(provider_status.query_provider_status_snapshots(db_path=self.db_path)), 3)
         self.assertEqual(
-            [snapshot["snapshot_id"] for snapshot in provider_status.query_provider_status_snapshots(
+            [snapshot["projection_id"] for snapshot in provider_status.query_provider_status_snapshots(
                 provider_status.ProviderStatusQuery(limit=1, offset=1),
                 db_path=self.db_path,
             )],
@@ -435,7 +435,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
 
     def test_query_provider_status_snapshots_handles_malformed_payload_json(self) -> None:
         self._insert_snapshot(
-            snapshot_id="provider_status:ollama:ollama",
+            projection_id="provider_status:ollama:ollama",
             observed_at="2026-04-25T10:00:00+00:00",
             provider="ollama",
             domain="ollama",
@@ -443,7 +443,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
             payload_json="{not-json",
         )
         self._insert_snapshot(
-            snapshot_id="provider_status:music:plex",
+            projection_id="provider_status:music:plex",
             observed_at="2026-04-25T10:01:00+00:00",
             provider="plex",
             domain="music",
@@ -464,7 +464,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
 
     def test_query_provider_status_snapshots_do_not_write_or_modify_rows(self) -> None:
         self._insert_snapshot(
-            snapshot_id="provider_status:ollama:ollama",
+            projection_id="provider_status:ollama:ollama",
             observed_at="2026-04-25T10:00:00+00:00",
             provider="ollama",
             domain="ollama",
@@ -472,7 +472,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
             payload_json='{"model": "llama"}',
         )
         with transaction(self.db_path) as conn:
-            before = conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_snapshots").fetchone()
+            before = conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_current_projections").fetchone()
             event_count_before = conn.execute("SELECT COUNT(*) FROM memory_events").fetchone()[0]
 
         provider_status.query_provider_status_snapshots(db_path=self.db_path)
@@ -481,7 +481,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
         provider_status.get_provider_status_snapshot("ollama", "ollama", db_path=self.db_path)
 
         with transaction(self.db_path) as conn:
-            after = conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_snapshots").fetchone()
+            after = conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_current_projections").fetchone()
             event_count_after = conn.execute("SELECT COUNT(*) FROM memory_events").fetchone()[0]
 
         self.assertEqual(tuple(after), tuple(before))

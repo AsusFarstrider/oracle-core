@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Mapping
-
 from stt import (
     DisabledSttProvider,
     FastWhisperProvider as FastWhisperRuntimeProvider,
@@ -12,20 +10,10 @@ from stt import (
 )
 from tts import DisabledTtsProvider, PiperTtsProvider, TtsProvider
 
+from oracle_app.inference import InferenceClient, InferenceExecutionSettings
+
 from .brain_runtime_settings import BrainRuntimeSettings
 from .runtime_models import FastWhisperProvider, PiperProvider, WhisperCppProvider
-
-
-@dataclass(frozen=True)
-class InferenceExecutionSettings:
-    enabled: bool
-    base_url: str | None
-    model: str | None
-    timeout_seconds: float | None
-    keep_alive: int | str | None
-    options: Mapping[str, int | float]
-    fallback_model: str | None
-    fallback_timeout_seconds: float | None
 
 
 @dataclass(frozen=True)
@@ -34,14 +22,14 @@ class BrainCoreRuntimeConsumers:
 
     stt_provider: SttProvider
     tts_provider: TtsProvider
-    inference: InferenceExecutionSettings
+    inference: InferenceClient
 
     @classmethod
     def from_runtime_settings(cls, settings: BrainRuntimeSettings) -> BrainCoreRuntimeConsumers:
         return cls(
             stt_provider=_build_stt_provider(settings),
             tts_provider=_build_tts_provider(settings),
-            inference=_build_inference_settings(settings),
+            inference=InferenceClient(_build_inference_settings(settings)),
         )
 
 

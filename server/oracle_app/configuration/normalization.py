@@ -11,7 +11,7 @@ from .loader import LoadedBundle
 from .models import BundleManifest
 
 
-CONFIG_FORMAT = "oracle-config-v1"
+CONFIG_FORMAT = "oracle-config-v2"
 CONFIG_REVISION_PREFIX = f"{CONFIG_FORMAT}:sha256:"
 
 

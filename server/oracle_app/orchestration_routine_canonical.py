@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from oracle_app import state
+from oracle_app import audiobook_state
+from oracle_app.alerts import create_alert_batch
 from oracle_app.audiobook_runtime.canonical import CanonicalAudiobookExecution
 from oracle_app.audiobook_runtime.playback import sync_then_control as sync_then_control_audiobook
 from oracle_app.configuration.domain_models import HomeAssistantObjectMapping
@@ -18,6 +20,7 @@ from oracle_app.orchestration_routines import (
     start_routine,
 )
 from oracle_app.provider_bridges.home_assistant import HomeAssistantBridge
+from oracle_app.notifications.canonical import CanonicalNotificationExecution
 from oracle_app.ui_audio_control import (
     set_audiobook_sleep_timer_seconds,
     start_current_audiobook_for_user,
@@ -33,10 +36,12 @@ class CanonicalRoutineExecution:
         settings: RoutineRuntimeSettings,
         home_assistant: HomeAssistantRuntimeSettings | None,
         audiobooks: CanonicalAudiobookExecution | None,
+        notifications: CanonicalNotificationExecution | None = None,
     ) -> None:
         self.settings = settings
         self.home_assistant = home_assistant
         self.audiobooks = audiobooks
+        self.notifications = notifications
         adapters: dict[str, RoutineAdapter] = {
             "ui_action": self.ui_action,
             "audiobook_start": self.audiobook_start,
@@ -44,6 +49,8 @@ class CanonicalRoutineExecution:
             "sleep_timer": self.sleep_timer,
             "state_check": self.state_check,
             "playback_check": self.playback_check,
+            "notification": self.notification,
+            "timer_sound": self.timer_sound,
         }
         self.adapters: Mapping[str, RoutineAdapter] = MappingProxyType(adapters)
 
@@ -106,11 +113,11 @@ class CanonicalRoutineExecution:
                 source=source_id,
                 action="stop_longform_audio",
                 close_session=True,
-                get_active_playback_for_source=state.get_active_audiobook_playback_for_source,
+                get_active_playback_for_source=audiobook_state.get_active_audiobook_playback_for_source,
                 execute_satellite_command=self.audiobooks.execute_satellite_command,
                 close_audiobook_session=self.audiobooks.close_session,
                 sync_audiobook_session=self.audiobooks.sync_session,
-                clear_active_playback=state.clear_active_audiobook_playback,
+                clear_active_playback=audiobook_state.clear_active_audiobook_playback,
             )
             return {"ok": status == "executed", "status": status, **result}
         mapping = None if self.home_assistant is None else self.home_assistant.mapping(action_id)
@@ -225,6 +232,55 @@ class CanonicalRoutineExecution:
             "media_kind": media_kind or None,
             "playback_state": state_name or None,
             "detail": "Audiobook playback is stopped." if not active else "Audiobook playback is still active.",
+        }
+
+    def notification(
+        self,
+        *,
+        notification_id: str,
+        occurrence_id: str,
+        correlation_id: str,
+        client_id: str,
+    ) -> dict[str, object]:
+        del client_id
+        if self.notifications is None:
+            return {"ok": False, "error": "notifications_disabled", "detail": "Notifications are disabled."}
+        result = self.notifications.submit(
+            notification_id,
+            occurrence_id,
+            caller="orchestration",
+            correlation_id=correlation_id,
+        )
+        status = str(result.get("status") or "")
+        return {
+            **result,
+            "ok": status in {"queued", "duplicate"},
+            "detail": f"{notification_id} announcement {status or 'failed'}.",
+        }
+
+    def timer_sound(
+        self,
+        *,
+        source_id: str,
+        occurrence_id: str,
+        client_id: str,
+    ) -> dict[str, object]:
+        del client_id
+        alerts, duplicate = create_alert_batch(
+            kind="timer",
+            due_at=datetime.now().astimezone(),
+            message="Timer finished.",
+            sources=[source_id],
+            session_id=occurrence_id,
+            metadata={"caller": "orchestration", "operation": "timer_sound"},
+            idempotency_key=f"routine-timer-sound:{occurrence_id}",
+        )
+        return {
+            "ok": True,
+            "status": "duplicate" if duplicate else "queued",
+            "alert_id": None if duplicate or not alerts else alerts[0].alert_id,
+            "source_id": source_id,
+            "detail": "Timer sound was already queued." if duplicate else "Timer sound queued.",
         }
 
     def _home_assistant_bridge(self) -> HomeAssistantBridge:

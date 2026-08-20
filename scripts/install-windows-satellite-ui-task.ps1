@@ -12,11 +12,26 @@ if (-not $BrowserUrl.Trim()) {
     throw "BrowserUrl is required."
 }
 
+function Normalize-ArgumentValue {
+    param([string]$Value)
+
+    $trimmed = $Value.Trim()
+    if ($trimmed.Length -ge 2) {
+        $first = $trimmed.Substring(0, 1)
+        $last = $trimmed.Substring($trimmed.Length - 1, 1)
+        if (($first -eq "'" -and $last -eq "'") -or ($first -eq '"' -and $last -eq '"')) {
+            return $trimmed.Substring(1, $trimmed.Length - 2)
+        }
+    }
+    return $trimmed
+}
+
 function Resolve-BrowserExe {
     param([string]$ConfiguredPath)
 
-    if ($ConfiguredPath.Trim() -and (Test-Path $ConfiguredPath.Trim())) {
-        return $ConfiguredPath.Trim()
+    $normalizedPath = Normalize-ArgumentValue -Value $ConfiguredPath
+    if ($normalizedPath -and (Test-Path $normalizedPath)) {
+        return $normalizedPath
     }
 
     $candidates = @(
@@ -36,14 +51,16 @@ function Resolve-BrowserExe {
 }
 
 $resolvedBrowser = Resolve-BrowserExe -ConfiguredPath $BrowserExe
+$normalizedBrowserUrl = Normalize-ArgumentValue -Value $BrowserUrl
+$normalizedTreatInsecureOriginAsSecure = Normalize-ArgumentValue -Value $TreatInsecureOriginAsSecure
 $arguments = @(
     "--kiosk",
-    $BrowserUrl.Trim(),
+    $normalizedBrowserUrl,
     "--edge-kiosk-type=fullscreen",
     "--no-first-run"
 )
-if ($TreatInsecureOriginAsSecure.Trim()) {
-    $arguments += "--unsafely-treat-insecure-origin-as-secure=$($TreatInsecureOriginAsSecure.Trim())"
+if ($normalizedTreatInsecureOriginAsSecure) {
+    $arguments += "--unsafely-treat-insecure-origin-as-secure=$normalizedTreatInsecureOriginAsSecure"
 }
 
 $action = New-ScheduledTaskAction `

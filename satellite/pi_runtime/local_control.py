@@ -568,72 +568,45 @@ def interrupt_local_playback(
 def is_transport_playback_command(outcome: Optional[CommandOutcome]) -> bool:
     if outcome is None:
         return False
-    raw_response = outcome.raw_response if isinstance(outcome.raw_response, dict) else {}
-    dispatch = raw_response.get("dispatch")
-    if not isinstance(dispatch, dict):
-        return False
-    target = str(dispatch.get("target", "")).strip()
-    result = dispatch.get("result")
-    if not isinstance(result, dict):
-        return False
-    action = str(result.get("action", "")).strip()
-    if target == "music":
-        return action in {"play", "pause", "resume", "stop", "next", "previous", "restart"}
-    if target == "audiobook":
-        return action in {
-            "play",
-            "resume_current",
-            "pause",
-            "resume",
-            "stop",
-            "pause_longform_audio",
-            "resume_longform_audio",
-            "stop_longform_audio",
-        }
-    return False
+    playback = (outcome.effects or {}).get("satellite_playback")
+    return isinstance(playback, dict) and str(playback.get("disposition") or "") in {
+        "started", "updated", "stopped", "failed"
+    }
 
 
 def should_resume_after_reply_for_transport_command(outcome: Optional[CommandOutcome]) -> bool:
     if outcome is None:
         return False
-    raw_response = outcome.raw_response if isinstance(outcome.raw_response, dict) else {}
-    dispatch = raw_response.get("dispatch")
-    if not isinstance(dispatch, dict):
-        return False
-    target = str(dispatch.get("target", "")).strip()
-    result = dispatch.get("result")
-    if not isinstance(result, dict):
-        return False
-    action = str(result.get("action", "")).strip()
-    if target == "music":
-        return action in {"play", "resume", "next", "previous", "restart"}
-    if target == "audiobook":
-        return action in {"play", "resume", "resume_current", "resume_longform_audio"}
-    return False
+    playback = (outcome.effects or {}).get("satellite_playback")
+    return isinstance(playback, dict) and str(playback.get("disposition") or "") == "started"
 
 
-def extract_deferred_transport_resume(outcome: Optional[CommandOutcome]) -> Optional[InterruptedPlayback]:
+def extract_deferred_transport_resume(
+    outcome: Optional[CommandOutcome],
+    *,
+    oracle_url: str,
+    source: str,
+    credential: str,
+) -> Optional[InterruptedPlayback]:
     if outcome is None:
         return None
-    raw_response = outcome.raw_response if isinstance(outcome.raw_response, dict) else {}
-    dispatch = raw_response.get("dispatch")
-    if not isinstance(dispatch, dict):
+    deferred = (outcome.effects or {}).get("deferred_satellite_playback")
+    if not isinstance(deferred, dict):
         return None
-    result = dispatch.get("result")
-    if not isinstance(result, dict) or not bool(result.get("deferred_audible_start")):
-        return None
-    deferred_session = result.get("deferred_session")
-    if not isinstance(deferred_session, dict):
-        return None
-    resume_action = str(deferred_session.get("resume_action", "")).strip()
-    if not resume_action:
+    token = str(deferred.get("continuation_token") or "").strip()
+    if not token:
         return None
     return InterruptedPlayback(
-        kind=str(deferred_session.get("kind", "")).strip() or "music",
-        backend_type=str(deferred_session.get("backend_type", "")).strip(),
-        session_id=str(deferred_session.get("session_id", "")).strip(),
-        resume_action=resume_action,
-        resume_args=deferred_session.get("resume_args") if isinstance(deferred_session.get("resume_args"), dict) else None,
+        kind="deferred_satellite_playback",
+        backend_type="oracle",
+        session_id=outcome.session_id,
+        resume_action="oracle_deferred_resume",
+        resume_args={
+            "oracle_url": oracle_url,
+            "source": source,
+            "credential": credential,
+            "continuation_token": token,
+        },
     )
 
 
@@ -645,6 +618,28 @@ def resume_deferred_transport_after_reply(
     logger: logging.Logger,
 ) -> None:
     if not deferred.resume_action:
+        return
+    if deferred.resume_action == "oracle_deferred_resume":
+        from .oracle_client import resume_deferred_playback
+
+        args = deferred.resume_args or {}
+        try:
+            result = resume_deferred_playback(
+                str(args.get("oracle_url") or ""),
+                str(args.get("source") or ""),
+                str(args.get("continuation_token") or ""),
+                credential=str(args.get("credential") or ""),
+            )
+        except REQUEST_EXCEPTION as exc:
+            logger.warning("Failed to resume deferred Oracle playback after reply: %s", exc)
+            return
+        logger.info(
+            "deferred_resume_result kind=%s backend_type=oracle session_id=%s resume_action=oracle_deferred_resume ok=%s state=%s",
+            deferred.kind or "-",
+            deferred.session_id or "-",
+            str(bool((result or {}).get("ok"))).lower(),
+            str((result or {}).get("state") or "-"),
+        )
         return
     try:
         result = send_local_control_command(control_url, api_key, deferred.resume_action, deferred.resume_args)
@@ -669,12 +664,8 @@ def resume_deferred_transport_after_reply(
 def should_listen_for_followup_reply(outcome: Optional[CommandOutcome]) -> bool:
     if outcome is None:
         return False
-    raw_response = outcome.raw_response if isinstance(outcome.raw_response, dict) else {}
-    dispatch = raw_response.get("dispatch")
-    if not isinstance(dispatch, dict):
-        return False
-    status = str(dispatch.get("status", "")).strip()
-    return status in {"pending_confirmation", "pending_clarification"}
+    follow_up = (outcome.effects or {}).get("follow_up")
+    return isinstance(follow_up, dict) and bool(follow_up.get("expected"))
 
 
 def resume_interrupted_local_playback(

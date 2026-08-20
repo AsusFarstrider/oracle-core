@@ -15,9 +15,14 @@ from fastapi.responses import JSONResponse
 
 from stt import SttError, SttProvider
 from stt import attempt_stt_provider_warmup, attempt_stt_warmup
-from tts import TtsError, TtsProvider
+from tts import TtsError, TtsProvider, maintain_tts_cache, tts_cache_diagnostics
 
-from .alerts import consume_due_alerts
+from .alerts import classify_alert_operation, consume_due_alerts
+from .audiobook_runtime.parsing import (
+    parse_audiobook_intent,
+    parse_bare_audiobook_sleep_timer_intent,
+)
+from .alert_scheduler import alert_scheduler_loop
 from .admin_diagnostics_routes import (
     admin_memory_diagnostics_summary,
     build_log_targets as _build_log_targets,
@@ -52,7 +57,7 @@ from .browser_routes import (
 )
 from .command_processing import IGNORED_TRANSCRIPT_REASON, build_ignored_command_response
 from .command_events import list_command_interim_events
-from .conversation import append_turn, clear_conversation, set_dispatch_context
+from .conversation import append_turn, set_dispatch_context
 from . import state
 from .text_normalization import normalize_text
 from .config_reporting import (
@@ -67,6 +72,7 @@ from .configuration.bootstrap import start_brain_configuration_host_local_runtim
 from .configuration.bootstrap import resolve_brain_configuration_startup
 from .configuration.generations import GenerationStoreError
 from .configuration.household_runtime_settings import HouseholdRuntimeSettings
+from .facts_cache import facts_cache_diagnostics, maintain_facts_cache
 from .configuration.request_source_resolution import (
     EPHEMERAL_HTTP_SOURCE_ID,
     RequestSourceAuthenticationError,
@@ -127,7 +133,9 @@ from .memory.orchestrations import safe_reconcile_interrupted_orchestration_runs
 from .memory.runtime import safe_record_event
 from .memory.sessions import safe_record_session, safe_update_session_status, utc_now_iso as memory_utc_now_iso
 from .memory.sources import default_internal_sources, seed_default_sources, seed_sources
+from .memory.identity_reconciliation import reconcile_identities
 from .memory.transcripts import safe_enrich_transcripts_for_correlation, safe_record_transcript
+from .memory.retention import retention_policy_from_configuration
 from .media_routes import register_media_routes
 from .music_runtime.control import ControlPlaneError, build_control_plane_failure, execute_satellite_command
 from .music_runtime.control import fetch_satellite_playback_authority
@@ -148,6 +156,7 @@ from .session_state import (
     set_user_context,
 )
 from .satellite_activity_routes import register_satellite_activity_routes, satellite_activity
+from .satellite_alert_routes import register_satellite_alert_routes
 from .satellite_projection_routes import (
     configure_satellite_projection_routes,
     register_satellite_projection_routes,
@@ -219,7 +228,9 @@ from .ui_snapshot_routes import (
     ui_satellite_home,
     ui_weather,
 )
-from .voice_routes import register_voice_routes
+from .conversation_routes import register_conversation_routes
+from .speech_routes import register_speech_routes
+from .satellite_playback_routes import register_satellite_playback_routes
 from .schemas import (
     DispatchPlan,
     CommandInterimEventsResponse,
@@ -242,7 +253,15 @@ logger = logging.getLogger("oracle-brain.api")
 
 def safe_seed_memory_sources(
     household_settings: HouseholdRuntimeSettings,
+    satellite_settings: object | None = None,
 ) -> bool:
+    if satellite_settings is not None:
+        try:
+            reconcile_identities(household_settings, satellite_settings)
+        except Exception:
+            logger.exception("oracle_memory_identity_reconciliation_failed")
+            return False
+        return True
     definitions = default_internal_sources()
     for source in household_settings.sources.values():
         if not source.enabled:
@@ -291,7 +310,10 @@ async def lifespan(_app: FastAPI):
                 "process": "api",
             },
         )
-        safe_seed_memory_sources(startup_composition.runtime.household)
+        safe_seed_memory_sources(
+            startup_composition.runtime.household,
+            startup_composition.runtime.satellites,
+        )
         reconciled_orchestration_interruptions = safe_reconcile_interrupted_orchestration_runs()
         reconciled_network_control_interruptions = safe_reconcile_interrupted_network_controls()
         restored_network_control_results = safe_restore_network_control_results_from_memory()
@@ -304,6 +326,7 @@ async def lifespan(_app: FastAPI):
         )
         attempt_stt_provider_warmup(startup_composition.core_consumers.stt_provider)
         attempt_fallback_router_warmup(startup_composition.core_consumers.inference)
+        cache_maintenance = maintain_runtime_caches(startup_composition)
         warmup_path = "fallback_router"
         configuration_host_local_runtime = start_brain_configuration_host_local_runtime(
             startup=startup,
@@ -331,6 +354,7 @@ async def lifespan(_app: FastAPI):
                 "reconciled_orchestration_interruption_count": reconciled_orchestration_interruptions,
                 "restored_network_control_result_count": restored_network_control_results,
                 "local_restart_completion_status": str(local_restart_completion.get("status") or "none"),
+                "cache_maintenance": cache_maintenance,
             },
         )
         safe_complete_pending_local_service_restart()
@@ -369,6 +393,15 @@ async def lifespan(_app: FastAPI):
                         required_config_revision=(
                             startup_composition.routine_execution.settings.config_revision
                         ),
+                    )
+                )
+            )
+        if startup_composition.audiobook_execution is not None:
+            background_tasks.append(
+                asyncio.create_task(
+                    alert_scheduler_loop(
+                        audiobook_execution=startup_composition.audiobook_execution,
+                        satellites=startup_composition.runtime.satellites,
                     )
                 )
             )
@@ -456,6 +489,48 @@ def brain_application_composition(target_app: FastAPI = app) -> BrainApplication
     if not isinstance(composition, CanonicalBrainApplicationComposition):
         raise RuntimeError("Brain application composition is not installed.")
     return composition
+
+
+def _facts_cache_settings(composition: BrainApplicationComposition) -> dict[str, object] | object:
+    information = composition.runtime.information
+    if information is None:
+        return {"cache_enabled": False, "cache_ttl_seconds": 0}
+    return information.facts
+
+
+def maintain_runtime_caches(composition: BrainApplicationComposition) -> dict[str, object]:
+    """Run bounded domain maintenance without creating a background daemon."""
+
+    facts = maintain_facts_cache(settings=_facts_cache_settings(composition))
+    tts = maintain_tts_cache()
+    return {
+        "facts": facts.as_dict(),
+        "tts": tts.as_dict(),
+    }
+
+
+def admin_cache_diagnostics() -> dict[str, object]:
+    composition = brain_application_composition()
+    facts = facts_cache_diagnostics(settings=_facts_cache_settings(composition))
+    tts = tts_cache_diagnostics()
+    return {
+        "status": "ok" if facts.healthy and tts.healthy else "degraded",
+        "caches": {
+            "facts": facts.as_dict(),
+            "tts": tts.as_dict(),
+        },
+        "cutover_dry_run": {
+            "destructive": False,
+            "tts_discard_entries": tts.entry_count,
+            "tts_discard_bytes": tts.total_bytes,
+            "facts_prune_candidates": (
+                facts.expired_entries
+                + facts.malformed_entries
+                + facts.legacy_entries
+                + max(0, facts.entry_count - facts.limit_entries)
+            ),
+        },
+    }
 
 
 @app.middleware("http")
@@ -830,6 +905,59 @@ def _apply_canonical_playback_target(
     )
 
 
+def _apply_canonical_alert_target(
+    payload: CommandRequest,
+    *,
+    route_target: str,
+    request_source: ResolvedRequestSource | None,
+) -> tuple[CommandRequest, str | None]:
+    if request_source is None:
+        return payload, None
+    if route_target == "audiobook":
+        intent = parse_audiobook_intent(payload.text)
+        if intent is None:
+            intent = parse_bare_audiobook_sleep_timer_intent(payload.text)
+        creates_alert = bool(
+            intent is not None
+            and (
+                intent.intent == "sleep_timer"
+                or intent.sleep_timer_seconds is not None
+            )
+        )
+        if not creates_alert:
+            return payload, None
+        if not request_source.stable:
+            return payload, "ephemeral_alert_creation_forbidden"
+        target = str(payload.playback_target_source_id or "").strip()
+        target_satellite = brain_application_composition().runtime.satellites.satellite_for_source(
+            target
+        )
+        if target_satellite is None or not target_satellite.alert_capable:
+            return payload, "invalid_alert_delivery_target"
+        return payload.model_copy(update={"alert_delivery_target_source_id": target}), None
+    if route_target != "system":
+        return payload, None
+    operation = classify_alert_operation(payload.text)
+    if operation is None:
+        return payload, None
+    composition = brain_application_composition()
+    explicit = str(payload.alert_delivery_target_source_id or "").strip() or None
+    request_satellite = composition.runtime.satellites.satellite_for_source(
+        request_source.request_source_id
+    )
+    if operation == "create" and not request_source.stable:
+        return payload, "ephemeral_alert_creation_forbidden"
+    target = explicit
+    if target is None and request_satellite is not None and request_source.stable:
+        target = request_source.request_source_id
+    if target is None:
+        return payload, "alert_delivery_target_required"
+    target_satellite = composition.runtime.satellites.satellite_for_source(target)
+    if target_satellite is None or not target_satellite.alert_capable:
+        return payload, "invalid_alert_delivery_target"
+    return payload.model_copy(update={"alert_delivery_target_source_id": target}), None
+
+
 def _execute_application_dispatch(dispatch: DispatchPlan) -> DispatchPlan:
     composition = brain_application_composition()
     return execute_dispatch(dispatch, registry=composition.dispatch_registry)
@@ -852,11 +980,18 @@ def _continue_from_fallback_router(
         route_target=next_route.target,
         request_source=request_source,
     )
+    next_payload, alert_target_error = _apply_canonical_alert_target(
+        next_payload,
+        route_target=next_route.target,
+        request_source=request_source,
+    )
     next_dispatch = build_dispatch_plan(next_payload, next_route, original_text=original_payload.text)
     if target_resolution is not None:
         next_dispatch.payload["playback_target_resolution"] = target_resolution
     if target_error is not None:
         next_dispatch.payload["playback_target_error"] = target_error
+    if alert_target_error is not None:
+        next_dispatch.payload["alert_delivery_target_error"] = alert_target_error
     for key in (
         "requested_user_name",
         "user_resolution_error",
@@ -980,7 +1115,7 @@ def _memory_record_command_session_start(
 ) -> None:
     safe_record_session(
         session_id=str(effective_payload.session_id or ""),
-        mode="voice",
+        mode="conversation",
         correlation_id=correlation_id,
         source_id=effective_payload.source,
         payload={
@@ -1077,6 +1212,7 @@ def _maybe_cancel_pending_calendar_write(*, source: str | None, session_id: str 
 
 
 register_health_routes(app)
+app.get("/api/admin/caches")(admin_cache_diagnostics)
 
 
 def _normalize_ui_client_id(client_id: str) -> str:
@@ -1292,8 +1428,27 @@ def _ui_audio_search_impl(payload):
     )
 
 
-def _ui_audio_play_impl(payload):
+def _require_stable_alert_ui_request(target_source_id: str, request: Request) -> None:
+    resolved = _canonical_http_request_source(target_source_id, request)
+    if resolved is None or not resolved.stable:
+        raise HTTPException(
+            status_code=403,
+            detail="Durable alert creation requires an authenticated stable client.",
+        )
+    target = brain_application_composition(request.app).runtime.satellites.satellite_for_source(
+        target_source_id
+    )
+    if target is None or not target.alert_capable:
+        raise HTTPException(
+            status_code=400,
+            detail="Alert target is not an enabled alert-capable satellite.",
+        )
+
+
+def _ui_audio_play_impl(payload, request: Request | None = None):
     composition = _audio_ui_dependencies()
+    if request is not None and payload.sleep_timer_minutes not in (None, 0):
+        _require_stable_alert_ui_request(payload.target, request)
     return ui_audio_play_impl(
         payload,
         music_execution=composition.music_execution,
@@ -1311,8 +1466,10 @@ def _ui_audio_control_impl(payload):
     )
 
 
-def _ui_audio_sleep_timer_impl(payload):
+def _ui_audio_sleep_timer_impl(payload, request: Request | None = None):
     composition = _audio_ui_dependencies()
+    if request is not None and payload.operation == "set":
+        _require_stable_alert_ui_request(payload.target, request)
     return ui_audio_sleep_timer_impl(
         payload,
         audiobook_execution=composition.audiobook_execution,
@@ -1352,6 +1509,20 @@ def _ui_context_start_impl(payload: UiContextStartRequest, request: Request | No
         resolved_source = _canonical_http_request_source(payload.source, request)
         if resolved_source is not None:
             request_source_id = resolved_source.request_source_id
+        if payload.action == "set_alarm":
+            if resolved_source is None or not resolved_source.stable:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Durable alert creation requires an authenticated stable client.",
+                )
+            target_satellite = brain_application_composition(
+                request.app
+            ).runtime.satellites.satellite_for_source(target_source_id)
+            if target_satellite is None or not target_satellite.alert_capable:
+                raise HTTPException(
+                    status_code=400,
+                    detail="target_source_id is not an enabled alert-capable satellite.",
+                )
 
     return ui_context_start_impl(
         payload,
@@ -1368,6 +1539,7 @@ register_admin_network_routes(app)
 register_admin_orchestration_routes(app)
 
 register_satellite_activity_routes(app)
+register_satellite_alert_routes(app)
 register_satellite_projection_routes(app)
 register_wake_capture_upload_routes(app)
 register_wake_arbitration_routes(app)
@@ -1527,8 +1699,6 @@ def command_request(
         session_info=session_info,
         correlation_id=memory_correlation_id,
     )
-    if session_info.get("created_new_session"):
-        clear_conversation(effective_payload.source, effective_payload.session_id)
     normalized = normalize_text(payload.text)
     if not normalized:
         response = build_ignored_command_response(effective_payload)
@@ -1564,11 +1734,22 @@ def command_request(
         )
         return response
 
+    composition = brain_application_composition()
+    routine_execution = composition.routine_execution
     pending_ui_response = _handle_pending_ui_context(
         payload.text,
         effective_payload.source,
         effective_payload.session_id,
         audio_search=_ui_audio_search_impl,
+        routine_start=(
+            None
+            if routine_execution is None
+            else lambda *, routine_id, client_id, inputs: routine_execution.start(
+                routine_id,
+                client_id=client_id,
+                inputs=inputs,
+            )
+        ),
     )
     if pending_ui_response is not None:
         pending_ui_response.session_id = payload.session_id
@@ -1586,8 +1767,6 @@ def command_request(
         return pending_ui_response
 
     routine_definition = None
-    composition = brain_application_composition()
-    routine_execution = composition.routine_execution
     source_is_configured = bool(
         household_settings is not None
         and household_settings.source(effective_payload.source) is not None
@@ -1684,6 +1863,11 @@ def command_request(
         route_target=route.target,
         request_source=established_source,
     )
+    effective_payload, alert_target_error = _apply_canonical_alert_target(
+        effective_payload,
+        route_target=route.target,
+        request_source=established_source,
+    )
     _log_command_event("route_chosen", payload=effective_payload, route=route, room_context=room_context or {})
     dispatch_payload = effective_payload.model_copy(update={"text": command_text})
     dispatch = build_dispatch_plan(dispatch_payload, route, original_text=payload.text)
@@ -1693,6 +1877,8 @@ def command_request(
         dispatch.payload["playback_target_resolution"] = target_resolution
     if target_error is not None:
         dispatch.payload["playback_target_error"] = target_error
+    if alert_target_error is not None:
+        dispatch.payload["alert_delivery_target_error"] = alert_target_error
     if user_directive.requested_user_name is not None:
         dispatch.payload["requested_user_name"] = user_directive.requested_user_name
 
@@ -2133,10 +2319,14 @@ def _synthesize_speech_with_provider(payload: TtsRequest, provider: TtsProvider)
 
 
 async def transcribe_audio(audio: UploadFile = File(...), source: str | None = Form(default=None)) -> SttResponse:
+    composition = brain_application_composition()
     return await _transcribe_audio_with_provider(
         audio,
-        brain_application_composition().stt_provider(),
+        composition.stt_provider(),
         source=source,
+        retention_policy=retention_policy_from_configuration(
+            composition.runtime.brain.memory_storage.retention
+        ),
     )
 
 
@@ -2145,6 +2335,7 @@ async def _transcribe_audio_with_provider(
     provider: SttProvider,
     *,
     source: str | None = None,
+    retention_policy,
 ) -> SttResponse:
     audio_bytes = b""
     filename = audio.filename or "audio.wav"
@@ -2162,6 +2353,7 @@ async def _transcribe_audio_with_provider(
             fallback_used=False,
             final_status="failed",
             failure_stage="stt",
+            retention_policy=retention_policy,
             payload=_memory_stt_payload(filename=filename, audio_bytes=audio_bytes, error_type=type(exc).__name__),
         )
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -2176,22 +2368,27 @@ async def _transcribe_audio_with_provider(
         fallback_used=False,
         final_status="succeeded",
         failure_stage=None,
+        retention_policy=retention_policy,
         payload=_memory_stt_payload(filename=filename, audio_bytes=audio_bytes),
     )
     return SttResponse(text=result.text, provider=result.provider)
 
 
-register_voice_routes(
+register_conversation_routes(
     app,
     route_request=route_http_request,
     command_request=command_http_request,
-    deferred_resume=deferred_resume,
-    ingest_text=ingest_text_http_request,
     session_lookup=session_lookup,
-    pending_alerts=pending_alerts,
     command_events=command_events,
+)
+register_speech_routes(
+    app,
     synthesize_speech=synthesize_speech,
     transcribe_audio=transcribe_audio,
+)
+register_satellite_playback_routes(
+    app,
+    deferred_resume=deferred_resume,
 )
 
 
@@ -2218,7 +2415,7 @@ def _memory_stt_provider_name(provider: object | None) -> str | None:
 def _memory_stt_payload(*, filename: str, audio_bytes: bytes, error_type: str | None = None) -> dict[str, object]:
     suffix = Path(filename or "audio.wav").suffix.lower() or ".wav"
     payload: dict[str, object] = {
-        "endpoint": "/stt",
+        "endpoint": "/api/speech/stt",
         "filename_suffix": suffix,
         "audio_bytes": len(audio_bytes),
     }

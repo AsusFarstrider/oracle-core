@@ -116,7 +116,7 @@ class SatelliteCorrelationPropagationTests(unittest.TestCase):
         connection = _FakeHttpConnection.last
         self.assertIsNotNone(connection)
         assert connection is not None
-        self.assertEqual(connection.path, "/stt")
+        self.assertEqual(connection.path, "/api/speech/stt")
         self.assertEqual(connection.headers["X-Oracle-Correlation-Id"], "corr-test-1")
         self.assertEqual(connection.headers["Authorization"], "Bearer brain-token")
         self.assertIn(b'name="source"', connection.body)
@@ -139,7 +139,11 @@ class SatelliteCorrelationPropagationTests(unittest.TestCase):
 
     def test_send_command_uses_correlation_header_without_changing_json_body(self) -> None:
         fake_response = Mock()
-        fake_response.json.return_value = {"reply_text": "done"}
+        fake_response.json.return_value = {
+            "reply_text": "done", "status": "executed", "failure_code": None,
+            "effects": {"follow_up": None, "satellite_playback": None, "deferred_satellite_playback": None, "ui_presentation": None}, "source_id": "test_satellite_alpha",
+            "session_id": "test_satellite_alpha-session-1", "trace_id": "trace-1",
+        }
         with patch("pi_runtime.oracle_client.requests.post", return_value=fake_response, create=True) as mock_post:
             outcome = oracle_client.send_command(
                 "http://oracle",
@@ -152,7 +156,7 @@ class SatelliteCorrelationPropagationTests(unittest.TestCase):
 
         self.assertEqual(outcome.spoken_reply, "done")
         mock_post.assert_called_once_with(
-            "http://oracle/command",
+            "http://oracle/api/conversation/command",
             json={"text": "turn on lights", "source": "test_satellite_alpha", "session_id": "test_satellite_alpha-session-1"},
             timeout=120,
             headers={
@@ -163,7 +167,11 @@ class SatelliteCorrelationPropagationTests(unittest.TestCase):
 
     def test_send_command_omits_header_when_correlation_is_absent(self) -> None:
         fake_response = Mock()
-        fake_response.json.return_value = {"reply_text": "done"}
+        fake_response.json.return_value = {
+            "reply_text": "done", "status": "executed", "failure_code": None,
+            "effects": {"follow_up": None, "satellite_playback": None, "deferred_satellite_playback": None, "ui_presentation": None}, "source_id": "test_satellite_alpha",
+            "session_id": "test_satellite_alpha-session-1", "trace_id": "trace-1",
+        }
         with patch("pi_runtime.oracle_client.requests.post", return_value=fake_response, create=True) as mock_post:
             oracle_client.send_command(
                 "http://oracle",
@@ -173,49 +181,33 @@ class SatelliteCorrelationPropagationTests(unittest.TestCase):
             )
 
         mock_post.assert_called_once_with(
-            "http://oracle/command",
+            "http://oracle/api/conversation/command",
             json={"text": "turn on lights", "source": "test_satellite_alpha", "session_id": "test_satellite_alpha-session-1"},
             timeout=120,
         )
 
-    def test_silent_audiobook_stop_requires_executed_stop_dispatch(self) -> None:
+    def test_deferred_resume_posts_opaque_continuation(self) -> None:
         fake_response = Mock()
-        fake_response.json.return_value = {
-            "dispatch": {"status": "executed", "result": {"action": "stop"}},
-        }
+        fake_response.json.return_value = {"ok": True}
         with patch("pi_runtime.oracle_client.requests.post", return_value=fake_response, create=True) as mock_post:
-            result = oracle_client.send_silent_audiobook_stop(
+            result = oracle_client.resume_deferred_playback(
                 "http://oracle",
                 "test_satellite_desktop",
-                "sleep-1",
+                "opaque-token",
                 credential="brain-token",
             )
 
-        self.assertEqual(result["dispatch"]["result"]["action"], "stop")
+        self.assertEqual(result, {"ok": True})
         fake_response.raise_for_status.assert_called_once_with()
         mock_post.assert_called_once_with(
-            "http://oracle/command",
+            "http://oracle/api/satellite/deferred-resume",
             json={
-                "text": "stop audiobook",
                 "source": "test_satellite_desktop",
-                "session_id": "test_satellite_desktop-sleep-timer-sleep-1",
+                "continuation_token": "opaque-token",
             },
             timeout=120,
             headers={"Authorization": "Bearer brain-token"},
         )
-
-    def test_silent_audiobook_stop_rejects_failed_dispatch(self) -> None:
-        fake_response = Mock()
-        fake_response.json.return_value = {
-            "dispatch": {"status": "failed", "result": {"action": "stop"}},
-        }
-        with patch("pi_runtime.oracle_client.requests.post", return_value=fake_response, create=True):
-            with self.assertRaises(oracle_client.requests.RequestException):
-                oracle_client.send_silent_audiobook_stop(
-                    "http://oracle",
-                    "test_satellite_desktop",
-                    "sleep-2",
-                )
 
     def test_submit_wake_claim_posts_metadata_and_correlation_header(self) -> None:
         fake_response = Mock()
@@ -342,11 +334,13 @@ class SatelliteCorrelationPropagationTests(unittest.TestCase):
         event_response = Mock()
         event_response.json.return_value = {"events": [{"event_id": 7}]}
         with patch(
-            "pi_runtime.oracle_client.requests.get",
-            side_effect=[alert_response, event_response],
+            "pi_runtime.oracle_client.requests.post",
+            return_value=alert_response,
             create=True,
+        ) as mock_post, patch(
+            "pi_runtime.oracle_client.requests.get", return_value=event_response, create=True,
         ) as mock_get:
-            alerts = oracle_client.fetch_pending_alerts(
+            alerts = oracle_client.claim_due_alerts(
                 "http://oracle",
                 "test_satellite_alpha",
                 credential="brain-token",
@@ -363,18 +357,18 @@ class SatelliteCorrelationPropagationTests(unittest.TestCase):
         self.assertEqual(alerts, [{"alert_id": "timer-1"}])
         self.assertEqual(events, [{"event_id": 7}])
         self.assertEqual(
-            mock_get.call_args_list[0],
+            mock_post.call_args,
             call(
-                "http://oracle/alerts/pending",
-                params={"source": "test_satellite_alpha"},
+                "http://oracle/api/satellite/alerts/claim",
+                json={"source_id": "test_satellite_alpha", "lease_seconds": 60, "limit": 16},
                 timeout=30,
                 headers={"Authorization": "Bearer brain-token"},
             ),
         )
         self.assertEqual(
-            mock_get.call_args_list[1],
+            mock_get.call_args,
             call(
-                "http://oracle/api/voice/command-events",
+                "http://oracle/api/conversation/command-events",
                 params={
                     "source": "test_satellite_alpha",
                     "session_id": "session-1",
@@ -400,7 +394,7 @@ class SatelliteCorrelationPropagationTests(unittest.TestCase):
 
         self.assertEqual(payload, b"tts-wav")
         mock_post.assert_called_once_with(
-            "http://oracle/tts",
+            "http://oracle/api/speech/tts",
             json={"text": "hello"},
             timeout=120,
             headers={"Authorization": "Bearer brain-token"},

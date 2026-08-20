@@ -4,24 +4,19 @@ from typing import Any, Dict
 
 
 def extract_spoken_reply(payload: Dict[str, Any]) -> str:
-    reply_text = str(payload.get("reply_text", "")).strip()
-    if reply_text:
+    status = str(payload.get("status") or "").strip()
+    if status not in {
+        "executed", "pending_confirmation", "pending_clarification", "failed", "ignored"
+    }:
+        raise RuntimeError("Oracle returned an unknown conversation status")
+    effects = payload.get("effects")
+    if not isinstance(effects, dict) or set(effects) != {
+        "follow_up", "satellite_playback", "deferred_satellite_playback", "ui_presentation"
+    }:
+        raise RuntimeError("Oracle returned an invalid conversation effects contract")
+    reply_text = str(payload.get("reply_text") or "").strip()
+    if status == "ignored":
         return reply_text
-
-    dispatch = payload.get("dispatch", {})
-    status = dispatch.get("status")
-    result = dispatch.get("result") or {}
-
-    if status == "pending_confirmation":
-        return str(result.get("prompt", "Please confirm before I proceed.")).strip()
-
-    if status == "pending_clarification":
-        return str(result.get("prompt", "I found multiple matches. Which one did you want?")).strip()
-
-    if dispatch.get("target") == "system" and result.get("action") == "ignore":
-        return ""
-
-    if status == "failed":
-        return "I couldn't complete that request."
-
-    return "Done."
+    if not reply_text:
+        raise RuntimeError("Oracle returned a conversation result without reply text")
+    return reply_text

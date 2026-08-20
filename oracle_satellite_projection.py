@@ -25,7 +25,7 @@ _SELECTION_OPERATION_ID = re.compile(r"^selection_op_[0-9a-f]{32}$")
 _ACTIVATION_ID = re.compile(r"^sat_activation_[0-9a-f]{32}$")
 _PROJECTION_GENERATION_ID = re.compile(r"^sat_projection_[0-9a-f]{32}$")
 _SECRET_GENERATION_ID = re.compile(r"^sat_secret_[0-9a-f]{32}$")
-_CONFIG_REVISION = re.compile(r"^oracle-config-v1:sha256:[0-9a-f]{64}$")
+_CONFIG_REVISION = re.compile(r"^oracle-config-v2:sha256:[0-9a-f]{64}$")
 _PROJECTION_REVISION = re.compile(r"^oracle-projection-v1:sha256:[0-9a-f]{64}$")
 _LOGICAL_SECRET_ID = re.compile(r"^[A-Z][A-Z0-9_]*$")
 

@@ -43,6 +43,7 @@ from installation_staging import (
     validate_python_environment,
 )
 from oracle_app.installation_identity import environment_directory_name
+from oracle_app.installation_profiles import require_single_profile
 
 
 OUTPUT_FORMAT = "oracle-admin-output-v1"
@@ -67,6 +68,12 @@ def inspect_candidate(*args: object, **kwargs: object):
 
 def snapshot_candidate(*args: object, **kwargs: object):
     from oracle_app.configuration import snapshot_candidate as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def parse_secret_companion(*args: object, **kwargs: object):
+    from oracle_app.configuration import parse_secret_companion as implementation
 
     return implementation(*args, **kwargs)
 
@@ -946,11 +953,13 @@ def build_staging_preflight(
             }
         )
     requested_profiles = artifacts["pair"].get("installation_profiles", []) if artifacts["pair"] else []
-    if requested_profiles != ["minimal-brain"]:
+    try:
+        require_single_profile(requested_profiles)
+    except ValueError as exc:
         blockers.append(
             {
                 "code": "unsupported_staging_profile_set",
-                "detail": "this bounded staging operation requires exactly the minimal-brain profile",
+                "detail": str(exc),
             }
         )
     plan_basis = {
@@ -986,7 +995,7 @@ def build_staging_preflight(
             f"explicitly enroll {operator_account} in oracle-admin",
             "create or reconcile the protected Oracle lifecycle layout",
             "stage exact immutable application and household deployment revisions",
-            "construct or reuse the exact immutable minimal-brain Python environment",
+            "construct or reuse the exact immutable selected-profile Python environment",
             "record redacted staging evidence",
         ],
         "excluded": ["systemd installation", "activation creation", "service start", "selection change"],
@@ -1138,11 +1147,17 @@ def execute_staging(
             owner_uid=0,
             read_gid=operator_gid,
         )
+        profile_values = (
+            locked_preflight.get("artifacts", {}).get("pair", {}).get("installation_profiles")
+            or locked_preflight.get("plan", {}).get("target", {}).get("installation_profiles")
+            or ["minimal-brain"]
+        )
+        profile = require_single_profile(profile_values)
         environment = build_python_environment(
             Path(components["application_path"]),
             root / "environments",
             Path(locked_preflight["platform"]["python"]["executable"]),
-            profile="minimal-brain",
+            profile=profile.profile_id,
             owner_uid=0,
             read_gid=operator_gid,
         )
@@ -1174,8 +1189,9 @@ def build_initial_assembly_plan(
     *,
     root: Path = STANDARD_ROOT,
     update: bool = False,
+    secret_companion: Path | None = None,
 ) -> dict[str, object]:
-    """Inspect one already-staged minimal installation without changing it."""
+    """Inspect one already-staged standard installation without changing it."""
 
     artifacts = artifact_preflight(core_archive, household_archive)
     blockers: list[dict[str, str]] = []
@@ -1223,9 +1239,19 @@ def build_initial_assembly_plan(
                 blockers.append({"code": "staged_deployment_drift", "detail": str(deployment)})
         if application.is_dir() and environment.is_dir() and not application.is_symlink() and not environment.is_symlink():
             try:
-                validate_python_environment(application, environment)
+                profile = require_single_profile(pair.get("installation_profiles", []))
+                validate_python_environment(application, environment, profile=profile.profile_id)
             except (InstallationStagingError, OSError, subprocess.SubprocessError) as exc:
                 blockers.append({"code": "staged_environment_invalid", "detail": str(exc)})
+        secret_snapshot = None
+        secret_identity = None
+        if secret_companion is not None:
+            try:
+                secret_bytes = secret_companion.read_bytes()
+                secret_snapshot = parse_secret_companion(secret_bytes)
+                secret_identity = "oracle-secret-companion-v1:sha256:" + hashlib.sha256(secret_bytes).hexdigest()
+            except (OSError, ValueError) as exc:
+                blockers.append({"code": "initial_secret_material_invalid", "detail": str(exc)})
         if configuration_root != "configuration":
             blockers.append({"code": "unsupported_configuration_root", "detail": str(configuration_root)})
         elif deployment.is_dir() and not deployment.is_symlink():
@@ -1244,7 +1270,11 @@ def build_initial_assembly_plan(
                     )
                 else:
                     selected_configuration = None
-                    inspection = inspect_candidate(candidate)
+                    inspection = (
+                        inspect_candidate(candidate)
+                        if secret_snapshot is None
+                        else inspect_candidate(candidate, secret_snapshot=secret_snapshot)
+                    )
                 actual_authored = snapshot_candidate(candidate).authored_revision
             except (OSError, ValueError) as exc:
                 blockers.append({"code": "staged_configuration_invalid", "detail": str(exc)})
@@ -1265,8 +1295,12 @@ def build_initial_assembly_plan(
                             "detail": "use the canonical configuration transaction lifecycle before application update",
                         }
                     )
-        if pair.get("logical_secret_requirements") != []:
-            blockers.append({"code": "initial_secret_material_required", "detail": "minimal assembly supports the empty secret companion"})
+        declared_secrets = pair.get("logical_secret_requirements")
+        if declared_secrets and secret_snapshot is None:
+            blockers.append({"code": "initial_secret_material_required", "detail": "the selected profile requires a separately supplied secret companion"})
+        if not declared_secrets and secret_companion is not None:
+            blockers.append({"code": "unexpected_initial_secret_material", "detail": "this household declares no logical secret requirements"})
+        target["secret_companion_identity"] = secret_identity
         if update:
             layout = InstallationLayout(root)
             try:
@@ -1300,7 +1334,7 @@ def build_initial_assembly_plan(
             ]
             if update
             else [
-                "create the initial canonical configuration and empty secret generations",
+                "create the initial canonical configuration and separately supplied secret generation",
                 "arm canonical-only runtime startup",
                 "publish one immutable complete installation activation",
                 "select that complete activation as staged",
@@ -1329,6 +1363,7 @@ def execute_initial_assembly(
     root: Path = STANDARD_ROOT,
     lock_path: Path = MAINTENANCE_LOCK,
     update: bool = False,
+    secret_companion: Path | None = None,
 ) -> dict[str, object]:
     if os.geteuid() != 0:
         raise RuntimeError("initial assembly requires an explicitly elevated oracle-admin invocation")
@@ -1338,6 +1373,7 @@ def execute_initial_assembly(
         environment_identity,
         root=root,
         update=update,
+        secret_companion=secret_companion,
     )
     if preflight["status"] != "ready" or preflight["plan"]["identity"] != approved_plan:
         raise RuntimeError("initial assembly plan is blocked, stale, or unapproved")
@@ -1348,10 +1384,13 @@ def execute_initial_assembly(
             environment_identity,
             root=root,
             update=update,
+            secret_companion=secret_companion,
         )
         if locked["status"] != "ready" or locked["plan"]["identity"] != approved_plan:
             raise RuntimeError("initial assembly assumptions changed before the operation lock was acquired")
         target = locked["plan"]["target"]
+        secret_snapshot = None if secret_companion is None else parse_secret_companion(secret_companion.read_bytes())
+        profile = require_single_profile(target["installation_profiles"])
         with _service_authority():
             assembly = assemble_update_activation if update else assemble_initial_activation
             complete = assembly(
@@ -1363,6 +1402,8 @@ def execute_initial_assembly(
                     python_environment_identity=target["python_environment_identity"],
                     household_deployment_revision=target["household_deployment_revision"],
                     configuration_root=target["configuration_root"],
+                    service_definition_path=profile.service_definition.as_posix(),
+                    initial_secret_snapshot=secret_snapshot,
                 ),
             )
         result = {
@@ -1616,7 +1657,7 @@ def verify_initial_runtime(
             health = _http_json(base_url + "/health")
             if health.get("status") != "ok" or health.get("service") != "oracle-brain":
                 raise RuntimeError("Oracle health is not ok")
-            config = _http_json(base_url + "/health/config")
+            config = _http_json(base_url + "/api/admin/health/config")
             applied = config.get("configuration")
             generation = applied.get("applied_generation") if isinstance(applied, dict) else None
             if (
@@ -1628,19 +1669,21 @@ def verify_initial_runtime(
             ):
                 raise RuntimeError("Oracle configuration readiness or identity is incorrect")
             command = _http_json(
-                base_url + "/command",
+                base_url + "/api/conversation/command",
                 payload={"text": "what time is it", "source": "stage4-install-verifier", "session_id": "stage4-install-verifier"},
             )
-            route = command.get("route")
-            dispatch = command.get("dispatch")
-            result = dispatch.get("result") if isinstance(dispatch, dict) else None
             if (
-                not isinstance(route, dict)
-                or route.get("target") != "system"
-                or not isinstance(dispatch, dict)
-                or dispatch.get("status") != "executed"
-                or not isinstance(result, dict)
-                or result.get("action") != "current_time"
+                set(command) != {
+                    "reply_text", "session_id", "source_id", "status",
+                    "failure_code", "trace_id", "effects",
+                }
+                or command.get("status") != "executed"
+                or command.get("source_id") != "stage4-install-verifier"
+                or command.get("session_id") != "stage4-install-verifier"
+                or command.get("failure_code") is not None
+                or not isinstance(command.get("trace_id"), str)
+                or not command["trace_id"].strip()
+                or not isinstance(command.get("effects"), dict)
                 or not isinstance(command.get("reply_text"), str)
                 or not command["reply_text"].strip()
             ):
@@ -2129,7 +2172,7 @@ def build_managed_status(*, root: Path = STANDARD_ROOT) -> dict[str, object]:
     runtime: dict[str, object] = {}
     for label, url in (
         ("health", "http://127.0.0.1:8011/health"),
-        ("configuration_health", "http://127.0.0.1:8011/health/config"),
+        ("configuration_health", "http://127.0.0.1:8011/api/admin/health/config"),
     ):
         try:
             response = _http_json(url)
@@ -2369,11 +2412,13 @@ def parser() -> argparse.ArgumentParser:
     assemble_plan.add_argument("--core-artifact", type=Path, required=True)
     assemble_plan.add_argument("--household-artifact", type=Path, required=True)
     assemble_plan.add_argument("--environment-identity", required=True)
+    assemble_plan.add_argument("--secret-companion", type=Path)
     assemble = commands.add_parser("assemble", help="Create one initial complete activation and select it as staged")
     assemble.add_argument("--core-artifact", type=Path, required=True)
     assemble.add_argument("--household-artifact", type=Path, required=True)
     assemble.add_argument("--environment-identity", required=True)
     assemble.add_argument("--approved-plan", required=True)
+    assemble.add_argument("--secret-companion", type=Path)
     update_assemble_plan = commands.add_parser(
         "update-assemble-plan",
         help="Plan one complete no-configuration-change update activation",
@@ -2546,7 +2591,10 @@ def main(argv: list[str] | None = None) -> int:
                 )
             elif args.command == "assemble-plan":
                 result = build_initial_assembly_plan(
-                    args.core_artifact, args.household_artifact, args.environment_identity
+                    args.core_artifact,
+                    args.household_artifact,
+                    args.environment_identity,
+                    secret_companion=args.secret_companion,
                 )
             elif args.command == "assemble":
                 result = execute_initial_assembly(
@@ -2554,6 +2602,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.household_artifact,
                     args.environment_identity,
                     args.approved_plan,
+                    secret_companion=args.secret_companion,
                 )
             elif args.command == "update-assemble-plan":
                 result = build_update_assembly_plan(

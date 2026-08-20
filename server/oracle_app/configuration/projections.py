@@ -235,7 +235,7 @@ def generate_satellite_projection(
     runtime_compatibility: SatelliteRuntimeCompatibility,
     secrets: SecretSnapshot,
 ) -> GeneratedSatelliteProjection:
-    if re.fullmatch(r"oracle-config-v1:sha256:[0-9a-f]{64}", source_config_revision) is None:
+    if re.fullmatch(r"oracle-config-v2:sha256:[0-9a-f]{64}", source_config_revision) is None:
         raise ProjectionGenerationError("Projection source configuration revision is invalid.")
     satellite = next((item for item in bundle.satellites.satellites if item.id == satellite_id), None)
     if satellite is None or not satellite.enabled:

@@ -9,7 +9,7 @@ from .schema import ensure_schema
 from .store import DB_PATH, transaction
 
 
-VALID_SOURCE_TYPES = {"brain", "system", "api", "ui", "voice", "satellite", "provider", "background"}
+VALID_SOURCE_TYPES = {"brain", "system", "api", "ui", "satellite", "provider", "background"}
 
 INTERNAL_SOURCE_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {
@@ -34,12 +34,6 @@ INTERNAL_SOURCE_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "source_id": "ui",
         "source_type": "ui",
         "display_name": "UI",
-        "payload": {"internal": True},
-    },
-    {
-        "source_id": "voice",
-        "source_type": "voice",
-        "display_name": "Voice",
         "payload": {"internal": True},
     },
     {
@@ -143,6 +137,8 @@ def upsert_source(
 ) -> dict[str, Any]:
     if source_type not in VALID_SOURCE_TYPES:
         raise ValueError(f"Unknown Oracle Memory source type: {source_type!r}")
+    if status not in {"active", "disabled", "retired"}:
+        raise ValueError(f"Unknown Oracle Memory source status: {status!r}")
     path = db_path or DB_PATH
     ensure_schema(path, copy_provisional_suggestions=False)
     now = utc_now_iso()

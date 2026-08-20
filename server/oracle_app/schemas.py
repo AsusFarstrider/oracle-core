@@ -75,6 +75,10 @@ class CommandRequest(BaseModel):
         default=None,
         description="Optional media playback destination; never request-source proof",
     )
+    alert_delivery_target_source_id: str | None = Field(
+        default=None,
+        description="Optional managed alert destination; never request-source or authentication proof",
+    )
 
 
 class SatelliteActivityRequest(BaseModel):
@@ -201,6 +205,7 @@ class UiOrchestrationApprovalRequest(BaseModel):
 class UiRoutineRunRequest(BaseModel):
     client_id: str = Field(..., min_length=1, description="Stable UI client identifier starting the routine")
     source: str | None = Field(default=None, description="Optional known Oracle source initiating the routine")
+    ui_session_id: str | None = Field(default=None, min_length=1, description="UI voice session used for a declared conversational input")
     inputs: dict[str, Any] = Field(default_factory=dict, description="Bounded declared routine input overrides")
 
 
@@ -216,9 +221,57 @@ class CommandResponse(BaseModel):
     effective_session_id: str | None = None
 
 
+class FollowUpEffect(BaseModel):
+    expected: bool = True
+    kind: Literal["confirmation", "clarification"]
+
+
+class SatellitePlaybackEffect(BaseModel):
+    disposition: Literal["started", "updated", "stopped", "unchanged", "failed"]
+    target_source_id: str | None = None
+
+
+class DeferredSatellitePlaybackEffect(BaseModel):
+    continuation_token: str = Field(..., min_length=1)
+
+
+class UiPresentationEffect(BaseModel):
+    kind: Literal["dto", "reference"]
+    reference: str | None = None
+    presentation: dict[str, Any] | None = None
+
+
+class ConversationEffects(BaseModel):
+    follow_up: FollowUpEffect | None = None
+    satellite_playback: SatellitePlaybackEffect | None = None
+    deferred_satellite_playback: DeferredSatellitePlaybackEffect | None = None
+    ui_presentation: UiPresentationEffect | None = None
+
+
+class ConversationResult(BaseModel):
+    reply_text: str
+    session_id: str
+    source_id: str
+    status: Literal[
+        "executed",
+        "pending_confirmation",
+        "pending_clarification",
+        "failed",
+        "ignored",
+    ]
+    failure_code: str | None = None
+    trace_id: str
+    effects: ConversationEffects = Field(default_factory=ConversationEffects)
+
+
 class VoiceDeferredResumeRequest(BaseModel):
     source: str = Field(..., min_length=1, description="Playback-capable satellite source id")
     deferred_session: dict[str, Any] = Field(..., description="Deferred playback session returned by a command")
+
+
+class DeferredSatelliteResumeRequest(BaseModel):
+    source: str = Field(..., min_length=1)
+    continuation_token: str = Field(..., min_length=1)
 
 
 class CommandInterimEvent(BaseModel):
@@ -413,3 +466,36 @@ class SttHealthResponse(BaseModel):
     configured: bool
     available: bool
     detail: str
+
+
+class SatelliteAlertClaimRequest(BaseModel):
+    source_id: str = Field(..., min_length=1)
+    lease_seconds: int = Field(default=30, ge=1, le=300)
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class SatelliteAlertLease(BaseModel):
+    alert_id: str
+    lease_id: str
+    lease_expires_at: str
+    kind: str
+    message: str
+    due_at: str
+    source_id: str
+    session_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SatelliteAlertClaimResponse(BaseModel):
+    alerts: list[SatelliteAlertLease]
+
+
+class SatelliteAlertAcknowledgeRequest(BaseModel):
+    source_id: str = Field(..., min_length=1)
+    lease_id: str = Field(..., min_length=1)
+    status: Literal["acknowledged", "completed"] = "acknowledged"
+
+
+class SatelliteAlertAcknowledgeResponse(BaseModel):
+    alert_id: str
+    status: Literal["acknowledged", "completed"]

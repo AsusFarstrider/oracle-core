@@ -157,7 +157,7 @@ class UiBrowserSurfaceTests(unittest.TestCase):
         self.assertIn("} else if (hasRoomEnvironment", content)
 
         index = (ROOT / "satellite_ui" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("app.js?v=26", index)
+        self.assertIn("app.js?v=27", index)
 
     def test_browser_surface_paths_remain_repo_local(self) -> None:
         api_text = (ROOT / "server" / "oracle_app" / "api.py").read_text(encoding="utf-8")

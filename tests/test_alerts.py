@@ -96,6 +96,30 @@ class AlertsTests(IsolatedAlertStoreTestCase):
         self.assertEqual(speech, "Timer set for 1 minute.")
         self.assertEqual(details["kind"], "timer")
 
+    def test_due_notification_precedes_later_queued_timer_sound(self) -> None:
+        now = datetime.now().astimezone()
+        notification = create_alert(
+            kind="notification",
+            due_at=now - timedelta(seconds=2),
+            message="Lights out in 5 minutes.",
+            source="child-room",
+            session_id="routine-1",
+        )
+        create_alert(
+            kind="timer",
+            due_at=now - timedelta(seconds=1),
+            message="Timer finished.",
+            source="child-room",
+            session_id="routine-1",
+        )
+
+        due = consume_due_alerts(
+            "child-room",
+            notification_decisions={notification.alert_id: "deliver"},
+        )
+
+        self.assertEqual([item["kind"] for item in due], ["notification", "timer"])
+
     def test_create_reminder_response(self) -> None:
         speech, details = build_alert_response(
             "remind me to check the oven in 10 minutes",
@@ -269,26 +293,19 @@ class AlertsTests(IsolatedAlertStoreTestCase):
         self.assertEqual(remaining[0]["source"], "source-b")
 
     def test_alerts_persist_across_disk_reload(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            state_path = Path(tmpdir) / "alerts-state.json"
-            with patch.object(alerts_module, "ALERTS_STATE_PATH", state_path):
-                clear_alerts()
-                create_alert(
-                    kind="timer",
-                    due_at=datetime.now().astimezone() + timedelta(minutes=5),
-                    message="Timer finished.",
-                    source="test-source",
-                    session_id="session-1",
-                    metadata={"duration_seconds": 300},
-                )
+        create_alert(
+            kind="timer",
+            due_at=datetime.now().astimezone() + timedelta(minutes=5),
+            message="Timer finished.",
+            source="test-source",
+            session_id="session-1",
+            metadata={"duration_seconds": 300},
+        )
 
-                alerts_module._ALERTS.clear()
-                alerts_module._load_alerts_from_disk()
-
-                alerts = list_alerts("test-source", "timer")
-                self.assertEqual(len(alerts), 1)
-                self.assertEqual(alerts[0].message, "Timer finished.")
-                self.assertEqual(alerts[0].metadata["duration_seconds"], 300)
+        alerts = list_alerts("test-source", "timer")
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0].message, "Timer finished.")
+        self.assertEqual(alerts[0].metadata["duration_seconds"], 300)
 
     def test_alarm_status_reports_current_alarm(self) -> None:
         due_at = datetime.now().astimezone() + timedelta(hours=1)

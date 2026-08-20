@@ -12,6 +12,7 @@ from oracle_app.music_runtime.control import (
     fetch_satellite_reply_audio_session,
 )
 from oracle_app.music_runtime.parsing import MusicIntent
+from oracle_app.music_runtime.plex_search import search_plex_catalog
 from oracle_app.provider_bridges.plex_music import (
     PlexMusicBridge,
     PlexMusicProviderConnection,
@@ -43,7 +44,7 @@ class CanonicalMusicExecution:
         )
 
     def search(self, intent: MusicIntent) -> list[dict[str, Any]]:
-        return self.bridge.search(intent)
+        return search_plex_catalog(self.bridge, intent)
 
     def build_native_queue_manifest(self, selection: dict[str, Any]) -> dict[str, Any] | None:
         return self.bridge.build_native_queue_manifest(selection)

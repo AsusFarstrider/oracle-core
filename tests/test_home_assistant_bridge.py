@@ -10,7 +10,12 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
 from oracle_app.conversation import get_home_assistant_conversation_id, set_home_assistant_conversation_id
-from oracle_app.provider_bridges.home_assistant import HomeAssistantBridge, _STATE_VERIFICATION_ATTEMPTS
+from oracle_app.home_assistant_policy import (
+    _STATE_VERIFICATION_ATTEMPTS,
+    detect_failed_success_targets,
+    fetch_entity_state_with_retry,
+)
+from oracle_app.provider_bridges.home_assistant import HomeAssistantBridge
 from oracle_app.session_state import clear_all_sessions
 
 
@@ -50,6 +55,11 @@ class HomeAssistantBridgeTests(unittest.TestCase):
             source="living_room_satellite",
             session_id="home-session-1",
         )
+        bridge.commit_conversation_id(
+            result.returned_conversation_id,
+            source="living_room_satellite",
+            session_id="home-session-1",
+        )
 
         self.assertEqual(result.payload["conversation_id"], "ha-new")
         self.assertIsNone(result.verification_failure)
@@ -72,21 +82,21 @@ class HomeAssistantBridgeTests(unittest.TestCase):
 
         with patch.object(
             bridge,
-            "fetch_entity_state_with_retry",
+            "fetch_entity_state",
             return_value={
                 "entity_id": "light.guest_room",
                 "state": "unavailable",
                 "attributes": {"friendly_name": "Guest Room"},
             },
         ):
-            failure = bridge.detect_failed_success_targets(payload, command_text="turn on guest room lights")
+            failure = detect_failed_success_targets(bridge, payload, command_text="turn on guest room lights")
 
         self.assertIsNotNone(failure)
         assert failure is not None
         self.assertEqual(failure["error"], "home_assistant_target_unavailable")
         self.assertEqual(failure["unavailable_targets"][0]["entity_id"], "light.guest_room")
 
-    @patch("oracle_app.provider_bridges.home_assistant.time.sleep", return_value=None)
+    @patch("oracle_app.home_assistant_policy.time.sleep", return_value=None)
     def test_fetch_entity_state_with_retry_allows_slow_successful_light_updates(self, _mock_sleep) -> None:
         bridge = HomeAssistantBridge(base_url="http://ha.local", token="token")
         states = [
@@ -96,7 +106,8 @@ class HomeAssistantBridgeTests(unittest.TestCase):
         ]
 
         with patch.object(bridge, "fetch_entity_state", side_effect=states) as mock_fetch:
-            state = bridge.fetch_entity_state_with_retry(
+            state = fetch_entity_state_with_retry(
+                bridge,
                 "light.bed",
                 expected_outcome={"kind": "state", "state": "off"},
             )
@@ -106,7 +117,7 @@ class HomeAssistantBridgeTests(unittest.TestCase):
         self.assertEqual(state["state"], "off")
         self.assertEqual(mock_fetch.call_count, 3)
 
-    @patch("oracle_app.provider_bridges.home_assistant.time.sleep", return_value=None)
+    @patch("oracle_app.home_assistant_policy.time.sleep", return_value=None)
     def test_fetch_entity_state_with_retry_still_fails_after_bounded_retries(self, _mock_sleep) -> None:
         bridge = HomeAssistantBridge(base_url="http://ha.local", token="token")
 
@@ -115,7 +126,8 @@ class HomeAssistantBridgeTests(unittest.TestCase):
             "fetch_entity_state",
             return_value={"entity_id": "light.bed", "state": "on", "attributes": {"friendly_name": "Bed Light"}},
         ) as mock_fetch:
-            state = bridge.fetch_entity_state_with_retry(
+            state = fetch_entity_state_with_retry(
+                bridge,
                 "light.bed",
                 expected_outcome={"kind": "state", "state": "off"},
             )

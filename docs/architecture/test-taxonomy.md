@@ -66,6 +66,9 @@ Primary coverage:
 ### State / Context Tests
 
 - `tests/test_state.py`
+- `tests/test_audiobook_state.py`
+- `tests/test_ui_calendar_drafts.py`
+- `tests/test_ui_snapshot_cache.py`
 - `tests/test_session_state.py`
 - `tests/test_conversation.py`
 - `tests/test_room_context.py`
@@ -81,10 +84,18 @@ Primary coverage:
 
 ### Satellite / Runtime / Control Tests
 
-- `tests/test_control_service.py`
+- `tests/test_control_service_request_state_cache_server.py`
+- `tests/test_control_service_interruption_authority.py`
+- `tests/test_control_service_longform_local_playback.py`
+- `tests/test_control_service_plexamp_queue_transport.py`
+- `tests/test_control_service_volume.py`
 - `tests/test_control_service_logging.py`
 - `tests/test_satellite_cli.py`
-- `tests/test_satellite_playback_resume.py`
+- `tests/test_satellite_foreground_handoff.py`
+- `tests/test_satellite_capture_request_pipeline.py`
+- `tests/test_satellite_reply_followup_runtime.py`
+- `tests/test_satellite_runtime_config_audio_capture.py`
+- `tests/test_satellite_resume_duck_policy.py`
 - `tests/test_satellite_reply_fallback.py`
 - `tests/test_longform_player.py`
 - `tests/test_wake_capture.py`
@@ -118,8 +129,8 @@ Primary coverage:
 - `tests/test_api_command.py`
 - `tests/test_smoke_flows.py`
 - `tests/test_phase_a_failures.py`
-- `tests/test_phase_c_utterance_bank.py`
-- `tests/test_phase_c_utterance_execution.py`
+- `tests/test_utterance_ledger_schema.py`
+- `tests/test_utterance_ledger_execution.py`
 
 Primary coverage:
 

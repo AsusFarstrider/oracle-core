@@ -220,7 +220,7 @@ class SatelliteProjectionLocalStoreTests(unittest.TestCase):
                 "selection": {"operation_id": operation_id, "revision": revision},
                 "activation": {
                     "activation_id": "sat_activation_" + "a" * 32,
-                    "source_config_revision": "oracle-config-v1:sha256:" + "c" * 64,
+                    "source_config_revision": "oracle-config-v2:sha256:" + "c" * 64,
                 },
                 "projection": {
                     "generation_id": "sat_projection_" + "b" * 32,

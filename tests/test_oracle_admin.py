@@ -219,7 +219,7 @@ class OracleAdminPreflightTests(unittest.TestCase):
         package.mkdir(parents=True)
         for name in ("core_artifact.py", "installation_staging.py", "oracle-admin.py"):
             shutil.copy2(ROOT / "scripts" / name, scripts / name)
-        for name in ("__init__.py", "installation_identity.py"):
+        for name in ("__init__.py", "installation_identity.py", "installation_profiles.py"):
             shutil.copy2(ROOT / "server" / "oracle_app" / name, package / name)
         environment = dict(os.environ)
         environment.pop("PYTHONDONTWRITEBYTECODE", None)
@@ -467,7 +467,7 @@ print(json.dumps({"status": "ready"}))
         config_activation = "activation_" + "5" * 32
         responses = {
             "http://127.0.0.1:8011/health": {"status": "ok", "service": "oracle-brain"},
-            "http://127.0.0.1:8011/health/config": {
+            "http://127.0.0.1:8011/api/admin/health/config": {
                 "ok": True,
                 "configuration": {
                     "mode": "canonical",
@@ -476,9 +476,13 @@ print(json.dumps({"status": "ready"}))
             },
         }
         command = {
-            "route": {"target": "system"},
-            "dispatch": {"status": "executed", "result": {"action": "current_time"}},
             "reply_text": "It is 3 PM.",
+            "source_id": "stage4-install-verifier",
+            "session_id": "stage4-install-verifier",
+            "status": "executed",
+            "failure_code": None,
+            "trace_id": "trace-installation-verification",
+            "effects": {},
         }
         with (
             mock.patch.object(oracle_admin, "_systemctl_property", return_value="active"),

@@ -90,7 +90,7 @@ class EffectiveConfigurationTests(unittest.TestCase):
         path.write_bytes(payload)
         metadata_path = path.parent / "metadata.json"
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        metadata["config_revision"] = f"oracle-config-v1:sha256:{hashlib.sha256(payload).hexdigest()}"
+        metadata["config_revision"] = f"oracle-config-v2:sha256:{hashlib.sha256(payload).hexdigest()}"
         metadata_path.write_text(json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
 
 

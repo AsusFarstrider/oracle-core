@@ -9,6 +9,7 @@ immutable native Python environment from the matching complete hash lock.
 | --- | --- | --- | --- | --- |
 | `minimal-brain` | `server/requirements.txt` | `server/requirements.lock` | CPython 3.13 on the Stage 4 Debian tuple | Provider-free Brain production runtime |
 | `fast-whisper` | `server/requirements-fast-whisper.txt` | `server/requirements-fast-whisper.lock` | CPython 3.13 on the Stage 4 Debian tuple | Additive Fast-Whisper STT implementation |
+| `full-production-brain` | `server/requirements-full-production.txt` | `server/requirements-full-production.lock` | CPython 3.13 on the Stage 4 Debian tuple | Fixed Fast-Whisper plus Piper environment used by the full production Brain lifecycle |
 | `wake-satellite` | `satellite/requirements.txt` | `satellite/requirements.lock` | CPython 3.11 on Linux | Retained wake/audio satellite runtime; TensorFlow Lite currently prevents Python 3.13 resolution |
 | `clean-core-test` | `server/requirements.txt` plus `requirements-dev.txt` | `requirements-test.lock` | CPython 3.13 on the CI baseline | Required test tooling; never installed into production environments |
 

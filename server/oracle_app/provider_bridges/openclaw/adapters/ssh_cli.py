@@ -8,7 +8,7 @@ import textwrap
 from typing import Any
 
 from oracle_app.suggestions.redaction import redact_secrets
-from oracle_app.provider_bridges.ssh_transport import SshHostVerificationError, strict_ssh_options
+from oracle_app.network_runtime.platform_transport import SshHostVerificationError, strict_ssh_options
 
 from ..schemas import OpenClawBridgeOptions, OpenClawBridgeResult
 from .http import _normalize_item

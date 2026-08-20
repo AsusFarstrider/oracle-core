@@ -42,6 +42,7 @@ from oracle_app.suggestions.redaction import redact_secrets
 from oracle_app.suggestions.service import generate_suggestion_run, review_suggestion_item
 from oracle_app.suggestions.storage import (
     create_run,
+    get_current_exchange,
     insert_suggestions,
     list_suggestions,
     review_history,
@@ -241,8 +242,6 @@ class SuggestionDomainTests(unittest.TestCase):
         self.assertEqual(options.max_suggestions, 7)
 
     def test_canonical_admin_status_and_generation_do_not_read_legacy_settings(self) -> None:
-        packet_path = Path(self.tmpdir.name) / "canonical_packet.json"
-        response_path = Path(self.tmpdir.name) / "canonical_response.json"
         execution = Mock(enabled=True)
         execution.status.return_value = {
             "ok": True,
@@ -276,10 +275,6 @@ class SuggestionDomainTests(unittest.TestCase):
         request = Request({"type": "http", "app": application})
 
         with (
-            patch("oracle_app.suggestions.storage.LAST_PACKET_PATH", packet_path),
-            patch("oracle_app.suggestions.storage.LAST_RESPONSE_PATH", response_path),
-            patch("oracle_app.suggestions.service.LAST_PACKET_PATH", packet_path),
-            patch("oracle_app.suggestions.service.LAST_RESPONSE_PATH", response_path),
             patch("oracle_app.suggestions.service.build_packet", return_value=({"run_id": "run"}, {"oracle": {"ok": True}})) as packet,
             patch("oracle_app.suggestions.service.get_openclaw_settings") as legacy,
         ):
@@ -355,13 +350,7 @@ class SuggestionDomainTests(unittest.TestCase):
         self.assertIn("END_ORACLE_DIAGNOSTIC_PACKET", request["prompt"])
 
     def test_generate_saves_packet_and_failed_openclaw_response(self) -> None:
-        packet_path = Path(self.tmpdir.name) / "last_packet.json"
-        response_path = Path(self.tmpdir.name) / "last_response.json"
         with (
-            patch("oracle_app.suggestions.storage.LAST_PACKET_PATH", packet_path),
-            patch("oracle_app.suggestions.storage.LAST_RESPONSE_PATH", response_path),
-            patch("oracle_app.suggestions.service.LAST_PACKET_PATH", packet_path),
-            patch("oracle_app.suggestions.service.LAST_RESPONSE_PATH", response_path),
             patch("oracle_app.suggestions.service.build_packet", return_value=({"run_id": "run", "token": "[REDACTED]"}, {"oracle": {"ok": True}})),
             patch(
                 "oracle_app.suggestions.service.get_openclaw_settings",
@@ -385,19 +374,12 @@ class SuggestionDomainTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["run"]["status"], "failed")
         self.assertEqual(list_suggestions(), [])
-        self.assertTrue(packet_path.exists())
-        self.assertTrue(response_path.exists())
-        response = json.loads(response_path.read_text(encoding="utf-8"))
-        self.assertEqual(response["adapter"], "http")
+        exchange = get_current_exchange()
+        self.assertEqual(exchange["packet"]["token"], "[REDACTED]")
+        self.assertEqual(exchange["response"]["adapter"], "http")
 
     def test_generate_queues_background_run_without_waiting_for_openclaw(self) -> None:
-        packet_path = Path(self.tmpdir.name) / "last_packet.json"
-        response_path = Path(self.tmpdir.name) / "last_response.json"
         with (
-            patch("oracle_app.suggestions.storage.LAST_PACKET_PATH", packet_path),
-            patch("oracle_app.suggestions.storage.LAST_RESPONSE_PATH", response_path),
-            patch("oracle_app.suggestions.service.LAST_PACKET_PATH", packet_path),
-            patch("oracle_app.suggestions.service.LAST_RESPONSE_PATH", response_path),
             patch("oracle_app.suggestions.service.build_packet", return_value=({"run_id": "run"}, {"oracle": {"ok": True}})),
             patch(
                 "oracle_app.suggestions.service.get_openclaw_settings",

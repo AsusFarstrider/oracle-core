@@ -20,11 +20,16 @@ storage:
       critical_event_days: 730
       provider_status_event_days: 180
       lifecycle_event_days: 365
-      snapshot_hourly_days: 14
-      snapshot_daily_days: 90
-      cache_history_days: 30
-      rollup_days: 365
-      evidence_ref_days: 90
+      session_metadata_days: 90
+      orchestration_history_days: 365
+      alert_terminal_days: 90
+      notification_accepted_days: 90
+      notification_suppressed_days: 90
+      notification_failed_days: 365
+      suggestion_raw_evidence_days: 90
+      suggestion_exchange_days: 30
+      suggestion_envelope_days: 365
+      suggestion_mock_days: 30
   alerts:
     backend: json_file
     state_path: data/alerts-state.json

@@ -13,7 +13,7 @@ from .store import DB_PATH, transaction
 
 logger = logging.getLogger("oracle-brain.memory.sessions")
 
-VALID_SESSION_MODES = {"voice", "ui", "api", "system", "background"}
+VALID_SESSION_MODES = {"conversation", "ui", "api", "system", "background"}
 
 
 @dataclass(frozen=True)

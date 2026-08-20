@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -47,6 +48,7 @@ class CanonicalNetworkExecution:
     policy: NetworkPolicyRuntimeSettings
     music: Any | None = None
     _cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+    _cache_lock: Any = field(default_factory=threading.RLock, init=False, repr=False)
 
     def internet_health(self) -> NetworkProbeObservation:
         adapter_id = self.inventory.internet_health_probe_adapter_id
@@ -188,18 +190,19 @@ class CanonicalNetworkExecution:
         return diagnostics(self, verification)
 
     def status_snapshot(self, *, force_refresh: bool = False) -> dict[str, Any]:
-        now = time.monotonic()
-        cached = self._cache.get("snapshot")
-        stored = float(self._cache.get("stored_monotonic") or 0.0)
-        if not force_refresh and isinstance(cached, dict) and stored and now - stored <= _CACHE_TTL_SECONDS:
-            return _with_cache(cached, self._cache.get("cached_at", ""), now - stored, True)
-        snapshot = self._build_status_snapshot(
-            probe=self.internet_health(),
-            monitoring=self.monitoring(),
-        )
-        cached_at = datetime.now().astimezone().isoformat()
-        self._cache.update(snapshot=copy.deepcopy(snapshot), stored_monotonic=now, cached_at=cached_at)
-        return _with_cache(snapshot, cached_at, 0.0, False)
+        with self._cache_lock:
+            now = time.monotonic()
+            cached = self._cache.get("snapshot")
+            stored = float(self._cache.get("stored_monotonic") or 0.0)
+            if not force_refresh and isinstance(cached, dict) and stored and now - stored <= _CACHE_TTL_SECONDS:
+                return _with_cache(cached, self._cache.get("cached_at", ""), now - stored, True)
+            snapshot = self._build_status_snapshot(
+                probe=self.internet_health(),
+                monitoring=self.monitoring(),
+            )
+            cached_at = datetime.now().astimezone().isoformat()
+            self._cache.update(snapshot=copy.deepcopy(snapshot), stored_monotonic=now, cached_at=cached_at)
+            return _with_cache(snapshot, cached_at, 0.0, False)
 
     def _build_status_snapshot(
         self,

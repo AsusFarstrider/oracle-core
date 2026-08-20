@@ -38,7 +38,8 @@ class MediaRoutesTests(unittest.TestCase):
         routes = {(method, route.path) for route in app.routes for method in (getattr(route, "methods", set()) or set())}
         self.assertIn(("GET", "/api/ui/audio/art/audiobook/{library_item_id}"), routes)
         self.assertIn(("GET", "/api/ui/audio/art/music"), routes)
-        self.assertIn(("GET", "/audiobooks/stream/{playback_id}/{track_index}"), routes)
+        self.assertIn(("GET", "/api/satellite/media/audiobooks/{playback_id}/tracks/{track_index}"), routes)
+        self.assertNotIn(("GET", "/audiobooks/stream/{playback_id}/{track_index}"), routes)
 
     @patch("oracle_app.media_routes.fetch_audiobook_cover")
     def test_audiobook_art_returns_upstream_content_type(self, mock_fetch_cover) -> None:

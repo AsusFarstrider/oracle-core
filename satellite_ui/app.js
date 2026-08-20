@@ -82,7 +82,7 @@ initialize().catch((error) => {
 
 async function initialize() {
   bindPushToTalk();
-  state.config = await apiGet(`/api/satellites/config${buildSatelliteQuery()}`);
+  state.config = await apiGet(`/api/satellite/config${buildSatelliteQuery()}`);
   state.satelliteId = String(state.config.satellite_id || "");
   state.sourceId = String(state.config.source_id || state.satelliteId);
   state.clientId = `satellite-ui-${state.satelliteId.replaceAll("_", "-")}`;
@@ -472,7 +472,7 @@ async function stopListening() {
     const formData = new FormData();
     formData.append("source", state.sourceId);
     formData.append("audio", blob, "satellite-ui.wav");
-    const sttPayload = await apiForm("/api/voice/stt", formData);
+    const sttPayload = await apiForm("/api/speech/stt", formData);
     const transcript = String(sttPayload.text || "").trim();
     state.voice.debug.lastTranscript = transcript;
     noteVoiceEvent("stt_complete", { transcript });
@@ -514,7 +514,7 @@ async function stopListening() {
 async function postCommandWithInterimEvents(payload) {
   let completed = false;
   let ackPlayed = false;
-  const commandPromise = apiPost("/api/voice/command", payload).finally(() => {
+  const commandPromise = apiPost("/api/conversation/command", payload).finally(() => {
     completed = true;
   });
 
@@ -528,7 +528,7 @@ async function postCommandWithInterimEvents(payload) {
       });
       let payload;
       try {
-        payload = await apiGet(`/api/voice/command-events?${params.toString()}`);
+        payload = await apiGet(`/api/conversation/command-events?${params.toString()}`);
       } catch (error) {
         noteVoiceEvent("interim_event_poll_failed", {
           message: error instanceof Error ? error.message : String(error),
@@ -559,7 +559,8 @@ function delay(milliseconds) {
 }
 
 function applyUiContextResult(commandResponse) {
-  const result = commandResponse?.dispatch?.result;
+  const presentation = commandResponse?.effects?.ui_presentation;
+  const result = presentation?.kind === "dto" ? presentation.presentation : null;
   const action = String(result?.action || result?.ui_context_action || "").trim();
   const search = result?.search;
   if (!search || !["music_search", "audiobook_search"].includes(action)) {
@@ -579,30 +580,18 @@ function applyUiContextResult(commandResponse) {
 }
 
 function extractDeferredResume(commandResponse) {
-  const result = commandResponse?.dispatch?.result;
-  if (!result || result.deferred_audible_start !== true || !result.deferred_session) {
+  const token = String(commandResponse?.effects?.deferred_satellite_playback?.continuation_token || "").trim();
+  if (!token) {
     return null;
   }
-  const deferredSession = result.deferred_session;
-  const resumeAction = String(deferredSession.resume_action || "").trim();
-  if (!["resume_longform_audio", "play_media"].includes(resumeAction)) {
-    noteVoiceEvent("deferred_resume_skipped", { reason: "unsupported_action", resumeAction });
-    return null;
-  }
-  return deferredSession;
+  return token;
 }
 
-async function resumeDeferredPlayback(deferredSession) {
-  const resumeAction = String(deferredSession?.resume_action || "").trim();
-  noteVoiceEvent("deferred_resume_requested", {
-    kind: String(deferredSession?.kind || ""),
-    backendType: String(deferredSession?.backend_type || ""),
-    sessionId: String(deferredSession?.session_id || ""),
-    resumeAction,
-  });
-  const payload = await apiPost("/api/voice/deferred-resume", {
+async function resumeDeferredPlayback(continuationToken) {
+  noteVoiceEvent("deferred_resume_requested", {});
+  const payload = await apiPost("/api/satellite/deferred-resume", {
     source: state.sourceId,
-    deferred_session: deferredSession,
+    continuation_token: continuationToken,
   });
   noteVoiceEvent("deferred_resume_complete", {
     ok: payload.ok === true,
@@ -694,7 +683,7 @@ async function playReplyAudio(text) {
   }
   setVoiceState("speaking", "Speaking...");
   noteVoiceEvent("tts_requested", { chars: replyText.length });
-  const response = await fetch("/api/voice/tts", {
+  const response = await fetch("/api/speech/tts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text: replyText }),
@@ -1656,8 +1645,14 @@ function wireActionButtons() {
         const payload = await apiPost(`/api/ui/orchestrations/${encodeURIComponent(button.dataset.routineId || "")}/run`, {
           client_id: state.clientId,
           source: state.sourceId,
+          ui_session_id: state.voice.sessionId,
           inputs: {},
         });
+        if (payload.pending_input && payload.prompt) {
+          await playReplyAudio(String(payload.prompt));
+          await startListening();
+          return;
+        }
         setVoiceState(payload.ok ? "ready" : "error", payload.run?.summary || "Routine started.");
         await reloadCurrentPage();
       } catch (error) {

@@ -36,11 +36,16 @@ class MemoryRetentionConfiguration(ConfigurationModel):
     critical_event_days: Annotated[int, Field(ge=0, le=3650)] = 730
     provider_status_event_days: Annotated[int, Field(ge=0, le=3650)] = 180
     lifecycle_event_days: Annotated[int, Field(ge=0, le=3650)] = 365
-    snapshot_hourly_days: Annotated[int, Field(ge=0, le=3650)] = 14
-    snapshot_daily_days: Annotated[int, Field(ge=0, le=3650)] = 90
-    cache_history_days: Annotated[int, Field(ge=0, le=3650)] = 30
-    rollup_days: Annotated[int, Field(ge=0, le=3650)] = 365
-    evidence_ref_days: Annotated[int, Field(ge=0, le=3650)] = 90
+    session_metadata_days: Annotated[int, Field(ge=0, le=3650)] = 90
+    orchestration_history_days: Annotated[int, Field(ge=0, le=3650)] = 365
+    alert_terminal_days: Annotated[int, Field(ge=0, le=3650)] = 90
+    notification_accepted_days: Annotated[int, Field(ge=0, le=3650)] = 90
+    notification_suppressed_days: Annotated[int, Field(ge=0, le=3650)] = 90
+    notification_failed_days: Annotated[int, Field(ge=0, le=3650)] = 365
+    suggestion_raw_evidence_days: Annotated[int, Field(ge=0, le=3650)] = 90
+    suggestion_exchange_days: Annotated[int, Field(ge=0, le=3650)] = 30
+    suggestion_envelope_days: Annotated[int, Field(ge=0, le=3650)] = 365
+    suggestion_mock_days: Annotated[int, Field(ge=0, le=3650)] = 30
 
 
 class MemoryStorageConfiguration(ConfigurationModel):

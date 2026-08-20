@@ -9,8 +9,10 @@ Timers, alarms, and reminders are part of the brain alert subsystem rather than 
 The current subsystem is split across:
 
 - `server/oracle_app/system_intents.py` for classifying timer, alarm, and reminder requests into the `alerts` system action
-- `server/oracle_app/alerts.py` for scheduling, listing, canceling, and consuming due alerts
-- `GET /alerts/pending` as the brain-side delivery surface used by satellites
+- `server/oracle_app/alerts.py` for alert-domain parsing and compatibility helpers
+- `server/oracle_app/memory/alerts.py` for transactional records, leases, transitions, and retention inputs
+- authenticated `POST /api/satellite/alerts/claim` and
+  `POST /api/satellite/alerts/{alert_id}/acknowledge` delivery surfaces
 - `server/oracle_app/notifications/` for provider-neutral notification
   submission, satellite fan-out, idempotency, expiry, and suppression decisions
 
@@ -22,7 +24,8 @@ The current subsystem is responsible for:
 - parsing durations and clock times
 - creating and tracking brain-owned alerts
 - listing and canceling alerts
-- exposing due alerts through the pending-alerts surface
+- leasing due alerts to authenticated alert-capable satellites and recording
+  explicit local acceptance
 
 ## Alert Shape
 
@@ -36,11 +39,17 @@ Scheduled alerts currently carry these high-level fields:
 - created time
 - message
 - metadata
-- delivered flag
+- pending, leased, acknowledged/completed, canceled, or expired status
+- lease identity and expiry while claimed
 
 ## Delivery Flow
 
-The brain schedules alerts in a brain-owned file-backed store, satellites poll `/alerts/pending`, and due alerts are returned for local foreground-audio handling.
+The Brain schedules alerts transactionally in Memory SQLite. Managed satellite
+runtimes claim due records with their projection credential. A response only
+creates a bounded lease; the record remains durable until the runtime explicitly
+acknowledges that it accepted the foreground operation. Expired leases return to
+pending. The old pending-alert GET routes remain temporary Slice 9 client
+migration surfaces and do not provide reliable completion semantics.
 
 Alert delivery remains source-scoped.
 
@@ -60,6 +69,12 @@ active. The shared satellite runtime handles `notification` as a borrowing
 foreground event: pause interruptible playback, speak through Brain TTS, then
 resume the interrupted session.
 
+Each satellite notification target also owns a channel-neutral Memory delivery
+receipt. It remains pending while the alert is pending or leased, becomes
+accepted on acknowledgement, and becomes suppressed or expired with the
+corresponding terminal alert outcome. Receipt reconciliation is retry-safe after
+a process crash.
+
 ## Current Surface
 
 The current subsystem surface includes:
@@ -77,7 +92,9 @@ Current user-facing note:
 
 ## Current Limitation
 
-Alerts now persist across ordinary brain restarts, but the subsystem still needs additional hardening around long-term durability policy, operator visibility, and edge-case lifecycle behavior.
+Terminal alert records are retained for the configured 90-day horizon. Active
+records prevent source retirement. Required storage mutations fail closed;
+optional diagnostic telemetry does not own alert truth.
 
 ## V2 Configuration Reconciliation
 
@@ -87,8 +104,9 @@ targets use enabled canonical `source_id` references. Configuration activation
 does not create, reschedule, deliver, or delete alerts.
 
 V2 intentionally defines no `domains/alerts.yaml`. Brain persistence mechanics
-belong to `brain.yaml:storage`, satellite polling/cue/playback behavior belongs
+belong to `brain.yaml:storage.memory`, satellite claim/cue/playback behavior belongs
 to satellite configuration and projections, and notification delivery or
 suppression policy belongs to `domains/notifications.yaml`. A dedicated role
 would require later evidence of substantial operator-owned alert policy and
-schema review.
+schema review. The obsolete `storage.alerts` JSON setting remains accepted only
+through the coordinated Slice 10 configuration/data cutover.

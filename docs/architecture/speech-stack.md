@@ -46,10 +46,18 @@ through the Piper provider.
 Piper is separate from both STT implementations and has its own optional
 installation-profile requirements.
 
-The TTS layer also includes cache layers at a high level:
+The TTS layer owns one versioned clip cache. Its identity includes the exact
+synthesis text, provider, model, Piper configuration content identity, and
+cache version; case, whitespace, or configuration changes therefore cannot
+reuse a semantically different clip. The older fixed-filename and normalized
+phrase layers are not part of the canonical cache.
 
-- pregenerated fixed clips
-- hashed phrase clips
+The cache retains at most 4,096 clips and 256 MiB. Clips idle for more than 90
+days expire first, then least-recently-used clips are evicted to satisfy both
+bounds. Reads refresh access time, writes are locked and atomically replaced,
+and bounded maintenance runs at startup and after writes. The pre-versioned
+cache is identity-unsafe and is reported for discard at the coordinated
+cutover rather than reused.
 
 ## Satellite End-To-End Flow
 

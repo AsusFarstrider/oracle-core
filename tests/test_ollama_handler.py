@@ -14,11 +14,8 @@ from oracle_app.handlers.fallback_router import (
     attempt_fallback_router_warmup,
     parse_fallback_router_decision,
 )
-from oracle_app.handlers.ollama import (
-    call_ollama_generate,
-    parse_ollama_decision,
-    warm_ollama_model,
-)
+from oracle_app.inference import InferenceClient, InferenceExecutionSettings
+from oracle_app.music_runtime.ollama import parse_ollama_decision
 from oracle_app.schemas import DispatchPlan
 
 
@@ -32,24 +29,25 @@ class _StubRegistry:
         return self.response
 
 
-class OllamaBridgeTests(unittest.TestCase):
-    @patch("oracle_app.handlers.ollama.warm_model")
-    @patch("oracle_app.handlers.ollama.get_ollama_request_settings")
-    @patch("oracle_app.handlers.ollama.get_ollama_settings")
-    def test_warm_ollama_model_preloads_without_generating_tokens(
-        self,
-        mock_settings,
-        mock_request_settings,
-        mock_warm_model,
-    ) -> None:
-        mock_settings.return_value = ("http://127.0.0.1:11434", "phi4-mini:latest")
-        mock_request_settings.return_value = {
-            "timeout_seconds": 20,
-            "keep_alive": -1,
-            "options": {"temperature": 0.1},
-        }
+def _inference() -> InferenceClient:
+    return InferenceClient(
+        InferenceExecutionSettings(
+            enabled=True,
+            base_url="http://127.0.0.1:11434",
+            model="phi4-mini:latest",
+            timeout_seconds=20,
+            keep_alive=-1,
+            options={"temperature": 0.1},
+            fallback_model="phi4-mini:latest",
+            fallback_timeout_seconds=8,
+        )
+    )
 
-        warm_ollama_model()
+
+class OllamaBridgeTests(unittest.TestCase):
+    @patch("oracle_app.inference.warm_model")
+    def test_shared_inference_warmup_preloads_without_generating_tokens(self, mock_warm_model) -> None:
+        _inference().warm()
 
         mock_warm_model.assert_called_once_with(
             base_url="http://127.0.0.1:11434",
@@ -58,49 +56,23 @@ class OllamaBridgeTests(unittest.TestCase):
             keep_alive=-1,
         )
 
-    @patch("oracle_app.handlers.ollama.call_generate")
-    @patch("oracle_app.handlers.ollama.get_ollama_request_settings")
-    @patch("oracle_app.handlers.ollama.get_ollama_settings")
-    def test_call_ollama_generate_retries_once_after_timeout(
-        self,
-        mock_settings,
-        mock_request_settings,
-        mock_call_generate,
-    ) -> None:
-        mock_settings.return_value = ("http://127.0.0.1:11434", "phi4-mini:latest")
-        mock_request_settings.return_value = {
-            "timeout_seconds": 20,
-            "keep_alive": -1,
-            "options": {"temperature": 0.1},
-        }
+    @patch("oracle_app.inference.call_generate")
+    def test_shared_inference_generate_uses_typed_settings(self, mock_call_generate) -> None:
         mock_call_generate.return_value = {
             "response": '{"mode":"answer","reply":"OK","command":"","reason":"test"}'
         }
 
-        result = call_ollama_generate("hello")
+        result = _inference().generate("hello", format="json")
 
         self.assertIn("response", result)
         mock_call_generate.assert_called_once()
 
-    @patch("oracle_app.handlers.ollama.call_generate")
-    @patch("oracle_app.handlers.ollama.get_ollama_request_settings")
-    @patch("oracle_app.handlers.ollama.get_ollama_settings")
-    def test_call_ollama_generate_does_not_retry_non_timeout_failures(
-        self,
-        mock_settings,
-        mock_request_settings,
-        mock_call_generate,
-    ) -> None:
-        mock_settings.return_value = ("http://127.0.0.1:11434", "phi4-mini:latest")
-        mock_request_settings.return_value = {
-            "timeout_seconds": 20,
-            "keep_alive": -1,
-            "options": {"temperature": 0.1},
-        }
+    @patch("oracle_app.inference.call_generate")
+    def test_shared_inference_propagates_non_timeout_failures(self, mock_call_generate) -> None:
         mock_call_generate.side_effect = socket.gaierror("lookup failed")
 
         with self.assertRaises(socket.gaierror):
-            call_ollama_generate("hello")
+            _inference().generate("hello")
 
         self.assertEqual(mock_call_generate.call_count, 1)
 
@@ -151,16 +123,8 @@ class OllamaBridgeTests(unittest.TestCase):
 
         mock_warm.assert_called_once_with()
 
-    @patch("oracle_app.handlers.fallback_router.call_generate")
-    @patch("oracle_app.handlers.fallback_router.get_fallback_router_settings")
-    def test_fallback_router_handler_returns_domain_proposal(self, mock_settings, mock_call_generate) -> None:
-        mock_settings.return_value = {
-            "base_url": "http://127.0.0.1:11434",
-            "model": "phi4-mini:latest",
-            "timeout_seconds": 8,
-            "keep_alive": -1,
-            "options": {"temperature": 0.1},
-        }
+    @patch("oracle_app.inference.call_generate")
+    def test_fallback_router_handler_returns_domain_proposal(self, mock_call_generate) -> None:
         mock_call_generate.return_value = {
             "response": '{"domain":"facts","normalized_text":"tell me a joke","user_id":""}'
         }
@@ -171,22 +135,14 @@ class OllamaBridgeTests(unittest.TestCase):
             status="planned",
         )
 
-        result = FallbackRouterHandler().handle(dispatch, _StubRegistry(dispatch))
+        result = FallbackRouterHandler(_inference()).handle(dispatch, _StubRegistry(dispatch))
 
         self.assertEqual(result.status, "executed")
         self.assertEqual(result.result["proposed_domain"], "facts")
         self.assertEqual(result.result["normalized_text"], "tell me a joke")
 
-    @patch("oracle_app.handlers.fallback_router.call_generate")
-    @patch("oracle_app.handlers.fallback_router.get_fallback_router_settings")
-    def test_fallback_router_handler_fails_invalid_output(self, mock_settings, mock_call_generate) -> None:
-        mock_settings.return_value = {
-            "base_url": "http://127.0.0.1:11434",
-            "model": "phi4-mini:latest",
-            "timeout_seconds": 8,
-            "keep_alive": -1,
-            "options": {"temperature": 0.1},
-        }
+    @patch("oracle_app.inference.call_generate")
+    def test_fallback_router_handler_fails_invalid_output(self, mock_call_generate) -> None:
         mock_call_generate.return_value = {"response": '{"domain":"music"}'}
         dispatch = DispatchPlan(
             target="fallback_router",
@@ -195,21 +151,13 @@ class OllamaBridgeTests(unittest.TestCase):
             status="planned",
         )
 
-        result = FallbackRouterHandler().handle(dispatch, _StubRegistry(dispatch))
+        result = FallbackRouterHandler(_inference()).handle(dispatch, _StubRegistry(dispatch))
 
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.result["error"], "fallback_router_invalid_output")
 
-    @patch("oracle_app.handlers.fallback_router.call_generate")
-    @patch("oracle_app.handlers.fallback_router.get_fallback_router_settings")
-    def test_fallback_router_handler_fails_timeout(self, mock_settings, mock_call_generate) -> None:
-        mock_settings.return_value = {
-            "base_url": "http://127.0.0.1:11434",
-            "model": "phi4-mini:latest",
-            "timeout_seconds": 12,
-            "keep_alive": -1,
-            "options": {"temperature": 0.1},
-        }
+    @patch("oracle_app.inference.call_generate")
+    def test_fallback_router_handler_fails_timeout(self, mock_call_generate) -> None:
         mock_call_generate.side_effect = TimeoutError()
         dispatch = DispatchPlan(
             target="fallback_router",
@@ -218,7 +166,7 @@ class OllamaBridgeTests(unittest.TestCase):
             status="planned",
         )
 
-        result = FallbackRouterHandler().handle(dispatch, _StubRegistry(dispatch))
+        result = FallbackRouterHandler(_inference()).handle(dispatch, _StubRegistry(dispatch))
 
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.result["error"], "fallback_router_timeout")

@@ -23,10 +23,10 @@ from .local_control import (
 )
 from .models import CaptureOutcome, CommandOutcome, InterruptedPlayback
 from .oracle_client import (
-    fetch_pending_alerts,
+    acknowledge_alert,
+    claim_due_alerts,
     request_tts,
     send_command,
-    send_silent_audiobook_stop,
     send_stt,
 )
 from .runtime import run
@@ -60,7 +60,8 @@ __all__ = [
     "clear_audio_queue",
     "collect_followup_pre_roll_frames",
     "detect_default_model",
-    "fetch_pending_alerts",
+    "acknowledge_alert",
+    "claim_due_alerts",
     "frame_rms",
     "get_active_session_id",
     "interrupt_local_playback",
@@ -80,7 +81,6 @@ __all__ = [
     "resume_interrupted_local_playback",
     "run",
     "send_command",
-    "send_silent_audiobook_stop",
     "send_stt",
     "should_resume_after_reply_for_transport_command",
     "should_listen_for_followup_reply",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from . import state
+from . import audiobook_state
 from .alerts import cancel_alerts, create_alert, format_duration, list_alerts
 from .audiobook import (
     build_longform_payload,
@@ -97,8 +97,8 @@ def _execute_ui_audiobook_play(
             user_id=user_id,
             start_paused=False,
         ),
-        register_active_playback=state.register_active_audiobook_playback,
-        clear_active_playback=state.clear_active_audiobook_playback,
+        register_active_playback=audiobook_state.register_active_audiobook_playback,
+        clear_active_playback=audiobook_state.clear_active_audiobook_playback,
         execute_satellite_command=execute_satellite_command if audiobook_execution is None else audiobook_execution.execute_satellite_command,
         close_audiobook_session=close_audiobook_session if audiobook_execution is None else audiobook_execution.close_session,
         create_sleep_timer=lambda current_source, current_session_id, duration: _create_ui_audiobook_sleep_timer(
@@ -116,7 +116,7 @@ def _stop_active_audiobook_before_ui_music(
     music_execution: CanonicalMusicExecution | None = None,
     audiobook_execution: CanonicalAudiobookExecution | None = None,
 ) -> tuple[str, dict[str, object]] | None:
-    active = state.get_active_audiobook_playback_for_source(target)
+    active = audiobook_state.get_active_audiobook_playback_for_source(target)
     if active is None:
         return None
     if music_execution is not None and audiobook_execution is None:
@@ -124,7 +124,7 @@ def _stop_active_audiobook_before_ui_music(
             satellite = music_execution.execute_satellite_command(target, "stop_longform_audio", None)
         except ControlPlaneError as exc:
             return "failed", build_control_plane_failure(action="stop", exc=exc)
-        state.clear_active_audiobook_playback(target)
+        audiobook_state.clear_active_audiobook_playback(target)
         return "executed", {
             "action": "stop",
             "satellite": satellite,
@@ -134,11 +134,11 @@ def _stop_active_audiobook_before_ui_music(
         source=target,
         action="stop_longform_audio",
         close_session=True,
-        get_active_playback_for_source=state.get_active_audiobook_playback_for_source,
+        get_active_playback_for_source=audiobook_state.get_active_audiobook_playback_for_source,
         execute_satellite_command=execute_satellite_command if music_execution is None else music_execution.execute_satellite_command,
         close_audiobook_session=close_audiobook_session if audiobook_execution is None else audiobook_execution.close_session,
         sync_audiobook_session=sync_audiobook_session if audiobook_execution is None else audiobook_execution.sync_session,
-        clear_active_playback=state.clear_active_audiobook_playback,
+        clear_active_playback=audiobook_state.clear_active_audiobook_playback,
     )
 
 
@@ -239,11 +239,11 @@ def _execute_ui_audio_control(
             source=target,
             action=action,
             close_session=normalized_operation == "stop",
-            get_active_playback_for_source=state.get_active_audiobook_playback_for_source,
+            get_active_playback_for_source=audiobook_state.get_active_audiobook_playback_for_source,
             execute_satellite_command=audiobook_execution.execute_satellite_command if audiobook_execution is not None else execute_satellite_command,
             close_audiobook_session=audiobook_execution.close_session if audiobook_execution is not None else close_audiobook_session,
             sync_audiobook_session=audiobook_execution.sync_session if audiobook_execution is not None else sync_audiobook_session,
-            clear_active_playback=state.clear_active_audiobook_playback,
+            clear_active_playback=audiobook_state.clear_active_audiobook_playback,
         )
         if status == "executed" and normalized_operation == "stop":
             canceled = cancel_alerts(target, SLEEP_TIMER_KIND, all_matches=True)
@@ -401,7 +401,7 @@ def ui_audio_sleep_timer_impl(
             source=target,
             session_id=ui_audio_target_session_id(client_id, target),
             duration_seconds=int(payload.minutes) * 60,
-            get_active_playback_for_source=state.get_active_audiobook_playback_for_source,
+            get_active_playback_for_source=audiobook_state.get_active_audiobook_playback_for_source,
             create_sleep_timer=lambda current_source, current_session_id, duration: _create_ui_audiobook_sleep_timer(
                 source=current_source,
                 session_id=current_session_id,
@@ -474,8 +474,8 @@ def start_current_audiobook_for_user(
             user_id=user_id,
             start_paused=defer_audible_start,
         ),
-        register_active_playback=state.register_active_audiobook_playback,
-        clear_active_playback=state.clear_active_audiobook_playback,
+        register_active_playback=audiobook_state.register_active_audiobook_playback,
+        clear_active_playback=audiobook_state.clear_active_audiobook_playback,
         execute_satellite_command=command,
         close_audiobook_session=close_session,
         create_sleep_timer=lambda current_source, current_session_id, duration: _create_ui_audiobook_sleep_timer(
@@ -510,7 +510,7 @@ def set_audiobook_sleep_timer_seconds(
         source=target,
         session_id=ui_audio_target_session_id(_normalize_ui_client_id(client_id), target),
         duration_seconds=int(duration_seconds),
-        get_active_playback_for_source=state.get_active_audiobook_playback_for_source,
+        get_active_playback_for_source=audiobook_state.get_active_audiobook_playback_for_source,
         create_sleep_timer=lambda current_source, current_session_id, duration: _create_ui_audiobook_sleep_timer(
             source=current_source,
             session_id=current_session_id,

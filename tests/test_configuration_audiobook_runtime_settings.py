@@ -130,7 +130,11 @@ class AudiobookRuntimeSettingsTests(unittest.TestCase):
                 user_id="resident_one",
             )
 
-        self.assertTrue(payload["tracks"][0]["url"].startswith("http://brain.invalid:8011/audiobooks/stream/"))
+        self.assertTrue(
+            payload["tracks"][0]["url"].startswith(
+                "http://brain.invalid:8011/api/satellite/media/audiobooks/"
+            )
+        )
 
     def test_canonical_health_checks_each_configured_user_without_v1_settings(self) -> None:
         settings = AudiobookRuntimeSettings.from_effective_config(self._effective_config(enabled=True))
@@ -192,7 +196,7 @@ class AudiobookRuntimeSettingsTests(unittest.TestCase):
                 satellite_projection_activation_ids=MappingProxyType(projection_ids),
                 config_revision=inspection.normalized_candidate_revision,
                 bundle_id="example-home",
-                schema_version=1,
+                schema_version=2,
                 roles=inspection.bundle.roles,  # type: ignore[union-attr]
                 secrets=inspection.secrets,  # type: ignore[arg-type]
             )

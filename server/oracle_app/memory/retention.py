@@ -1,31 +1,33 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
 class RetentionPolicy:
-    successful_raw_transcript_days: int = 14
-    failed_raw_transcript_days: int = 30
-    transcript_metadata_days: int = 90
-    routine_event_days: int = 90
-    warning_event_days: int = 180
-    error_event_days: int = 365
-    critical_event_days: int = 730
-    provider_status_event_days: int = 180
-    lifecycle_event_days: int = 365
-    snapshot_hourly_days: int = 14
-    snapshot_daily_days: int = 90
-    cache_history_days: int = 30
-    rollup_days: int = 365
-    evidence_ref_days: int = 90
+    successful_raw_transcript_days: int
+    failed_raw_transcript_days: int
+    transcript_metadata_days: int
+    routine_event_days: int
+    warning_event_days: int
+    error_event_days: int
+    critical_event_days: int
+    provider_status_event_days: int
+    lifecycle_event_days: int
+    session_metadata_days: int
+    orchestration_history_days: int
+    alert_terminal_days: int
+    notification_accepted_days: int
+    notification_suppressed_days: int
+    notification_failed_days: int
+    suggestion_raw_evidence_days: int
+    suggestion_exchange_days: int
+    suggestion_envelope_days: int
+    suggestion_mock_days: int
 
 
-DEFAULT_RETENTION_POLICY = RetentionPolicy()
-
-
-def describe_default_policy() -> dict[str, int]:
-    return {
-        field: int(getattr(DEFAULT_RETENTION_POLICY, field))
-        for field in DEFAULT_RETENTION_POLICY.__dataclass_fields__
-    }
+def retention_policy_from_configuration(
+    configuration: Any,
+) -> RetentionPolicy:
+    return RetentionPolicy(**configuration.model_dump())

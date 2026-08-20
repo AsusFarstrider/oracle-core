@@ -20,7 +20,7 @@ def observe_canonical_state(
     """Persist the newest canonical subject state; reject strictly older evidence."""
     path = db_path or DB_PATH
     ensure_schema(path, copy_provisional_suggestions=False)
-    snapshot_id = f"home_automation:{subject}"
+    projection_id = f"home_automation:{subject}"
     normalized_observed_at = (
         observed_at if observed_at.tzinfo is not None else observed_at.replace(tzinfo=UTC)
     ).astimezone(UTC)
@@ -28,8 +28,8 @@ def observe_canonical_state(
     now_iso = datetime.now(UTC).isoformat()
     with transaction(path) as conn:
         row = conn.execute(
-            "SELECT observed_at, payload_json FROM memory_snapshots WHERE snapshot_id = ?",
-            (snapshot_id,),
+            "SELECT observed_at, payload_json FROM memory_current_projections WHERE projection_id = ?",
+            (projection_id,),
         ).fetchone()
         if row is not None:
             previous_at = _parse_datetime(row["observed_at"])
@@ -40,11 +40,11 @@ def observe_canonical_state(
                 return False
         conn.execute(
             """
-            INSERT INTO memory_snapshots (
-                snapshot_id, created_at, updated_at, observed_at, snapshot_type,
+            INSERT INTO memory_current_projections (
+                projection_id, created_at, updated_at, observed_at, projection_type,
                 provider, domain, status, correlation_id, payload_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(snapshot_id) DO UPDATE SET
+            ON CONFLICT(projection_id) DO UPDATE SET
                 updated_at = excluded.updated_at,
                 observed_at = excluded.observed_at,
                 status = excluded.status,
@@ -52,7 +52,7 @@ def observe_canonical_state(
                 payload_json = excluded.payload_json
             """,
             (
-                snapshot_id,
+                projection_id,
                 now_iso,
                 now_iso,
                 observed_iso,
@@ -77,10 +77,10 @@ def list_canonical_states(
     with transaction(path) as conn:
         rows = conn.execute(
             """
-            SELECT snapshot_id, observed_at, status, correlation_id, payload_json
-            FROM memory_snapshots
-            WHERE snapshot_type = 'home_automation_canonical_state'
-            ORDER BY observed_at DESC, snapshot_id ASC
+            SELECT projection_id, observed_at, status, correlation_id, payload_json
+            FROM memory_current_projections
+            WHERE projection_type = 'home_automation_canonical_state'
+            ORDER BY observed_at DESC, projection_id ASC
             """
         ).fetchall()
     states: dict[str, dict[str, Any]] = {}
@@ -88,8 +88,8 @@ def list_canonical_states(
         payload = _payload(row["payload_json"])
         subject = str(payload.get("subject") or "").strip()
         if not subject:
-            snapshot_id = str(row["snapshot_id"] or "")
-            subject = snapshot_id.removeprefix("home_automation:")
+            projection_id = str(row["projection_id"] or "")
+            subject = projection_id.removeprefix("home_automation:")
         if not subject:
             continue
         states[subject] = {

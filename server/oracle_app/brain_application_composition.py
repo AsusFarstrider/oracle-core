@@ -122,17 +122,23 @@ class CanonicalBrainApplicationComposition:
             if runtime.music is not None and runtime.music.enabled
             else None
         )
+        notification_execution = CanonicalNotificationExecution(
+            settings=runtime.notifications,
+            home_assistant=runtime.home_assistant,
+            satellites=runtime.satellites,
+        )
         routine_execution = (
             CanonicalRoutineExecution(
                 settings=runtime.routines,
                 home_assistant=runtime.home_assistant,
                 audiobooks=audiobook_execution,
+                notifications=notification_execution,
             )
             if runtime.routines is not None and runtime.routines.enabled
             else None
         )
         facts_execution = (
-            CanonicalFactsExecution(runtime.information.facts)
+            CanonicalFactsExecution(runtime.information.facts, inference=core_consumers.inference)
             if runtime.information is not None
             else None
         )
@@ -183,7 +189,7 @@ class CanonicalBrainApplicationComposition:
                 canonical_calendar=True,
             ),
             dispatch_registry=build_dispatch_registry(
-                inference_settings=core_consumers.inference,
+                inference_client=core_consumers.inference,
                 household_settings=runtime.household,
                 home_assistant_settings=runtime.home_assistant,
                 canonical_configuration=True,
@@ -204,11 +210,7 @@ class CanonicalBrainApplicationComposition:
             playback_target_resolver=CanonicalPlaybackTargetResolver(
                 fleet=runtime.satellites,
             ),
-            notification_execution=CanonicalNotificationExecution(
-                settings=runtime.notifications,
-                home_assistant=runtime.home_assistant,
-                satellites=runtime.satellites,
-            ),
+            notification_execution=notification_execution,
             audiobook_execution=audiobook_execution,
             routine_execution=routine_execution,
             music_execution=music_execution,

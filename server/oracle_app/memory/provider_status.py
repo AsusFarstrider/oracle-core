@@ -76,27 +76,27 @@ def observe_provider_status(
     normalized_domain = _clean_required(domain, "domain")
     path = db_path or DB_PATH
     ensure_schema(path, copy_provisional_suggestions=False)
-    snapshot_id = provider_status_snapshot_id(normalized_provider, normalized_domain)
+    projection_id = provider_status_projection_id(normalized_provider, normalized_domain)
     now = utc_now_iso()
     resolved_correlation_id = correlation_id or get_correlation_id()
     resolved_payload = dict(payload or {})
 
     with transaction(path) as conn:
         previous = conn.execute(
-            "SELECT * FROM memory_snapshots WHERE snapshot_id = ?",
-            (snapshot_id,),
+            "SELECT * FROM memory_current_projections WHERE projection_id = ?",
+            (projection_id,),
         ).fetchone()
         previous_status = previous["status"] if previous else None
         conn.execute(
             """
-            INSERT INTO memory_snapshots (
-                snapshot_id, created_at, updated_at, observed_at, snapshot_type,
+            INSERT INTO memory_current_projections (
+                projection_id, created_at, updated_at, observed_at, projection_type,
                 source_id, provider, domain, status, correlation_id, payload_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(snapshot_id) DO UPDATE SET
+            ON CONFLICT(projection_id) DO UPDATE SET
                 updated_at = excluded.updated_at,
                 observed_at = excluded.observed_at,
-                snapshot_type = excluded.snapshot_type,
+                projection_type = excluded.projection_type,
                 source_id = excluded.source_id,
                 provider = excluded.provider,
                 domain = excluded.domain,
@@ -105,7 +105,7 @@ def observe_provider_status(
                 payload_json = excluded.payload_json
             """,
             (
-                snapshot_id,
+                projection_id,
                 now,
                 now,
                 now,
@@ -133,14 +133,14 @@ def observe_provider_status(
             payload={
                 **resolved_payload,
                 "previous_status": previous_status,
-                "snapshot_id": snapshot_id,
+                "projection_id": projection_id,
             },
             db_path=path,
         )
 
     snapshot = get_provider_status_snapshot(normalized_provider, normalized_domain, db_path=path)
     return {
-        "snapshot_id": snapshot_id,
+        "projection_id": projection_id,
         "previous_status": previous_status,
         "status": normalized_status,
         "event_type": event_type,
@@ -171,7 +171,7 @@ def safe_observe_provider_health(
     return True
 
 
-def provider_status_snapshot_id(provider: str, domain: str) -> str:
+def provider_status_projection_id(provider: str, domain: str) -> str:
     return f"provider_status:{_snapshot_part(domain)}:{_snapshot_part(provider)}"
 
 
@@ -195,11 +195,11 @@ def get_latest_provider_status(
     clean_provider = _clean_required(provider, "provider")
     clean_domain = _clean_filter(domain)
     if clean_domain:
-        snapshot_id = provider_status_snapshot_id(clean_provider, clean_domain)
+        projection_id = provider_status_projection_id(clean_provider, clean_domain)
         with transaction(path) as conn:
             row = conn.execute(
-                "SELECT * FROM memory_snapshots WHERE snapshot_id = ? AND snapshot_type = ?",
-                (snapshot_id, "provider_status"),
+                "SELECT * FROM memory_current_projections WHERE projection_id = ? AND projection_type = ?",
+                (projection_id, "provider_status"),
             ).fetchone()
         return _row_to_snapshot(row) if row else None
     results = query_provider_status_snapshots(
@@ -217,7 +217,7 @@ def query_provider_status_snapshots(
     query = query or ProviderStatusQuery()
     path = db_path or DB_PATH
     ensure_schema(path, copy_provisional_suggestions=False)
-    sql = "SELECT * FROM memory_snapshots WHERE snapshot_type = ?"
+    sql = "SELECT * FROM memory_current_projections WHERE projection_type = ?"
     args: list[Any] = ["provider_status"]
     filters = {
         "provider": _clean_filter(query.provider),
@@ -232,7 +232,7 @@ def query_provider_status_snapshots(
             args.append(value)
     limit = _clamp_limit(query.limit)
     offset = _clean_offset(query.offset)
-    sql += " ORDER BY observed_at DESC, snapshot_id ASC LIMIT ? OFFSET ?"
+    sql += " ORDER BY observed_at DESC, projection_id ASC LIMIT ? OFFSET ?"
     args.extend([limit, offset])
     with transaction(path) as conn:
         rows = conn.execute(sql, args).fetchall()
@@ -422,11 +422,11 @@ def _normalize_key(value: str) -> str:
 
 def _row_to_snapshot(row: Any) -> dict[str, Any]:
     return {
-        "snapshot_id": row["snapshot_id"],
+        "projection_id": row["projection_id"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "observed_at": row["observed_at"],
-        "snapshot_type": row["snapshot_type"],
+        "projection_type": row["projection_type"],
         "source_id": row["source_id"],
         "provider": row["provider"],
         "domain": row["domain"],

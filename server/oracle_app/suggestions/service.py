@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import threading
-from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
@@ -14,16 +12,16 @@ from .models import SuggestionGenerateRequest, SuggestionReviewRequest
 from .packet import build_packet
 from .redaction import redact_secrets
 from .storage import (
-    LAST_PACKET_PATH,
-    LAST_RESPONSE_PATH,
     create_run,
     default_window,
     get_run,
+    get_current_exchange,
     get_suggestion,
     insert_suggestions,
     list_runs,
     list_suggestions,
     review_suggestion,
+    save_current_exchange,
     update_run,
 )
 
@@ -63,7 +61,7 @@ def generate_suggestion_run(
         canonical_composition=canonical_composition,
         canonical_authority=canonical_authority,
     )
-    _write_json(LAST_PACKET_PATH, packet)
+    save_current_exchange(run_id, packet=packet)
 
     bridge_options = {
         **settings,
@@ -132,7 +130,7 @@ def _complete_suggestion_run(
         else openclaw_generate_suggestions(packet, bridge_options)
     )
     redacted_result = redact_secrets(result)
-    _write_json(LAST_RESPONSE_PATH, redacted_result)
+    save_current_exchange(run_id, response=redacted_result)
 
     suggestions: list[dict[str, Any]] = []
     errors = [str(item) for item in result.get("errors") or []]
@@ -204,11 +202,19 @@ def list_suggestion_runs() -> dict[str, Any]:
     return {"ok": True, "runs": runs, "count": len(runs)}
 
 
-def read_last_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {"ok": False, "detail": f"{path.name} has not been created yet.", "payload": None}
-    with path.open("r", encoding="utf-8") as handle:
-        return {"ok": True, "path": str(path), "payload": json.load(handle)}
+def read_current_exchange(part: str) -> dict[str, Any]:
+    if part not in {"packet", "response"}:
+        raise ValueError(f"Unknown Suggestions exchange part: {part!r}")
+    exchange = get_current_exchange()
+    payload = exchange.get(part) if exchange is not None else None
+    if payload is None:
+        return {"ok": False, "detail": f"Current {part} has not been stored yet.", "payload": None}
+    return {
+        "ok": True,
+        "run_id": exchange["run_id"],
+        "updated_at": exchange["updated_at"],
+        "payload": payload,
+    }
 
 
 def openclaw_status(
@@ -252,10 +258,3 @@ def openclaw_status(
 def _resolve_window(request: SuggestionGenerateRequest) -> tuple[str, str]:
     default_start, default_end = default_window()
     return request.window_start or default_start, request.window_end or default_end
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(redact_secrets(payload), handle, indent=2, sort_keys=True)
-        handle.write("\n")

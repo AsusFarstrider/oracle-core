@@ -105,7 +105,7 @@ def ui_house() -> dict[str, object]:
 
 def register_ui_snapshot_routes(app: FastAPI) -> None:
     app.get("/api/ui/home")(ui_home)
-    app.get("/api/satellites/config")(satellite_ui_config)
+    app.get("/api/satellite/config")(satellite_ui_config)
     app.get("/api/ui/satellite/home")(ui_satellite_home)
     app.get("/api/ui/weather")(ui_weather)
     app.get("/api/ui/calendar")(ui_calendar)

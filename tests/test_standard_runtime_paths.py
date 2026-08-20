@@ -42,8 +42,6 @@ class StandardRuntimePathTests(unittest.TestCase):
             paths.tts_cache,
             paths.local_host_restart_state,
             paths.local_service_restart_state,
-            paths.last_suggestions_packet,
-            paths.last_suggestions_response,
             paths.tmp,
         )
         permitted = (root / "data", root / "cache", root / "tmp")
@@ -63,13 +61,11 @@ import json
 from oracle_app.constants import ALERTS_STATE_PATH, CACHE_PATH, NETWORK_LOCAL_RESTART_STATE_PATH, NETWORK_LOCAL_SERVICE_RESTART_STATE_PATH
 from oracle_app.facts_cache import FACTS_CACHE_PATH
 from oracle_app.memory.store import DB_PATH, PROVISIONAL_SUGGESTIONS_DB_PATH
-from oracle_app.suggestions.storage import LAST_PACKET_PATH, LAST_RESPONSE_PATH
 from tts import PREGENERATED_DIR
 print(json.dumps([str(path) for path in (
     ALERTS_STATE_PATH, CACHE_PATH, NETWORK_LOCAL_RESTART_STATE_PATH,
     NETWORK_LOCAL_SERVICE_RESTART_STATE_PATH, FACTS_CACHE_PATH, DB_PATH,
-    PROVISIONAL_SUGGESTIONS_DB_PATH, LAST_PACKET_PATH, LAST_RESPONSE_PATH,
-    PREGENERATED_DIR,
+    PROVISIONAL_SUGGESTIONS_DB_PATH, PREGENERATED_DIR,
 )]))
 """
         completed = subprocess.run(

@@ -247,23 +247,23 @@ async function submitLauncherPrompt(options = {}) {
   setLauncherStatus("Oracle is thinking...");
   elements.launcherSend.disabled = true;
   try {
-    const response = await postJson("/api/voice/command", {
+    const response = await postJson("/api/conversation/command", {
       text,
       source: LAUNCHER_SOURCE,
       session_id: state.launcher.sessionId,
     });
-    const replyText = String(response.reply_text || "Oracle did not return a reply.");
+    const replyText = String(response.reply_text || "");
     elements.launcherReply.innerHTML = `
       <div><strong>You</strong><div>${escapeHtml(text)}</div></div>
-      <div><strong>Oracle</strong><div>${escapeHtml(replyText)}</div></div>
+      ${replyText ? `<div><strong>Oracle</strong><div>${escapeHtml(replyText)}</div></div>` : ""}
     `;
     elements.launcherReply.classList.remove("is-hidden");
     elements.launcherInput.value = "";
-    if (playReplyAudio) {
+    if (playReplyAudio && replyText) {
       await playLauncherReply(replyText);
       setLauncherStatus("Oracle replied out loud.");
     } else {
-      setLauncherStatus("Oracle replied.");
+      setLauncherStatus(replyText ? "Oracle replied." : "No reply required.");
     }
   } catch (error) {
     setLauncherStatus(error instanceof Error ? error.message : "Unable to reach Oracle.", "error");
@@ -276,7 +276,7 @@ async function playLauncherReply(text) {
   if (!text) {
     return;
   }
-  const response = await fetch("/api/voice/tts", {
+  const response = await fetch("/api/speech/tts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
@@ -355,7 +355,7 @@ async function stopLauncherMic() {
     const blob = new Blob(state.launcher.chunks, { type: mimeType });
     const formData = new FormData();
     formData.append("audio", blob, mimeType.includes("mp4") ? "oracle-mic.m4a" : "oracle-mic.webm");
-    const sttResponse = await fetch("/api/voice/stt", {
+    const sttResponse = await fetch("/api/speech/stt", {
       method: "POST",
       body: formData,
     });

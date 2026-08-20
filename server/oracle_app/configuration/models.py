@@ -23,7 +23,7 @@ _LOCALE_PATTERN = r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"
 
 class BundleManifest(ConfigurationModel):
     kind: Literal["oracle_configuration_bundle"]
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     bundle_id: CanonicalId
 
 

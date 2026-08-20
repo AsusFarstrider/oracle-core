@@ -1,0 +1,115 @@
+{
+  "format_version": 1,
+  "supported": [
+    {
+      "owner": "alerts",
+      "target": "system",
+      "case_ids": ["system-alert-route"]
+    },
+    {
+      "owner": "audiobook",
+      "target": "audiobook",
+      "case_ids": [
+        "media-probable-audiobook-title-route",
+        "audiobook-pending-first-one-followup",
+        "audiobook-negative-narrow-reprompt"
+      ]
+    },
+    {
+      "owner": "calculation",
+      "target": "system",
+      "case_ids": ["system-calculation-route"]
+    },
+    {
+      "owner": "calendar",
+      "target": "calendar",
+      "case_ids": ["calendar-read-route"]
+    },
+    {
+      "owner": "facts",
+      "target": "facts",
+      "case_ids": [
+        "facts-lifespan-sloth",
+        "facts-author-frankenstein",
+        "facts-location-machu-picchu",
+        "facts-date-eiffel-tower",
+        "facts-definition-photosynthesis",
+        "facts-superlative-largest-animal"
+      ]
+    },
+    {
+      "owner": "fallback",
+      "target": "fallback_router",
+      "case_ids": [
+        "generic-chat-stays-fallback-router",
+        "generic-chat-weak-facts-context-does-not-hijack-home"
+      ]
+    },
+    {
+      "owner": "home_automation",
+      "target": "home_assistant",
+      "case_ids": [
+        "home-room-first-brighter",
+        "home-strong-followup-turn-them-back-on"
+      ]
+    },
+    {
+      "owner": "music",
+      "target": "music",
+      "case_ids": [
+        "music-natural-album-phrase",
+        "music-pending-second-one-followup",
+        "no-defensible-media-candidate-hard-not-found"
+      ]
+    },
+    {
+      "owner": "network",
+      "target": "network",
+      "case_ids": ["network-status-route"]
+    },
+    {
+      "owner": "news",
+      "target": "news",
+      "case_ids": ["news-headlines-route"]
+    },
+    {
+      "owner": "system",
+      "target": "system",
+      "case_ids": ["system-current-time-route"]
+    },
+    {
+      "owner": "weather",
+      "target": "weather",
+      "case_ids": [
+        "weather-current-route",
+        "weather-forecast-route",
+        "weather-history-route"
+      ]
+    }
+  ],
+  "deferred": [
+    {
+      "owner": "utility_semantics",
+      "capabilities": [
+        "timer lifecycle and wording review",
+        "alarm lifecycle and wording review",
+        "reminder lifecycle and wording review",
+        "stopwatch lifecycle and wording review"
+      ],
+      "roadmap_destination": "V2 Stage 6",
+      "reason": "Capability-specific semantics remain outside shared-platform characterization."
+    },
+    {
+      "owner": "notification_policy",
+      "capabilities": ["notification phrasing and household behavior"],
+      "roadmap_destination": "V2 Stage 8",
+      "reason": "The shared delivery seam is Stage 5; capability policy is not."
+    },
+    {
+      "owner": "satellite_playback",
+      "capabilities": ["satellite-local playback and audio phrasing"],
+      "roadmap_destination": "V2 Stage 9",
+      "reason": "Local playback behavior remains satellite-capability work."
+    }
+  ]
+}

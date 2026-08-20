@@ -6,6 +6,8 @@ from oracle_app.command_events import append_command_interim_event
 from oracle_app.configuration.domain_models import StaticFactsProvider, WikipediaFactsProvider
 from oracle_app.configuration.information_runtime_settings import FactsRuntimeSettings
 from oracle_app.facts_cache import load_cached_facts_result, store_facts_result_in_cache
+from oracle_app.facts_wikipedia_policy import WikipediaQuestionPolicy
+from oracle_app.inference import InferenceClient
 from oracle_app.provider_bridges.facts_static import StaticFactsBridge
 from oracle_app.provider_bridges.facts_wikipedia import WikipediaFactsBridge
 from oracle_app.schemas import (
@@ -22,8 +24,9 @@ logger = logging.getLogger("oracle-brain.facts")
 class CanonicalFactsExecution:
     """Facts provider behavior bound to one immutable configuration snapshot."""
 
-    def __init__(self, settings: FactsRuntimeSettings) -> None:
+    def __init__(self, settings: FactsRuntimeSettings, *, inference: InferenceClient) -> None:
         self.settings = settings
+        self.inference = inference
         if settings.enabled and (settings.provider_id is None or settings.provider is None):
             raise ValueError("Enabled canonical facts requires one selected provider.")
 
@@ -45,7 +48,7 @@ class CanonicalFactsExecution:
         if isinstance(provider, StaticFactsProvider):
             result = StaticFactsBridge().lookup_provider(request, provider=provider)
         elif isinstance(provider, WikipediaFactsProvider):
-            result = WikipediaFactsBridge().lookup_provider(request, provider=provider)
+            result = WikipediaFactsBridge(policy=WikipediaQuestionPolicy()).lookup_provider(request, provider=provider)
         else:  # pragma: no cover - executable schema closes this union
             raise TypeError("Canonical facts selected an unsupported typed provider.")
         store_facts_result_in_cache(request, result, settings=self.settings)
@@ -73,7 +76,7 @@ class CanonicalFactsExecution:
         try:
             from oracle_app.facts_summarizer import summarize_facts_result
 
-            return summarize_facts_result(result)
+            return summarize_facts_result(result, inference=self.inference)
         except Exception as exc:
             logger.warning(
                 "facts_summarizer_failed status=%s provider=%s error=%s",

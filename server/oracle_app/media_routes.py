@@ -15,7 +15,8 @@ from .brain_application_composition import (
     CanonicalBrainApplicationComposition,
 )
 from .config import get_music_settings
-from .state import get_active_audiobook_playback
+from .audiobook_state import get_active_audiobook_playback
+from .provider_bridges.audiobookshelf_audiobook import AudiobookBridgeError
 
 
 def ui_audio_audiobook_art(
@@ -84,17 +85,23 @@ def stream_audiobook_track(playback_id: str, track_index: int, request: Request)
     if canonical:
         if audiobook_execution is None:
             raise HTTPException(status_code=404, detail="Audiobook playback is not configured")
-        upstream = audiobook_execution.fetch_stream(
-            playback,
-            track_index,
-            range_header=request.headers.get("range"),
-        )
+        try:
+            upstream = audiobook_execution.fetch_stream(
+                playback,
+                track_index,
+                range_header=request.headers.get("range"),
+            )
+        except AudiobookBridgeError as exc:
+            raise HTTPException(status_code=exc.http_status or 502, detail=exc.detail) from exc
     else:
-        upstream = fetch_audiobook_stream(
-            playback,
-            track_index,
-            range_header=request.headers.get("range"),
-        )
+        try:
+            upstream = fetch_audiobook_stream(
+                playback,
+                track_index,
+                range_header=request.headers.get("range"),
+            )
+        except AudiobookBridgeError as exc:
+            raise HTTPException(status_code=exc.http_status or 502, detail=exc.detail) from exc
     content_type = str(upstream.headers.get("Content-Type") or "application/octet-stream")
     response_headers: dict[str, str] = {}
     for header_name in ("Accept-Ranges", "Content-Length", "Content-Range"):
@@ -161,4 +168,6 @@ def _canonical_composition(request: Request) -> CanonicalBrainApplicationComposi
 def register_media_routes(app: FastAPI) -> None:
     app.get("/api/ui/audio/art/audiobook/{library_item_id}")(ui_audio_audiobook_art_http)
     app.get("/api/ui/audio/art/music")(ui_audio_music_art_http)
-    app.get("/audiobooks/stream/{playback_id}/{track_index}")(stream_audiobook_track)
+    app.get("/api/satellite/media/audiobooks/{playback_id}/tracks/{track_index}")(
+        stream_audiobook_track
+    )

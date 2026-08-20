@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from threading import RLock
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -177,32 +178,35 @@ class ControlRequestHandler(BaseHTTPRequestHandler):
         action = str(payload.get("action", "")).strip()
         args = payload.get("args") if isinstance(payload.get("args"), dict) else {}
 
-        cached = self.server.command_cache.get(command_id)
-        if cached is not None:
+        def execute_command() -> dict[str, Any]:
+            _log_control_event("control_command_received", command_id=command_id, action=action, status="received")
+            _log_control_event(
+                "control_command_sent",
+                command_id=command_id,
+                action=action,
+                status="sent",
+                adapter=self.server.adapter.__class__.__name__,
+            )
+            with self.server.runtime_lock:
+                return self._dispatch_action(action, args).to_dict(command_id)
+
+        response, cached = self.server.command_cache.get_or_store(
+            command_id,
+            execute_command,
+        )
+        if cached:
             _log_control_event(
                 "control_command_result",
                 command_id=command_id,
                 action=action,
                 status="cached",
-                failure_class=str(cached.get("failure_class") or ""),
-                owning_component=str(cached.get("owning_component") or ""),
+                failure_class=str(response.get("failure_class") or ""),
+                owning_component=str(response.get("owning_component") or ""),
             )
-            self._write_json(HTTPStatus.OK, cached)
+            self._write_json(HTTPStatus.OK, response)
             return
 
-        _log_control_event("control_command_received", command_id=command_id, action=action, status="received")
-        _log_control_event(
-            "control_command_sent",
-            command_id=command_id,
-            action=action,
-            status="sent",
-            adapter=self.server.adapter.__class__.__name__,
-        )
-        result = self._dispatch_action(action, args)
-        response = result.to_dict(command_id)
-        self.server.command_cache.store(command_id, response)
-        self.server.command_cache.prune()
-        status = HTTPStatus.OK if result.ok else HTTPStatus.BAD_REQUEST
+        status = HTTPStatus.OK if response.get("ok") is True else HTTPStatus.BAD_REQUEST
         _log_control_event(
             "control_command_result",
             command_id=command_id,
@@ -432,6 +436,7 @@ class ControlServer(ThreadingHTTPServer):
         self.adapter = adapter
         self.reply_audio = ReplyAudioStateStore(reply_audio_state_path, reply_audio_stop_path)
         self.command_cache = CommandCache()
+        self.runtime_lock = RLock()
         self.result_type = result_type
         self._build_config_report_payload = build_config_report_payload
         self._render_config_report_text = render_config_report_text
@@ -441,20 +446,24 @@ class ControlServer(ThreadingHTTPServer):
         return is_authorized(self.api_key, header)
 
     def build_health_payload(self) -> dict[str, Any]:
-        return {
-            "ok": True,
-            "service": "oracle-satellite-control",
-            "adapter": self.adapter.health(),
-        }
+        with self.runtime_lock:
+            return {
+                "ok": True,
+                "service": "oracle-satellite-control",
+                "adapter": self.adapter.health(),
+            }
 
     def get_reply_audio_state(self) -> dict[str, Any]:
-        return self.reply_audio.get_state()
+        with self.runtime_lock:
+            return self.reply_audio.get_state()
 
     def stop_reply_audio(self) -> dict[str, Any]:
-        return self.reply_audio.request_stop()
+        with self.runtime_lock:
+            return self.reply_audio.request_stop()
 
     def begin_reply_audio(self, *, kind: str, correlation_id: str = "") -> dict[str, Any]:
-        return self.reply_audio.begin_session(kind=kind, correlation_id=correlation_id)
+        with self.runtime_lock:
+            return self.reply_audio.begin_session(kind=kind, correlation_id=correlation_id)
 
     def finalize_reply_audio(
         self,
@@ -464,21 +473,25 @@ class ControlServer(ThreadingHTTPServer):
         final_state: str,
         reason: str = "",
     ) -> dict[str, Any]:
-        return self.reply_audio.finalize_session(
-            session_id=session_id,
-            correlation_id=correlation_id,
-            final_state=final_state,
-            reason=reason,
-        )
+        with self.runtime_lock:
+            return self.reply_audio.finalize_session(
+                session_id=session_id,
+                correlation_id=correlation_id,
+                final_state=final_state,
+                reason=reason,
+            )
 
     def get_playback_authority_state(self) -> dict[str, Any]:
-        return build_playback_authority_state(adapter=self.adapter, reply_audio=self.reply_audio)
+        with self.runtime_lock:
+            return build_playback_authority_state(adapter=self.adapter, reply_audio=self.reply_audio)
 
     def interrupt_for_oracle(self) -> dict[str, Any]:
-        return interrupt_for_oracle(adapter=self.adapter, reply_audio=self.reply_audio)
+        with self.runtime_lock:
+            return interrupt_for_oracle(adapter=self.adapter, reply_audio=self.reply_audio)
 
     def resume_after_oracle(self, interrupted_sessions: list[dict[str, Any]]) -> dict[str, Any]:
-        return resume_after_oracle(adapter=self.adapter, interrupted_sessions=interrupted_sessions)
+        with self.runtime_lock:
+            return resume_after_oracle(adapter=self.adapter, interrupted_sessions=interrupted_sessions)
 
     def build_config_report_payload(self) -> dict[str, Any]:
         return self._build_config_report_payload()

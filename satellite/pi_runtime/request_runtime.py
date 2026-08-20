@@ -358,32 +358,30 @@ def run_request_pipeline(
             thread.join(timeout=1.0)
     command_elapsed_ms = (time.perf_counter() - command_started_at) * 1000.0
     logger.info("Reply: %s", outcome.spoken_reply)
-    raw_response = outcome.raw_response if isinstance(outcome.raw_response, dict) else {}
-    dispatch = raw_response.get("dispatch") if isinstance(raw_response.get("dispatch"), dict) else {}
-    route = raw_response.get("route") if isinstance(raw_response.get("route"), dict) else {}
-    result = dispatch.get("result") if isinstance(dispatch.get("result"), dict) else {}
+    playback_effect = (outcome.effects or {}).get("satellite_playback")
+    playback_effect = playback_effect if isinstance(playback_effect, dict) else {}
     _log_satellite_command_event(
         logger,
         "command_response_received",
         source=args.source,
         session_id=runtime_state.active_session_id,
-        route_target=str(route.get("target") or dispatch.get("target") or ""),
-        dispatch_hook=str(dispatch.get("hook") or ""),
-        dispatch_status=str(dispatch.get("status") or ""),
-        action=str(result.get("action") or ""),
+        route_target="satellite_playback" if playback_effect else "",
+        dispatch_hook="canonical_conversation_result",
+        dispatch_status=outcome.status,
+        action=str(playback_effect.get("disposition") or ""),
         transcript=transcript,
         reply_text=outcome.spoken_reply,
     )
-    if str(dispatch.get("status") or "") == "failed":
+    if outcome.status == "failed":
         logger.warning(
             "brain_dispatch_failed source=%s session_id=%s route_target=%s dispatch_hook=%s action=%s reply_chars=%d detail=%s",
             args.source,
             runtime_state.active_session_id or "-",
-            str(route.get("target") or dispatch.get("target") or "-"),
-            str(dispatch.get("hook") or "-"),
-            str(result.get("action") or "-"),
+            "satellite_playback" if playback_effect else "-",
+            "canonical_conversation_result",
+            str(playback_effect.get("disposition") or "-"),
             len(outcome.spoken_reply),
-            str(result.get("error") or result.get("detail") or "dispatch_failed"),
+            outcome.failure_code or "dispatch_failed",
         )
     if not outcome.spoken_reply:
         return RequestPipelineResult(

@@ -31,14 +31,14 @@ from oracle_app.music_runtime.selection import music_pending_option, music_selec
 
 class MusicMatchingTests(unittest.TestCase):
     @patch(
-        "oracle_app.music_runtime.ollama.get_ollama_request_settings",
+        "oracle_app.config.get_ollama_request_settings",
         return_value={"keep_alive": "5m", "options": {}, "timeout_seconds": 1},
     )
     @patch(
-        "oracle_app.music_runtime.ollama.get_ollama_settings",
+        "oracle_app.config.get_ollama_settings",
         return_value=("http://inference.example.test", "test-model"),
     )
-    @patch("oracle_app.music_runtime.ollama.request.urlopen", side_effect=TimeoutError("timed out"))
+    @patch("oracle_app.inference.call_generate", side_effect=TimeoutError("timed out"))
     def test_music_ollama_timeout_fails_as_no_intent(
         self,
         _mock_urlopen,
@@ -776,32 +776,22 @@ class MusicMatchingTests(unittest.TestCase):
         self.assertIn("all too well", queries)
         self.assertIn("all too well Taylor Swift", queries)
 
-    @patch("oracle_app.music_runtime.ollama.request.urlopen")
-    @patch("oracle_app.music_runtime.ollama.get_ollama_request_settings")
-    @patch("oracle_app.music_runtime.ollama.get_ollama_settings")
+    @patch("oracle_app.inference.call_generate")
+    @patch("oracle_app.config.get_ollama_request_settings")
+    @patch("oracle_app.config.get_ollama_settings")
     def test_choose_music_match_with_ollama_returns_selected_candidate(
         self,
         mock_settings,
         mock_request_settings,
-        mock_urlopen,
+        mock_generate,
     ) -> None:
-        class _Response:
-            def read(self) -> bytes:
-                return b'{"response":"{\\"choice_index\\":1,\\"reason\\":\\"exact artist match\\"}"}'
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, tb) -> None:
-                return None
-
         mock_settings.return_value = ("http://127.0.0.1:11434", "phi4-mini:latest")
         mock_request_settings.return_value = {
             "timeout_seconds": 20,
             "keep_alive": "-1",
             "options": {"temperature": 0.1},
         }
-        mock_urlopen.return_value = _Response()
+        mock_generate.return_value = {"response": '{"choice_index":1,"reason":"exact artist match"}'}
 
         intent = MusicIntent(
             intent="play",
@@ -862,7 +852,12 @@ class MusicMatchingTests(unittest.TestCase):
             mode="replace",
             original_text="play how it's done from k-pop demon hunters",
         )
-        settings = {"plex_base_url": "http://plex", "plex_token": "token", "plex_music_section_id": 4}
+        settings = {
+            "plex_configured": True,
+            "plex_base_url": "http://plex",
+            "plex_token": "token",
+            "plex_music_section_id": 4,
+        }
 
         with patch("oracle_app.music_runtime.client.get_music_settings", return_value=settings):
             matches = search_track_from_album_fallback(intent, settings)
@@ -912,7 +907,12 @@ class MusicMatchingTests(unittest.TestCase):
             mode="replace",
             original_text="play thunderstruck ac dc",
         )
-        settings = {"plex_base_url": "http://plex", "plex_token": "token", "plex_music_section_id": 4}
+        settings = {
+            "plex_configured": True,
+            "plex_base_url": "http://plex",
+            "plex_token": "token",
+            "plex_music_section_id": 4,
+        }
 
         with patch("oracle_app.music_runtime.client.get_music_settings", return_value=settings):
             matches = search_track_from_artist_fallback(intent, settings)

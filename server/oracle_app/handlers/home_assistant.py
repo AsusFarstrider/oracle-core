@@ -14,8 +14,12 @@ from oracle_app.provider_bridges.home_assistant import (
     HomeAssistantBridge,
     HomeAssistantBridgeHttpError,
     HomeAssistantBridgeUnreachableError,
-    expected_target_outcome,
     extract_success_entity_ids,
+)
+from oracle_app.home_assistant_policy import (
+    detect_failed_success_targets,
+    expected_target_outcome,
+    fetch_entity_state_with_retry,
     serialize_expected_outcome,
     state_verification_failed,
 )
@@ -219,13 +223,23 @@ def execute_home_assistant(
         return dispatch
 
     dispatch.status = "executed"
-    if bridge_result.verification_failure is not None:
+    verification_failure = detect_failed_success_targets(
+        bridge,
+        bridge_result.payload,
+        command_text=str(dispatch.payload.get("text") or ""),
+    )
+    if verification_failure is not None:
         dispatch.status = "failed"
         dispatch.result = {
-            **bridge_result.verification_failure,
+            **verification_failure,
             "room_context": dict(room_context) if isinstance(room_context, dict) else {},
         }
         return dispatch
+    bridge.commit_conversation_id(
+        bridge_result.returned_conversation_id,
+        source=str(source) if source is not None else None,
+        session_id=str(session_id) if session_id is not None else None,
+    )
     dispatch.result = bridge_result.payload
     dispatch.result["room_context"] = dict(room_context) if isinstance(room_context, dict) else {}
     return dispatch
@@ -269,7 +283,8 @@ def _detect_failed_success_targets(
     base_url: str,
     token: str,
 ) -> dict[str, Any] | None:
-    return HomeAssistantBridge(base_url=base_url, token=token).detect_failed_success_targets(
+    return detect_failed_success_targets(
+        HomeAssistantBridge(base_url=base_url, token=token),
         payload,
         command_text=command_text,
     )
@@ -290,7 +305,8 @@ def _fetch_entity_state_with_retry(
     *,
     expected_outcome: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
-    return HomeAssistantBridge(base_url=base_url, token=token).fetch_entity_state_with_retry(
+    return fetch_entity_state_with_retry(
+        HomeAssistantBridge(base_url=base_url, token=token),
         entity_id,
         expected_outcome=expected_outcome,
     )

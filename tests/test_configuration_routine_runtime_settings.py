@@ -6,7 +6,7 @@ import shutil
 import tempfile
 from types import MappingProxyType
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from datetime import datetime, timedelta, timezone
 
 from oracle_app.audiobook_runtime.canonical import CanonicalAudiobookExecution
@@ -48,6 +48,7 @@ class RoutineRuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(steps["check_lights"].state_mapping.entity_id, "light.living_room")  # type: ignore[union-attr]
         self.assertEqual(steps["check_lights"].remediation_action_mapping.entity_id, "light.living_room")  # type: ignore[union-attr]
         self.assertEqual(steps["check_playback"].native_remediation_action_id, "stop_audiobook")
+        self.assertEqual(steps["timer_sound"].definition.source_id, "living_room_voice")
         self.assertIs(settings.resolve_voice_trigger("start bedtime", source_id="other"), routine)
         self.assertIs(settings.resolve_voice_trigger("bedtime please", source_id="living_room_voice"), routine)
         self.assertIsNone(settings.resolve_voice_trigger("bedtime please", source_id="other"))
@@ -126,6 +127,7 @@ class RoutineRuntimeSettingsTests(unittest.TestCase):
                 "audiobook_start": adapter("audiobook_start"),
                 "audiobook_resume": adapter("audiobook_start"),
                 "sleep_timer": adapter("sleep_timer"),
+                "timer_sound": adapter("timer_sound"),
                 "state_check": adapter("state_check"),
                 "playback_check": adapter("playback_check"),
             }
@@ -155,7 +157,7 @@ class RoutineRuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(resumed[0]["status"], "completed")
         self.assertEqual(
             [kind for kind, _kwargs in calls],
-            ["ui_action", "audiobook_start", "sleep_timer", "state_check", "playback_check"],
+            ["ui_action", "audiobook_start", "sleep_timer", "timer_sound", "state_check", "playback_check"],
         )
 
     def test_canonical_home_assistant_adapters_use_bound_mappings(self) -> None:
@@ -258,6 +260,38 @@ class RoutineRuntimeSettingsTests(unittest.TestCase):
             },
         )
 
+    def test_canonical_timer_sound_queues_idempotent_standard_timer_alert(self) -> None:
+        effective = self._effective_config(enabled=True)
+        execution = CanonicalRoutineExecution(
+            settings=RoutineRuntimeSettings.from_effective_config(effective),
+            home_assistant=HomeAssistantRuntimeSettings.from_effective_config(effective),
+            audiobooks=CanonicalAudiobookExecution(
+                AudiobookRuntimeSettings.from_effective_config(effective),
+                satellite_control_timeout_seconds=6,
+            ),
+        )
+
+        alert = Mock(alert_id="timer-alert-1")
+        with patch(
+            "oracle_app.orchestration_routine_canonical.create_alert_batch",
+            return_value=([alert], False),
+        ) as create_batch:
+            result = execution.timer_sound(
+                source_id="living_room_voice",
+                occurrence_id="routine-1:timer_sound",
+                client_id="canonical-test",
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "queued")
+        self.assertEqual(result["alert_id"], "timer-alert-1")
+        self.assertEqual(create_batch.call_args.kwargs["kind"], "timer")
+        self.assertEqual(create_batch.call_args.kwargs["sources"], ["living_room_voice"])
+        self.assertEqual(
+            create_batch.call_args.kwargs["idempotency_key"],
+            "routine-timer-sound:routine-1:timer_sound",
+        )
+
     def test_canonical_waiting_run_fails_closed_after_revision_change(self) -> None:
         effective = self._effective_config(enabled=True)
         execution = CanonicalRoutineExecution(
@@ -285,7 +319,7 @@ class RoutineRuntimeSettingsTests(unittest.TestCase):
                 now=datetime.now(timezone.utc) + timedelta(minutes=2),
                 db_path=db_path,
                 adapters=execution.adapters,
-                required_config_revision="oracle-config-v1:sha256:different",
+                required_config_revision="oracle-config-v2:sha256:different",
             )
 
         self.assertEqual(resumed[0]["status"], "failed")
@@ -321,7 +355,7 @@ class RoutineRuntimeSettingsTests(unittest.TestCase):
                 satellite_projection_activation_ids=MappingProxyType(projection_ids),
                 config_revision=inspection.normalized_candidate_revision,
                 bundle_id="example-home",
-                schema_version=1,
+                schema_version=2,
                 roles=inspection.bundle.roles,  # type: ignore[union-attr]
                 secrets=inspection.secrets,  # type: ignore[arg-type]
             )
@@ -472,6 +506,14 @@ class RoutineRuntimeSettingsTests(unittest.TestCase):
                 "duration_input": "sleep_minutes",
                 "duration_unit": "minutes",
                 "max_lateness_seconds": 600,
+            },
+            {
+                "id": "timer_sound",
+                "type": "timer_sound",
+                "label": "Play the timer sound",
+                "required": True,
+                "on_failure": "stop",
+                "source_id": "living_room_voice",
             },
             {
                 "id": "check_lights",

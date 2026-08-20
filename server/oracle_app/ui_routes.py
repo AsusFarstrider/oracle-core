@@ -108,12 +108,22 @@ def ui_audio_play(payload: UiAudioPlayRequest) -> dict[str, object]:
     return _require_handler(_ui_audio_play)(payload)
 
 
+def ui_audio_play_http(payload: UiAudioPlayRequest, request: Request) -> dict[str, object]:
+    return _require_handler(_ui_audio_play)(payload, request)
+
+
 def ui_audio_control(payload: UiAudioControlRequest) -> dict[str, object]:
     return _require_handler(_ui_audio_control)(payload)
 
 
 def ui_audio_sleep_timer(payload: UiAudioSleepTimerRequest) -> dict[str, object]:
     return _require_handler(_ui_audio_sleep_timer)(payload)
+
+
+def ui_audio_sleep_timer_http(
+    payload: UiAudioSleepTimerRequest, request: Request
+) -> dict[str, object]:
+    return _require_handler(_ui_audio_sleep_timer)(payload, request)
 
 
 def ui_house_camera_snapshot(camera_id: str) -> Response:
@@ -141,9 +151,9 @@ def register_ui_routes(app: FastAPI) -> None:
     app.post("/api/ui/calendar/confirm")(ui_calendar_confirm)
     app.post("/api/ui/calendar/cancel")(ui_calendar_cancel)
     app.post("/api/ui/audio/search")(ui_audio_search)
-    app.post("/api/ui/audio/play")(ui_audio_play)
+    app.post("/api/ui/audio/play")(ui_audio_play_http)
     app.post("/api/ui/audio/control")(ui_audio_control)
-    app.post("/api/ui/audio/sleep-timer")(ui_audio_sleep_timer)
+    app.post("/api/ui/audio/sleep-timer")(ui_audio_sleep_timer_http)
     app.get("/api/ui/house/cameras/{camera_id}/snapshot")(ui_house_camera_snapshot)
     app.post("/api/ui/action")(ui_action)
     app.post("/api/ui/context/start")(ui_context_start_http)

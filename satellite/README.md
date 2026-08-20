@@ -43,10 +43,10 @@ For local audio, however, the satellite runtime is the authority for:
 They do **not** execute capabilities locally. Instead they:
 
 1. capture audio
-2. send audio to Oracle `/stt`
-3. send transcript to Oracle `/command`
-4. use Oracle `reply_text` from `/command` response
-5. send `reply_text` to Oracle `/tts`
+2. send audio to Oracle `/api/speech/stt`
+3. send transcript to Oracle `/api/conversation/command`
+4. use the finite conversation result and typed effects
+5. send `reply_text` to Oracle `/api/speech/tts`
 6. play the returned reply audio using the response media type
 7. reuse a short-lived `session_id` so Oracle can handle follow-up requests in the same conversation
 8. poll Oracle for due timers, alarms, and reminders while idle
@@ -268,10 +268,10 @@ tree.
 
 1. Listen for wake word with openWakeWord (`.onnx` / `.tflite` model)
 2. Capture utterance after wake-word detection
-3. Send audio to Oracle `/stt`
-4. Send transcript to Oracle `/command`
+3. Send audio to Oracle `/api/speech/stt`
+4. Send transcript to Oracle `/api/conversation/command`
 5. Use Oracle `reply_text`
-6. Send text to Oracle `/tts`
+6. Send text to Oracle `/api/speech/tts`
 7. Play the returned reply audio locally using the response media type
 8. If Oracle returns `pending_confirmation` or `pending_clarification`, play a distinct local cue and open a short same-session follow-up listen without the wake word
 
@@ -537,7 +537,8 @@ that pattern instead of keeping a separate private runtime source fork.
 
 - Timers/reminders never speak:
 - confirm the satellite is running updated code with alert polling enabled
-- verify Oracle returns due items from `/alerts/pending?source=<your-source>`
+- verify the satellite background runtime claims and acknowledges due items through
+  `/api/satellite/alerts/claim` and `/api/satellite/alerts/{alert_id}/acknowledge`
 
 - Follow-up questions lose context too quickly:
 - increase `--conversation-timeout-seconds`

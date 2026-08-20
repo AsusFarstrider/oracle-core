@@ -83,7 +83,7 @@ def _canonical_settings(
         secret_generation_id="secrets_11111111111111111111111111111111",
         selection_operation_id="selection_op_11111111111111111111111111111111",
         selection_revision=1,
-        config_revision="oracle-config-v1:sha256:test",
+        config_revision="oracle-config-v2:sha256:test",
         enabled=True,
         provider_id="primary",
         base_url="http://home-assistant.invalid:8123",
@@ -317,7 +317,7 @@ class HomeAutomationRunbookTests(unittest.TestCase):
         run = RunbookRepository(db_path=self.db_path).require_run(result["run_id"])
         self.assertEqual(run["payload"]["definition"]["subject"], "side_entry")
         self.assertEqual(run["payload"]["definition"]["entity_id"], "binary_sensor.side_entry_contact")
-        self.assertEqual(run["definition_version"], "oracle-config-v1:sha256:test")
+        self.assertEqual(run["definition_version"], "oracle-config-v2:sha256:test")
         self.assertNotIn("event-secret", repr(run))
 
     @patch("oracle_app.home_automation.controller.HomeAssistantBridge.fetch_entity_state")

@@ -11,7 +11,7 @@ from starlette.requests import Request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
-from oracle_app import state
+from oracle_app import audiobook_state as state
 from oracle_app.brain_application_composition import CanonicalBrainApplicationComposition
 from oracle_app.media_routes import stream_audiobook_track
 

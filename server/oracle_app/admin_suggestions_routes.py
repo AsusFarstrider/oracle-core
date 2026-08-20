@@ -10,10 +10,9 @@ from .suggestions.service import (
     list_suggestion_items,
     list_suggestion_runs,
     openclaw_status,
-    read_last_json,
+    read_current_exchange,
     review_suggestion_item,
 )
-from .suggestions.storage import LAST_PACKET_PATH, LAST_RESPONSE_PATH
 
 
 def admin_openclaw_status() -> dict[str, object]:
@@ -38,11 +37,11 @@ def admin_suggestion_run(run_id: str) -> dict[str, object]:
 
 
 def admin_suggestions_last_packet() -> dict[str, object]:
-    return read_last_json(LAST_PACKET_PATH)
+    return read_current_exchange("packet")
 
 
 def admin_suggestions_last_response() -> dict[str, object]:
-    return read_last_json(LAST_RESPONSE_PATH)
+    return read_current_exchange("response")
 
 
 def admin_suggestion_detail(suggestion_id: str) -> dict[str, object]:

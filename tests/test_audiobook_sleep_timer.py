@@ -9,7 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
 from alert_store_test_support import IsolatedAlertStoreTestCase
-from oracle_app import state
+from oracle_app import audiobook_state as state
 from oracle_app.alerts import clear_alerts, list_alerts
 from oracle_app.audiobook import parse_audiobook_intent, parse_bare_audiobook_sleep_timer_intent
 from oracle_app.handlers.audiobook import execute_audiobook as _execute_audiobook

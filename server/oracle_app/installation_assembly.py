@@ -13,6 +13,7 @@ from .configuration import (
     inspect_candidate,
     snapshot_candidate,
 )
+from .configuration.secrets import SecretSnapshot
 from .installation import (
     ActivationRequest,
     InstallationLayout,
@@ -37,6 +38,7 @@ class InitialAssemblyRequest:
     household_deployment_revision: str
     configuration_root: str = "configuration"
     service_definition_path: str = "scripts/oracle-brain-standard.service"
+    initial_secret_snapshot: SecretSnapshot | None = None
 
 
 def service_definition_identity(path: Path) -> str:
@@ -77,7 +79,11 @@ def assemble_initial_activation(
     bundle = deployment / request.configuration_root
     if bundle.is_symlink() or not bundle.is_dir() or not bundle.resolve().is_relative_to(deployment.resolve()):
         raise InitialAssemblyError("The staged canonical configuration root is absent or unsafe.")
-    inspection = inspect_candidate(bundle)
+    inspection = (
+        inspect_candidate(bundle)
+        if request.initial_secret_snapshot is None
+        else inspect_candidate(bundle, secret_snapshot=request.initial_secret_snapshot)
+    )
     if not inspection.report.activation_eligible or inspection.bundle is None:
         raise InitialAssemblyError("The staged canonical configuration is not activation eligible.")
     bundle_id = inspection.bundle.roles["bundle.yaml"].bundle_id
@@ -90,6 +96,7 @@ def assemble_initial_activation(
         expected_authored_revision=snapshot_candidate(bundle).authored_revision,
         expected_secret_generation_id=None,
         actor="host_local_cli",
+        initial_secret_snapshot=request.initial_secret_snapshot,
     )
     selected = store.load_selected()
     arm_runtime_cutover(store, selected, actor="host_local_cli", audit_event_id=activated.audit_event_id)

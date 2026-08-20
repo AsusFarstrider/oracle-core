@@ -27,10 +27,13 @@ from oracle_app.installation_identity import (
     ENVIRONMENT_PREFIX,
     environment_directory_name,
 )
+from oracle_app.installation_profiles import PROFILES
 
 
 ENVIRONMENT_BUILD_MARKER = ".oracle-environment-building.json"
-SUPPORTED_PROFILE_LOCKS = {"minimal-brain": Path("server/requirements.lock")}
+SUPPORTED_PROFILE_LOCKS = {
+    profile_id: profile.dependency_lock for profile_id, profile in PROFILES.items()
+}
 
 
 class InstallationStagingError(RuntimeError):

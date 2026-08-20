@@ -27,10 +27,25 @@ function Write-UiLog {
     Add-Content -Path $logPath -Value "$timestamp $Message"
 }
 
+function Normalize-ArgumentValue {
+    param([string]$Value)
+
+    $trimmed = $Value.Trim()
+    if ($trimmed.Length -ge 2) {
+        $first = $trimmed.Substring(0, 1)
+        $last = $trimmed.Substring($trimmed.Length - 1, 1)
+        if (($first -eq "'" -and $last -eq "'") -or ($first -eq '"' -and $last -eq '"')) {
+            return $trimmed.Substring(1, $trimmed.Length - 2)
+        }
+    }
+    return $trimmed
+}
+
 function Resolve-BrowserExe {
     param([string]$ConfiguredPath)
-    if ($ConfiguredPath.Trim() -and (Test-Path $ConfiguredPath.Trim())) {
-        return $ConfiguredPath.Trim()
+    $normalizedPath = Normalize-ArgumentValue -Value $ConfiguredPath
+    if ($normalizedPath -and (Test-Path $normalizedPath)) {
+        return $normalizedPath
     }
 
     $candidates = @(
@@ -49,7 +64,10 @@ function Resolve-BrowserExe {
 }
 
 try {
-    Write-UiLog "ui_start_requested url=$BrowserUrl delay_seconds=$DelaySeconds"
+    $normalizedBrowserUrl = Normalize-ArgumentValue -Value $BrowserUrl
+    $normalizedTreatInsecureOriginAsSecure = Normalize-ArgumentValue -Value $TreatInsecureOriginAsSecure
+
+    Write-UiLog "ui_start_requested url=$normalizedBrowserUrl delay_seconds=$DelaySeconds"
     if ($DelaySeconds -gt 0) {
         Start-Sleep -Seconds $DelaySeconds
     }
@@ -57,12 +75,12 @@ try {
     $resolvedBrowser = Resolve-BrowserExe -ConfiguredPath $BrowserExe
     $arguments = @(
         "--kiosk",
-        $BrowserUrl.Trim(),
+        $normalizedBrowserUrl,
         "--edge-kiosk-type=fullscreen",
         "--no-first-run"
     )
-    if ($TreatInsecureOriginAsSecure.Trim()) {
-        $arguments += "--unsafely-treat-insecure-origin-as-secure=$($TreatInsecureOriginAsSecure.Trim())"
+    if ($normalizedTreatInsecureOriginAsSecure) {
+        $arguments += "--unsafely-treat-insecure-origin-as-secure=$normalizedTreatInsecureOriginAsSecure"
     }
 
     Write-UiLog "ui_launch browser=$resolvedBrowser args=$($arguments -join ' ')"

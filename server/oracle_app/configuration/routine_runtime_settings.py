@@ -10,6 +10,7 @@ from .domain_models import (
     RoutineDefinition,
     RoutineStep,
     RoutinesConfiguration,
+    NotificationsConfiguration,
 )
 from .effective import EffectiveConfig
 from .home_assistant_runtime_settings import HomeAssistantRuntimeSettings
@@ -61,6 +62,7 @@ class RoutineRuntimeSettings:
         household = HouseholdRuntimeSettings.from_effective_config(effective)
         home_assistant: HomeAssistantRuntimeSettings | None = None
         audiobooks: AudiobookRuntimeSettings | None = None
+        notifications: NotificationsConfiguration | None = None
         definitions: dict[str, RoutineDefinitionRuntimeSettings] = {}
         global_phrases: dict[str, str] = {}
         source_phrases: dict[str, dict[str, str]] = {}
@@ -80,6 +82,19 @@ class RoutineRuntimeSettings:
 
                 bound_steps: list[RoutineStepRuntimeSettings] = []
                 for step in definition.steps:
+                    if step.type == "timer_sound" and step.source_id not in sources:
+                        raise ValueError("Enabled canonical timer-sound routine step requires a source owned by the routine.")
+                    if step.type == "notification":
+                        if notifications is None:
+                            notification_role = effective.role("domains/notifications.yaml")
+                            if not isinstance(notification_role, NotificationsConfiguration):
+                                raise TypeError("Effective notifications role does not use its executable schema.")
+                            notifications = notification_role
+                        notification_id = step.notification_id
+                        if not notifications.enabled or not any(
+                            item.enabled and item.id == notification_id for item in notifications.types
+                        ):
+                            raise ValueError("Enabled canonical routine requires its notification type.")
                     if step.type in {"ui_action", "state_check"} or (
                         getattr(step, "remediation_action_id", None) not in {None, "stop_audiobook"}
                     ):

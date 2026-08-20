@@ -2,7 +2,9 @@
 
 Oracle exposes an HTTP API for satellites, CLI tools, and future UI clients.
 
-The FastAPI app surface lives in `server/oracle_app/api.py`.
+The FastAPI application composition lives in `server/oracle_app/api.py`.
+Purpose-owned route registration lives in conversation, speech, UI, admin,
+satellite, and integration family modules.
 
 The API surface is the boundary between thin clients and the brain's internal routing, dispatch, and domain layers.
 
@@ -26,17 +28,21 @@ The current API surface is grouped into a small set of endpoint families.
 - `GET /health/stt`
 - `GET /api/admin/hooks`
 
-### Routing and Command
+### Canonical Conversation
 
-- `POST /api/voice/route`
-- `POST /command`
-- `POST /api/voice/ingest/text`
+- `POST /api/conversation/route`
+- `POST /api/conversation/command`
+- `GET /api/conversation/session`
+- `GET /api/conversation/command-events`
 
-`POST /api/voice/route` returns a `RouteResponse`.
+`POST /api/conversation/route` returns a `RouteResponse`.
 
-`POST /command` returns a `CommandResponse`.
+`POST /api/conversation/command` returns the finite public
+`ConversationResult`; it never exposes raw route or dispatch envelopes. The
+old `/api/voice/*` and selected root routes remain temporary Slice 9 consumer
+compatibility surfaces.
 
-### Session and Alert Inspection
+### Session and Transitional Alert Inspection
 
 - `GET /api/voice/session`
 - `GET /alerts/pending`
@@ -57,15 +63,18 @@ The notification admin endpoints expose sanitized Apprise health, external
 policy/group summaries, exact receipt status counts, and bounded delivery
 history. They cannot submit, retry, cancel, or configure notifications.
 
-### Media and Speech
+### Satellite Media and Speech
 
-- `GET /audiobooks/stream/{playback_id}/{track_index}`
-- `POST /tts`
-- `POST /stt`
+- `POST /api/satellite/alerts/claim`
+- `POST /api/satellite/alerts/{alert_id}/acknowledge`
+- `GET /api/satellite/media/audiobooks/{playback_id}/tracks/{track_index}`
+- `POST /api/satellite/deferred-resume`
+- `POST /api/speech/tts`
+- `POST /api/speech/stt`
 
 ## Main Command Path
 
-`POST /command` is the main composed API path.
+`POST /api/conversation/command` is the canonical composed API path.
 
 At a high level, the current command path is:
 
@@ -74,7 +83,7 @@ At a high level, the current command path is:
 3. route
 4. build and execute dispatch
 5. build reply
-6. return `CommandResponse`
+6. shape the finite public `ConversationResult`
 
 Request example:
 
@@ -86,28 +95,22 @@ Request example:
 }
 ```
 
-Response example:
+Canonical response example:
 
 ```json
 {
-  "route": {
-    "target": "home_assistant",
-    "confidence": 0.82,
-    "reason": "Matched home automation keyword: turn on",
-    "normalized_text": "turn on the kitchen lights"
-  },
-  "dispatch": {
-    "target": "home_assistant",
-    "hook": "home_assistant.execute",
-    "payload": {
-      "text": "turn on the kitchen lights",
-      "source": "kitchen-satellite",
-      "session_id": "demo-001"
-    },
-    "status": "executed",
-    "result": {}
-  },
-  "reply_text": "Turned on the lights"
+  "reply_text": "Turned on the lights",
+  "session_id": "demo-001",
+  "source_id": "kitchen-satellite",
+  "status": "executed",
+  "failure_code": null,
+  "trace_id": "example-trace",
+  "effects": {
+    "follow_up": null,
+    "satellite_playback": null,
+    "deferred_satellite_playback": null,
+    "ui_presentation": null
+  }
 }
 ```
 
@@ -117,19 +120,23 @@ Ignored normalized transcripts currently return a `system` route with empty `rep
 
 ### Alerts
 
-`GET /alerts/pending` exposes due alert inspection and delivery pickup by source.
+Authenticated satellite claim derives source identity from the Bearer
+projection credential, validates that the managed satellite is alert-capable,
+and returns bounded leases. Acknowledgement requires the same source and lease.
+The root pending route is a temporary Slice 9 compatibility surface.
 
 ### Audiobook Stream
 
-`GET /audiobooks/stream/{playback_id}/{track_index}` exposes prepared audiobook track streaming through the brain API surface.
+The canonical satellite media route exposes prepared audiobook track streaming
+through the Brain. The old root stream remains only for Slice 9 migration.
 
 ### TTS
 
-`POST /tts` exposes speech synthesis through the configured TTS provider and returns audio bytes.
+`POST /api/speech/tts` exposes speech synthesis through the configured TTS provider and returns audio bytes.
 
 ### STT
 
-`POST /stt` exposes speech transcription through the configured STT provider and returns transcript text.
+`POST /api/speech/stt` exposes speech transcription through the configured STT provider and returns transcript text.
 
 ## V2 Configuration Reconciliation
 

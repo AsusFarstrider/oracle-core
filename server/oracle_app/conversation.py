@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import time
 from typing import Any
+
+from .interaction_synchronization import synchronized_interaction
 
 
 MAX_TURNS = 6
-CONVERSATION_TTL_SECONDS = 900
 FOLLOW_UP_PREFIXES = (
     "what about",
     "how about",
@@ -48,37 +48,25 @@ def _copy_conversation(conversation: dict[str, Any]) -> dict[str, Any]:
     return copied
 
 
-def _prune_expired(now: float | None = None) -> None:
-    current = now if now is not None else time.time()
-    expired = [
-        session_id
-        for session_id, conversation in _CONVERSATIONS.items()
-        if current - float(conversation.get("updated_at", 0.0)) > CONVERSATION_TTL_SECONDS
-    ]
-    for session_id in expired:
-        _CONVERSATIONS.pop(session_id, None)
-
-
+@synchronized_interaction
 def get_conversation(source: str | None, session_id: str | None) -> dict[str, Any] | None:
     key = _conversation_key(source, session_id)
     if not key:
         return None
-    _prune_expired()
     conversation = _CONVERSATIONS.get(key)
     if conversation is None:
         return None
     return _copy_conversation(conversation)
 
 
+@synchronized_interaction
 def get_or_create_conversation(source: str | None, session_id: str | None) -> dict[str, Any] | None:
     key = _conversation_key(source, session_id)
     if not key:
         return None
-    _prune_expired()
     conversation = _CONVERSATIONS.setdefault(
         key,
         {
-            "updated_at": time.time(),
             "history": [],
             "home_assistant_conversation_id": None,
             "last_target": None,
@@ -88,6 +76,7 @@ def get_or_create_conversation(source: str | None, session_id: str | None) -> di
     return _copy_conversation(conversation)
 
 
+@synchronized_interaction
 def clear_conversation(source: str | None, session_id: str | None) -> bool:
     key = _conversation_key(source, session_id)
     if not key:
@@ -95,19 +84,19 @@ def clear_conversation(source: str | None, session_id: str | None) -> bool:
     return _CONVERSATIONS.pop(key, None) is not None
 
 
+@synchronized_interaction
 def clear_all_conversations() -> None:
     _CONVERSATIONS.clear()
 
 
+@synchronized_interaction
 def append_turn(source: str | None, session_id: str | None, role: str, text: str) -> None:
     key = _conversation_key(source, session_id)
     if not key:
         return
-    _prune_expired()
     conversation = _CONVERSATIONS.setdefault(
         key,
         {
-            "updated_at": time.time(),
             "history": [],
             "home_assistant_conversation_id": None,
             "last_target": None,
@@ -122,9 +111,9 @@ def append_turn(source: str | None, session_id: str | None, role: str, text: str
     history = list(conversation.get("history", []))
     history.append({"role": role, "text": cleaned})
     conversation["history"] = history[-MAX_TURNS:]
-    conversation["updated_at"] = time.time()
 
 
+@synchronized_interaction
 def set_dispatch_context(
     source: str | None,
     session_id: str | None,
@@ -135,11 +124,9 @@ def set_dispatch_context(
     key = _conversation_key(source, session_id)
     if not key:
         return
-    _prune_expired()
     conversation = _CONVERSATIONS.setdefault(
         key,
         {
-            "updated_at": time.time(),
             "history": [],
             "home_assistant_conversation_id": None,
             "last_target": None,
@@ -152,9 +139,9 @@ def set_dispatch_context(
         conversation["last_target"] = target
     if action is not None:
         conversation["last_action"] = action
-    conversation["updated_at"] = time.time()
 
 
+@synchronized_interaction
 def get_home_assistant_conversation_id(source: str | None, session_id: str | None) -> str | None:
     conversation = get_conversation(source, session_id)
     if conversation is None:
@@ -163,15 +150,14 @@ def get_home_assistant_conversation_id(source: str | None, session_id: str | Non
     return str(value) if value else None
 
 
+@synchronized_interaction
 def set_home_assistant_conversation_id(source: str | None, session_id: str | None, conversation_id: str | None) -> None:
     key = _conversation_key(source, session_id)
     if not key:
         return
-    _prune_expired()
     conversation = _CONVERSATIONS.setdefault(
         key,
         {
-            "updated_at": time.time(),
             "history": [],
             "home_assistant_conversation_id": None,
             "last_target": None,
@@ -181,7 +167,6 @@ def set_home_assistant_conversation_id(source: str | None, session_id: str | Non
     if conversation is None:
         return
     conversation["home_assistant_conversation_id"] = conversation_id
-    conversation["updated_at"] = time.time()
 
 
 def should_include_ollama_history(prompt: str) -> bool:
@@ -197,6 +182,7 @@ def should_include_ollama_history(prompt: str) -> bool:
     return any(word in referential_tokens for word in words[:4])
 
 
+@synchronized_interaction
 def build_ollama_prompt(source: str | None, session_id: str | None, prompt: str) -> str:
     conversation = get_conversation(source, session_id)
     current = str(prompt).strip()

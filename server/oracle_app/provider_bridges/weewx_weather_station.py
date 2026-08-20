@@ -10,7 +10,7 @@ from typing import Any
 from urllib import error, request
 
 from oracle_app.weather_models import WeatherObservation
-from oracle_app.provider_bridges.ssh_transport import SshHostVerificationError, strict_ssh_options
+from oracle_app.network_runtime.platform_transport import SshHostVerificationError, strict_ssh_options
 
 
 class WeatherStationBridgeError(RuntimeError):

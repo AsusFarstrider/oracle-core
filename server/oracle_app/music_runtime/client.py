@@ -6,6 +6,7 @@ from oracle_app.config import get_music_settings
 from oracle_app.provider_bridges import get_music_bridge
 
 from .parsing import MusicIntent
+from .plex_search import search_plex_catalog, search_track_from_album, search_track_from_artist
 
 
 def _bridge():
@@ -13,7 +14,7 @@ def _bridge():
 
 
 def search_plex(intent: MusicIntent) -> list[dict[str, Any]]:
-    return _bridge().search(intent)
+    return search_plex_catalog(_bridge(), intent)
 
 
 def build_native_queue_manifest(selection: dict[str, Any]) -> dict[str, Any] | None:
@@ -21,11 +22,11 @@ def build_native_queue_manifest(selection: dict[str, Any]) -> dict[str, Any] | N
 
 
 def search_track_from_album_fallback(intent: MusicIntent, settings: dict[str, Any]) -> list[dict[str, Any]]:
-    return _bridge().search_track_from_album_fallback(intent, settings)
+    return search_track_from_album(_bridge(), intent)
 
 
 def search_track_from_artist_fallback(intent: MusicIntent, settings: dict[str, Any]) -> list[dict[str, Any]]:
-    return _bridge().search_track_from_artist_fallback(intent, settings)
+    return search_track_from_artist(_bridge(), intent)
 
 
 def build_library_search_endpoint(settings: dict[str, Any], media_type: str, query: str) -> str:

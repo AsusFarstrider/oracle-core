@@ -171,27 +171,19 @@ class SatelliteAlertsRuntimeTests(unittest.TestCase):
         self.assertEqual(request.resume_policy, "resume_previous")
         self.assertEqual(request.correlation_id, "notification-1")
 
-    def test_build_sleep_expiry_foreground_request_uses_stop_required(self) -> None:
-        request = alerts_runtime._build_sleep_expiry_foreground_request(
-            alert={"kind": "sleep_timer", "alert_id": "sleep-1"}
-        )
-
-        self.assertEqual(request.kind, "sleep_expiry")
-        self.assertEqual(request.handoff_mode, "replace")
-        self.assertEqual(request.interrupt_policy, "stop_required")
-        self.assertEqual(request.resume_policy, "no_resume")
-        self.assertEqual(request.correlation_id, "sleep-1")
-
     def test_due_timer_interrupts_local_playback_before_sounding(self) -> None:
         args = self._build_args()
         logger = self._build_logger()
         runtime_state = SimpleNamespace(next_alert_poll_at=0.0, next_wake_time=0.0)
         handoff = SimpleNamespace(interrupted_sessions=[])
-        with patch.object(alerts_runtime, "fetch_pending_alerts", return_value=[{"kind": "timer", "message": "Done", "alert_id": "timer-1"}]), patch.object(
+        alert = {"kind": "timer", "message": "Done", "alert_id": "timer-1", "lease_id": "lease-1"}
+        with patch.object(alerts_runtime, "claim_due_alerts", return_value=[alert]), patch.object(
             alerts_runtime, "begin_foreground_handoff", return_value=handoff
         ) as mock_begin, patch.object(alerts_runtime, "finalize_foreground_handoff") as mock_finalize, patch.object(
             alerts_runtime, "_play_alert_audio"
-        ) as mock_play, patch.object(alerts_runtime, "clear_audio_queue") as mock_clear:
+        ) as mock_play, patch.object(alerts_runtime, "clear_audio_queue") as mock_clear, patch.object(
+            alerts_runtime, "acknowledge_alert"
+        ) as mock_ack:
             alerts_runtime.poll_due_alerts_if_needed(
                 args=args,
                 logger=logger,
@@ -213,6 +205,9 @@ class SatelliteAlertsRuntimeTests(unittest.TestCase):
             logger=logger,
         )
         mock_clear.assert_called_once()
+        mock_ack.assert_called_once_with(
+            args.oracle_url, args.source, "timer-1", "lease-1", credential="brain-token"
+        )
 
     def test_due_notification_finalizes_resume_handoff_after_speaking(self) -> None:
         args = self._build_args()
@@ -227,7 +222,7 @@ class SatelliteAlertsRuntimeTests(unittest.TestCase):
         }
         with patch.object(
             alerts_runtime,
-            "fetch_pending_alerts",
+            "claim_due_alerts",
             return_value=[alert],
         ), patch.object(
             alerts_runtime,
@@ -242,7 +237,7 @@ class SatelliteAlertsRuntimeTests(unittest.TestCase):
         ) as mock_play, patch.object(
             alerts_runtime,
             "clear_audio_queue",
-        ):
+        ), patch.object(alerts_runtime, "acknowledge_alert") as mock_ack:
             alerts_runtime.poll_due_alerts_if_needed(
                 args=args,
                 logger=logger,
@@ -262,78 +257,8 @@ class SatelliteAlertsRuntimeTests(unittest.TestCase):
             handoff=handoff,
             logger=logger,
         )
-
-    def test_sleep_timer_prefers_brain_stop_so_audiobookshelf_syncs(self) -> None:
-        args = self._build_args()
-        logger = self._build_logger()
-        handoff = SimpleNamespace(interrupted_sessions=[])
-        with patch.object(
-            alerts_runtime,
-            "begin_foreground_handoff",
-            return_value=handoff,
-        ) as mock_begin, patch.object(
-            alerts_runtime,
-            "send_local_control_command",
-            return_value={"ok": True, "state": "stopped", "playback_id": "book-1"},
-        ) as mock_local_stop, patch.object(alerts_runtime, "send_silent_audiobook_stop") as mock_fallback, patch.object(
-            alerts_runtime, "finalize_foreground_handoff"
-        ) as mock_finalize:
-            alerts_runtime._stop_audiobook_for_sleep_timer(
-                args=args,
-                logger=logger,
-                alert={"kind": "sleep_timer", "alert_id": "alert-1"},
-            )
-
-        mock_begin.assert_not_called()
-        mock_fallback.assert_called_once_with(
-            args.oracle_url,
-            args.source,
-            "alert-1",
-            credential="brain-token",
-        )
-        mock_local_stop.assert_not_called()
-        mock_finalize.assert_not_called()
-
-    def test_sleep_timer_falls_back_to_local_longform_stop_when_brain_stop_fails(self) -> None:
-        args = self._build_args()
-        logger = self._build_logger()
-        handoff = SimpleNamespace(interrupted_sessions=[])
-        with patch.object(
-            alerts_runtime,
-            "begin_foreground_handoff",
-            return_value=handoff,
-        ) as mock_begin, patch.object(
-            alerts_runtime,
-            "send_local_control_command",
-            return_value={"ok": True, "state": "stopped", "playback_id": "book-1"},
-        ) as mock_local_stop, patch.object(
-            alerts_runtime,
-            "send_silent_audiobook_stop",
-            side_effect=alerts_runtime.requests.RequestException("brain unavailable"),
-        ) as mock_brain_stop, patch.object(alerts_runtime, "finalize_foreground_handoff") as mock_finalize:
-            alerts_runtime._stop_audiobook_for_sleep_timer(
-                args=args,
-                logger=logger,
-                alert={"kind": "sleep_timer", "alert_id": "alert-1"},
-            )
-
-        mock_begin.assert_called_once()
-        mock_brain_stop.assert_called_once_with(
-            args.oracle_url,
-            args.source,
-            "alert-1",
-            credential="brain-token",
-        )
-        mock_local_stop.assert_called_once_with(
-            args.music_control_url,
-            args.music_control_api_key,
-            "stop_longform_audio",
-        )
-        mock_finalize.assert_called_once_with(
-            control_url=args.music_control_url,
-            api_key=args.music_control_api_key,
-            handoff=handoff,
-            logger=logger,
+        mock_ack.assert_called_once_with(
+            args.oracle_url, args.source, "notification-1", "", credential="brain-token"
         )
 
 

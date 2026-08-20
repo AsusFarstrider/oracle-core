@@ -6,7 +6,7 @@ from pathlib import Path
 from .store import DB_PATH, PROVISIONAL_SUGGESTIONS_DB_PATH, transaction
 
 
-SCHEMA_VERSION = "0007_notification_delivery_repeat_policy"
+SCHEMA_VERSION = "0009_durable_alerts"
 SCHEMA_VERSIONS = (
     "0001_core",
     "0002_sessions_transcripts",
@@ -14,6 +14,8 @@ SCHEMA_VERSIONS = (
     "0004_runbook_kernel_metadata",
     "0005_notification_delivery_receipts",
     "0006_notification_delivery_retry_policy",
+    "0007_notification_delivery_repeat_policy",
+    "0008_current_state_and_retention",
     SCHEMA_VERSION,
 )
 
@@ -28,7 +30,6 @@ CREATE TABLE IF NOT EXISTS memory_users (
     user_id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    role TEXT NOT NULL,
     display_name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
     payload_json TEXT NOT NULL DEFAULT '{}'
@@ -63,12 +64,12 @@ CREATE TABLE IF NOT EXISTS memory_events (
     FOREIGN KEY(user_id) REFERENCES memory_users(user_id)
 );
 
-CREATE TABLE IF NOT EXISTS memory_snapshots (
-    snapshot_id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS memory_current_projections (
+    projection_id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     observed_at TEXT NOT NULL,
-    snapshot_type TEXT NOT NULL,
+    projection_type TEXT NOT NULL,
     source_id TEXT,
     provider TEXT,
     domain TEXT,
@@ -90,7 +91,7 @@ CREATE TABLE IF NOT EXISTS memory_sessions (
     ended_at TEXT,
     final_status TEXT,
     payload_json TEXT NOT NULL DEFAULT '{}',
-    CHECK (mode IN ('voice', 'ui', 'api', 'system', 'background')),
+    CHECK (mode IN ('conversation', 'ui', 'api', 'system', 'background')),
     FOREIGN KEY(source_id) REFERENCES memory_sources(source_id),
     FOREIGN KEY(user_id) REFERENCES memory_users(user_id)
 );
@@ -207,6 +208,43 @@ CREATE TABLE IF NOT EXISTS memory_notification_deliveries (
     CHECK (repeat_policy IN ('every_occurrence', 'first_per_correlation'))
 );
 
+CREATE TABLE IF NOT EXISTS memory_alerts (
+    alert_id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    session_id TEXT,
+    due_at TEXT NOT NULL,
+    expires_at TEXT,
+    message TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL,
+    idempotency_key TEXT,
+    lease_id TEXT,
+    leased_at TEXT,
+    lease_expires_at TEXT,
+    acknowledged_at TEXT,
+    completed_at TEXT,
+    canceled_at TEXT,
+    CHECK (status IN ('pending', 'leased', 'acknowledged', 'completed', 'canceled', 'expired')),
+    CHECK ((status = 'leased') = (lease_id IS NOT NULL AND lease_expires_at IS NOT NULL)),
+    FOREIGN KEY(source_id) REFERENCES memory_sources(source_id)
+);
+
+CREATE TABLE IF NOT EXISTS memory_alert_transitions (
+    transition_id TEXT PRIMARY KEY,
+    alert_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    from_status TEXT,
+    to_status TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    lease_id TEXT,
+    reason TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY(alert_id) REFERENCES memory_alerts(alert_id) ON DELETE CASCADE,
+    FOREIGN KEY(source_id) REFERENCES memory_sources(source_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_memory_events_observed_at ON memory_events(observed_at);
 CREATE INDEX IF NOT EXISTS idx_memory_events_event_type ON memory_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_memory_events_category ON memory_events(category);
@@ -216,11 +254,11 @@ CREATE INDEX IF NOT EXISTS idx_memory_events_correlation ON memory_events(correl
 CREATE INDEX IF NOT EXISTS idx_memory_events_provider ON memory_events(provider);
 CREATE INDEX IF NOT EXISTS idx_memory_events_domain ON memory_events(domain);
 CREATE INDEX IF NOT EXISTS idx_memory_events_status ON memory_events(status);
-CREATE INDEX IF NOT EXISTS idx_memory_snapshots_type ON memory_snapshots(snapshot_type);
-CREATE INDEX IF NOT EXISTS idx_memory_snapshots_provider ON memory_snapshots(provider);
-CREATE INDEX IF NOT EXISTS idx_memory_snapshots_source ON memory_snapshots(source_id);
-CREATE INDEX IF NOT EXISTS idx_memory_snapshots_status ON memory_snapshots(status);
-CREATE INDEX IF NOT EXISTS idx_memory_snapshots_observed_at ON memory_snapshots(observed_at);
+CREATE INDEX IF NOT EXISTS idx_memory_current_projections_type ON memory_current_projections(projection_type);
+CREATE INDEX IF NOT EXISTS idx_memory_current_projections_provider ON memory_current_projections(provider);
+CREATE INDEX IF NOT EXISTS idx_memory_current_projections_source ON memory_current_projections(source_id);
+CREATE INDEX IF NOT EXISTS idx_memory_current_projections_status ON memory_current_projections(status);
+CREATE INDEX IF NOT EXISTS idx_memory_current_projections_observed_at ON memory_current_projections(observed_at);
 CREATE INDEX IF NOT EXISTS idx_memory_sessions_correlation ON memory_sessions(correlation_id);
 CREATE INDEX IF NOT EXISTS idx_memory_sessions_source ON memory_sessions(source_id);
 CREATE INDEX IF NOT EXISTS idx_memory_sessions_user ON memory_sessions(user_id);
@@ -256,6 +294,89 @@ ON memory_notification_deliveries(
 WHERE repeat_policy = 'first_per_correlation'
   AND correlation_id IS NOT NULL
   AND correlation_id != '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_alerts_idempotency
+ON memory_alerts(idempotency_key, source_id)
+WHERE idempotency_key IS NOT NULL AND idempotency_key != '';
+CREATE INDEX IF NOT EXISTS idx_memory_alerts_claim
+ON memory_alerts(source_id, status, due_at, lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_memory_alerts_terminal
+ON memory_alerts(status, completed_at, canceled_at, updated_at);
+CREATE INDEX IF NOT EXISTS idx_memory_alert_transitions_alert
+ON memory_alert_transitions(alert_id, created_at);
+"""
+
+
+SUGGESTIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS suggestion_runs (
+    run_id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    status TEXT NOT NULL,
+    run_type TEXT NOT NULL,
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    reason TEXT,
+    custom_prompt TEXT,
+    openclaw_status TEXT,
+    collector_status_json TEXT NOT NULL DEFAULT '{}',
+    error TEXT,
+    packet_path TEXT,
+    response_path TEXT,
+    suggestion_count INTEGER NOT NULL DEFAULT 0,
+    mock INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS suggestions (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    title TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    category TEXT NOT NULL,
+    source TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    suggested_action TEXT NOT NULL,
+    recommended_oracle_action TEXT,
+    confidence REAL NOT NULL,
+    requires_review INTEGER NOT NULL,
+    similarity_key TEXT NOT NULL,
+    similar_to_id TEXT,
+    raw_openclaw_item_json TEXT NOT NULL,
+    reviewed_at TEXT,
+    review_decision TEXT,
+    review_notes TEXT,
+    correction_text TEXT,
+    rejection_reason TEXT,
+    future_automation_candidate INTEGER NOT NULL DEFAULT 0,
+    suppress_if_repeated INTEGER NOT NULL DEFAULT 0,
+    mock INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY(run_id) REFERENCES suggestion_runs(run_id)
+);
+CREATE TABLE IF NOT EXISTS suggestion_reviews (
+    review_id TEXT PRIMARY KEY,
+    suggestion_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    notes TEXT,
+    correction_text TEXT,
+    rejection_reason TEXT,
+    future_automation_candidate INTEGER NOT NULL DEFAULT 0,
+    suppress_if_repeated INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY(suggestion_id) REFERENCES suggestions(id)
+);
+CREATE TABLE IF NOT EXISTS suggestion_exchange_current (
+    singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+    run_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    packet_json TEXT,
+    response_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_suggestions_run ON suggestions(run_id);
+CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status);
+CREATE INDEX IF NOT EXISTS idx_suggestions_similarity ON suggestions(similarity_key);
+CREATE INDEX IF NOT EXISTS idx_reviews_suggestion ON suggestion_reviews(suggestion_id);
 """
 
 
@@ -285,8 +406,10 @@ def ensure_schema(
     provisional_db_path: Path | None = None,
 ) -> None:
     path = db_path or DB_PATH
+    _prepare_breaking_migration(path)
     with transaction(path) as conn:
         conn.executescript(CORE_SCHEMA)
+        conn.executescript(SUGGESTIONS_SCHEMA)
         _ensure_runbook_kernel_schema(conn)
         _ensure_notification_delivery_schema(conn)
         conn.executemany(
@@ -296,6 +419,130 @@ def ensure_schema(
     if copy_provisional_suggestions:
         source_path = provisional_db_path or PROVISIONAL_SUGGESTIONS_DB_PATH
         _copy_provisional_suggestion_tables(path, source_path)
+        _remove_obsolete_suggestion_sidecars(path, source_path)
+
+
+def _prepare_breaking_migration(path: Path) -> None:
+    """Apply the one-way V2 schema migration before normal schema creation.
+
+    This deliberately has no compatibility view: after migration the explicit
+    current-state projection and ``conversation`` session vocabulary are the
+    only executable schema.
+    """
+    if not path.exists():
+        return
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute("BEGIN IMMEDIATE")
+        tables = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        if "memory_snapshots" in tables:
+            if "memory_current_projections" not in tables:
+                conn.execute("ALTER TABLE memory_snapshots RENAME TO memory_current_projections")
+                conn.execute(
+                    "ALTER TABLE memory_current_projections RENAME COLUMN snapshot_id TO projection_id"
+                )
+                conn.execute(
+                    "ALTER TABLE memory_current_projections RENAME COLUMN snapshot_type TO projection_type"
+                )
+            else:
+                # A pre-cutover writer may have recreated the old table after a
+                # schema rehearsal. Merge its current rows deterministically,
+                # then complete the one-way cutover without a compatibility view.
+                conn.execute(
+                    """INSERT INTO memory_current_projections (
+                           projection_id, created_at, updated_at, observed_at,
+                           projection_type, source_id, provider, domain, status,
+                           correlation_id, payload_json
+                       )
+                       SELECT snapshot_id, created_at, updated_at, observed_at,
+                              snapshot_type, source_id, provider, domain, status,
+                              correlation_id, payload_json
+                       FROM memory_snapshots
+                       WHERE 1
+                       ON CONFLICT(projection_id) DO UPDATE SET
+                           updated_at=excluded.updated_at,
+                           observed_at=excluded.observed_at,
+                           projection_type=excluded.projection_type,
+                           source_id=excluded.source_id,
+                           provider=excluded.provider,
+                           domain=excluded.domain,
+                           status=excluded.status,
+                           correlation_id=excluded.correlation_id,
+                           payload_json=excluded.payload_json
+                       WHERE excluded.observed_at > memory_current_projections.observed_at"""
+                )
+                conn.execute("DROP TABLE memory_snapshots")
+        if "memory_sessions" in tables:
+            create_sql_row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_sessions'"
+            ).fetchone()
+            create_sql = str(create_sql_row[0] or "") if create_sql_row else ""
+            if "'voice'" in create_sql:
+                conn.execute(
+                    """CREATE TABLE memory_sessions_v2 (
+                        session_id TEXT PRIMARY KEY,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        correlation_id TEXT,
+                        source_id TEXT,
+                        user_id TEXT,
+                        mode TEXT NOT NULL,
+                        started_at TEXT NOT NULL,
+                        ended_at TEXT,
+                        final_status TEXT,
+                        payload_json TEXT NOT NULL DEFAULT '{}',
+                        CHECK (mode IN ('conversation', 'ui', 'api', 'system', 'background')),
+                        FOREIGN KEY(source_id) REFERENCES memory_sources(source_id),
+                        FOREIGN KEY(user_id) REFERENCES memory_users(user_id)
+                    )"""
+                )
+                conn.execute(
+                    """INSERT INTO memory_sessions_v2 (
+                        session_id, created_at, updated_at, correlation_id, source_id,
+                        user_id, mode, started_at, ended_at, final_status, payload_json
+                    )
+                    SELECT session_id, created_at, updated_at, correlation_id, source_id,
+                           user_id, CASE mode WHEN 'voice' THEN 'conversation' ELSE mode END,
+                           started_at, ended_at, final_status, payload_json
+                    FROM memory_sessions"""
+                )
+                conn.execute("DROP TABLE memory_sessions")
+                conn.execute("ALTER TABLE memory_sessions_v2 RENAME TO memory_sessions")
+        if "memory_users" in tables:
+            user_columns = {
+                str(row[1]) for row in conn.execute("PRAGMA table_info(memory_users)").fetchall()
+            }
+            if "role" in user_columns:
+                conn.execute(
+                    """CREATE TABLE memory_users_v2 (
+                        user_id TEXT PRIMARY KEY,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        display_name TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'active',
+                        payload_json TEXT NOT NULL DEFAULT '{}'
+                    )"""
+                )
+                conn.execute(
+                    """INSERT INTO memory_users_v2 (
+                        user_id, created_at, updated_at, display_name, status, payload_json
+                    ) SELECT user_id, created_at, updated_at, display_name, status, payload_json
+                      FROM memory_users"""
+                )
+                conn.execute("DROP TABLE memory_users")
+                conn.execute("ALTER TABLE memory_users_v2 RENAME TO memory_users")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def table_names(db_path: Path | None = None) -> set[str]:
@@ -360,9 +607,6 @@ def _copy_provisional_suggestion_tables(target_path: Path, source_path: Path) ->
             str(row[0])
             for row in target.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
         }
-        missing = [table for table in SUGGESTION_TABLES if table not in existing]
-        if not missing:
-            return
         target.execute("ATTACH DATABASE ? AS provisional", (str(source_path),))
         try:
             source_tables = {
@@ -372,17 +616,31 @@ def _copy_provisional_suggestion_tables(target_path: Path, source_path: Path) ->
                 ).fetchall()
             }
             for table in SUGGESTION_TABLES:
-                if table in existing or table not in source_tables:
+                if table not in source_tables:
                     continue
-                create_sql = target.execute(
-                    "SELECT sql FROM provisional.sqlite_master WHERE type = 'table' AND name = ?",
-                    (table,),
-                ).fetchone()
-                if not create_sql or not create_sql[0]:
+                if table not in existing:
+                    create_sql = target.execute(
+                        "SELECT sql FROM provisional.sqlite_master WHERE type = 'table' AND name = ?",
+                        (table,),
+                    ).fetchone()
+                    if not create_sql or not create_sql[0]:
+                        continue
+                    target.execute(create_sql[0])
+                target_columns = {
+                    str(row[1]) for row in target.execute(f"PRAGMA main.table_info({_quote_identifier(table)})")
+                }
+                source_columns = {
+                    str(row[1]) for row in target.execute(f"PRAGMA provisional.table_info({_quote_identifier(table)})")
+                }
+                columns = sorted(target_columns & source_columns)
+                if not columns:
                     continue
-                target.execute(create_sql[0])
                 quoted = _quote_identifier(table)
-                target.execute(f"INSERT INTO {quoted} SELECT * FROM provisional.{quoted}")
+                column_sql = ", ".join(_quote_identifier(column) for column in columns)
+                target.execute(
+                    f"INSERT OR IGNORE INTO {quoted} ({column_sql}) "
+                    f"SELECT {column_sql} FROM provisional.{quoted}"
+                )
             target.commit()
         finally:
             target.execute("DETACH DATABASE provisional")
@@ -392,3 +650,19 @@ def _copy_provisional_suggestion_tables(target_path: Path, source_path: Path) ->
 
 def _quote_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
+
+
+def _remove_obsolete_suggestion_sidecars(target_path: Path, source_path: Path) -> None:
+    if source_path.resolve() == target_path.resolve() or not target_path.exists():
+        return
+    target_tables = table_names(target_path)
+    if not set(SUGGESTION_TABLES).issubset(target_tables):
+        return
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(str(source_path) + suffix)
+        try:
+            sidecar.unlink(missing_ok=True)
+        except OSError:
+            # A live provisional writer means the adapter is not obsolete yet.
+            # Startup remains fail-open and a later reconciliation may retry.
+            pass

@@ -29,9 +29,12 @@ from oracle_app.handlers.fallback_router import attempt_fallback_router_warmup
 from oracle_app.api import _synthesize_speech_with_provider, _transcribe_audio_with_provider
 from oracle_app.dispatch import build_dispatch_registry, execute_dispatch
 from oracle_app.schemas import DispatchPlan, TtsRequest
+from oracle_app.memory.retention import retention_policy_from_configuration
+from oracle_app.configuration.runtime_models import MemoryRetentionConfiguration
 
 
 EXAMPLE_ROOT = Path(__file__).resolve().parents[1] / "examples" / "config"
+POLICY = retention_policy_from_configuration(MemoryRetentionConfiguration())
 
 
 class BrainCoreRuntimeConsumersTests(unittest.TestCase):
@@ -79,7 +82,7 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
             attempt_stt_provider_warmup(consumers.stt_provider)
         with (
             patch("oracle_app.handlers.fallback_router.get_fallback_router_settings") as legacy,
-            patch("oracle_app.handlers.fallback_router.warm_model") as warm_model,
+            patch("oracle_app.inference.warm_model") as warm_model,
         ):
             attempt_fallback_router_warmup(consumers.inference)
 
@@ -122,6 +125,7 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
                     upload,
                     consumers.stt_provider,
                     source="example_source",
+                    retention_policy=POLICY,
                 )
             )
 
@@ -132,7 +136,7 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
 
     def test_explicit_fallback_registry_does_not_read_legacy_settings(self) -> None:
         consumers = self._consumers(mode="enabled")
-        registry = build_dispatch_registry(inference_settings=consumers.inference)
+        registry = build_dispatch_registry(inference_client=consumers.inference)
         dispatch = DispatchPlan(
             target="fallback_router",
             hook="fallback_router.decide",
@@ -142,7 +146,7 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
 
         with (
             patch("oracle_app.handlers.fallback_router.get_fallback_router_settings") as legacy,
-            patch("oracle_app.handlers.fallback_router.call_generate") as generate,
+            patch("oracle_app.inference.call_generate") as generate,
         ):
             generate.return_value = {
                 "response": '{"domain":"facts","normalized_text":"tell me a joke","user_id":""}'
@@ -157,7 +161,7 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
 
     def test_explicit_disabled_fallback_fails_without_legacy_fallback(self) -> None:
         consumers = self._consumers()
-        registry = build_dispatch_registry(inference_settings=consumers.inference)
+        registry = build_dispatch_registry(inference_client=consumers.inference)
         dispatch = DispatchPlan(
             target="fallback_router",
             hook="fallback_router.decide",
@@ -213,7 +217,7 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
                 satellite_projection_activation_ids=MappingProxyType({}),
                 config_revision=inspection.normalized_candidate_revision,
                 bundle_id="example-home",
-                schema_version=1,
+                schema_version=2,
                 roles=inspection.bundle.roles,  # type: ignore[union-attr]
                 secrets=inspection.secrets,  # type: ignore[arg-type]
             )

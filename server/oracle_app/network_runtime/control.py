@@ -16,12 +16,7 @@ from oracle_app.network_control_local_service_restart import stage_pending_local
 from oracle_app.provider_bridges.home_assistant import HomeAssistantBridge, HomeAssistantBridgeError
 from oracle_app.provider_bridges.network_probe import NetworkProbeBridge
 from oracle_app.provider_bridges.plex_music import MusicBridgeError
-from oracle_app.provider_bridges.router_control import execute_typed_router_action
-from oracle_app.provider_bridges.service_control import (
-    check_typed_service_available,
-    execute_typed_service_action,
-)
-
+from .platform_adapters import RouterPlatformAdapter, ServicePlatformAdapter
 from .service_control import TypedServiceControl
 
 
@@ -147,20 +142,16 @@ def _execute_service(action: NetworkActionRuntimeSettings, context: dict[str, An
         if staged.get("ok") is not True:
             return _failed(str(staged.get("error") or "network_control_local_service_restart_state_unavailable"), str(staged.get("detail") or "Local service restart state could not be persisted."))
     policy = action.definition.execution
-    result = execute_typed_service_action(
-        adapter=adapter,
-        credential=action.adapter.credential,
-        operation=action.definition.operation,
-        timeout_seconds=int(policy.restart_timeout_seconds or 15),
-    )
-    if result.get("ok") is not True:
-        return _failed(str(result.get("error") or "network_control_service_control_failed"), str(result.get("detail") or "Service restart failed."))
-    if result.get("status") == "scheduled":
+    platform = ServicePlatformAdapter(adapter, action.adapter.credential)
+    result = platform.restart(action.definition.operation, timeout_seconds=int(policy.restart_timeout_seconds or 15))
+    if not result.ok:
+        return _failed(result.error or "network_control_service_control_failed", result.detail or "Service restart failed.")
+    if result.status == "scheduled":
         return {"ok": True, "result_status": "executed", "error_class": "", "summary": "The local service restart was scheduled and will be verified after startup.", "execution": {"adapter": "service_control", "deferred": True, "verification_status": "pending"}, "steps": []}
     if policy.wait_seconds:
         time.sleep(int(policy.wait_seconds))
-    check = check_typed_service_available(adapter=adapter, credential=action.adapter.credential, timeout_seconds=int(policy.restart_timeout_seconds or 15))
-    if check.get("ok") is not True:
+    check = platform.available(timeout_seconds=int(policy.restart_timeout_seconds or 15))
+    if not check.ok:
         return _failed("network_control_verification_failed", "The service restart completed, but availability verification did not pass.", adapter="service_control")
     return {"ok": True, "result_status": "executed", "error_class": "", "summary": "Service restart completed and verification passed.", "execution": {"adapter": "service_control", "service_manager": adapter.service_adapter, "verification_status": "passed"}, "steps": []}
 
@@ -187,10 +178,10 @@ def _execute_host(execution: Any, action: NetworkActionRuntimeSettings, context:
         if staged.get("ok") is not True:
             service.rollback(action.adapter, completed)
             return _failed(str(staged.get("error") or "network_control_local_restart_state_unavailable"), str(staged.get("detail") or "Local restart state could not be persisted."))
-    sent = execute_typed_service_action(adapter=adapter, credential=action.adapter.credential, operation="restart_host")
-    if sent.get("ok") is not True:
+    sent = ServicePlatformAdapter(adapter, action.adapter.credential).restart("restart_host")
+    if not sent.ok:
         service.rollback(action.adapter, completed)
-        return _failed(str(sent.get("error") or "network_control_host_restart_failed"), str(sent.get("detail") or "Host restart failed."), adapter="service_control")
+        return _failed(sent.error or "network_control_host_restart_failed", sent.detail or "Host restart failed.", adapter="service_control")
     if adapter.transport == "local":
         return {"ok": True, "result_status": "executed", "error_class": "", "summary": "The local host restart was scheduled and will be verified after startup.", "execution": {"adapter": "service_control", "deferred": True, "verification_status": "pending", "lifecycle_status": "prepared" if completed else "not_required", "lifecycle_completed_phase_ids": completed}, "steps": []}
     address = str(adapter.address or "")
@@ -217,9 +208,9 @@ def _execute_host(execution: Any, action: NetworkActionRuntimeSettings, context:
 def _execute_router(action: NetworkActionRuntimeSettings) -> dict[str, Any]:
     adapter = action.adapter.definition
     assert isinstance(adapter, RouterControlAdapter)
-    result = execute_typed_router_action(adapter=adapter, credential=str(action.adapter.credential or ""), operation=action.definition.operation)
-    if result.get("ok") is not True:
-        return _failed(str(result.get("error") or "network_control_router_control_failed"), str(result.get("detail") or "Router restart failed."), adapter="router_control")
+    result = RouterPlatformAdapter(adapter, str(action.adapter.credential or "")).restart(action.definition.operation)
+    if not result.ok:
+        return _failed(result.error or "network_control_router_control_failed", result.detail or "Router restart failed.", adapter="router_control")
     policy = action.definition.execution
     if not _wait_reachable(str(adapter.address), healthy=False, timeout=int(policy.shutdown_timeout_seconds or 90), poll=int(policy.recovery_poll_seconds or 5)):
         return _failed("network_control_router_shutdown_not_observed", "Router shutdown was not observed.", adapter="router_control")
@@ -284,17 +275,11 @@ def _preconditions(execution: Any, action: NetworkActionRuntimeSettings) -> list
             if target_pihole is None or alternate is None:
                 results.append({"id": precondition, "provider": "service_control", "status": "unavailable", "observed_value": None, "summary": "The target Pi-hole service cannot be resolved from canonical policy."})
                 continue
-            target_check = check_typed_service_available(
-                adapter=target_pihole.adapter.definition,
-                credential=target_pihole.adapter.credential,
-            )
-            alternate_check = check_typed_service_available(
-                adapter=alternate.adapter.definition,
-                credential=alternate.adapter.credential,
-            )
-            target_healthy = target_check.get("ok") is True
-            target_down = target_check.get("available") is False
-            alternate_healthy = alternate_check.get("ok") is True
+            target_check = ServicePlatformAdapter(target_pihole.adapter.definition, target_pihole.adapter.credential).available()
+            alternate_check = ServicePlatformAdapter(alternate.adapter.definition, alternate.adapter.credential).available()
+            target_healthy = target_check.ok
+            target_down = not target_check.ok and not target_check.error
+            alternate_healthy = alternate_check.ok
             if alternate_healthy:
                 status = "passed"
                 summary = "The alternate Pi-hole is healthy, so DNS continuity is preserved."
@@ -313,7 +298,7 @@ def _preconditions(execution: Any, action: NetworkActionRuntimeSettings) -> list
                 "status": status,
                 "observed_value": {
                     "target": "healthy" if target_healthy else "down" if target_down else "unknown",
-                    "alternate": "healthy" if alternate_healthy else "down" if alternate_check.get("available") is False else "unknown",
+                    "alternate": "healthy" if alternate_healthy else "down" if not alternate_check.error else "unknown",
                 },
                 "summary": summary,
             })

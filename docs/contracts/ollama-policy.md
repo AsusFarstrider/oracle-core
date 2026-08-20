@@ -209,3 +209,10 @@ it is a Brain-wide inference service. Each consuming domain still owns whether
 and how it selects that role. Environment and local-file settings become
 importer inputs after canonical cutover; they cannot override domain selection
 or the deterministic-first policy.
+
+Canonical runtime composition constructs one immutable typed inference client
+and injects it into fallback routing, facts summarization, music inference,
+warmup, and health. The shared client owns transport settings and mechanics
+only. Consumer prompts, parsing, fallback thresholds, and executable decisions
+remain with their domain owners. Canonical consumers must not reopen legacy
+configuration getters.

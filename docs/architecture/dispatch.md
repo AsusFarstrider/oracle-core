@@ -9,15 +9,24 @@ At a high level, dispatch has two stages:
 1. build a `DispatchPlan`
 2. execute that plan through the handler registry
 
-## Dispatch Plan Shape
+## Typed Dispatch Boundary
 
-The current `DispatchPlan` shape includes:
+Canonical execution validates every plan through one target-owned payload DTO
+before a handler runs. All ten route targets have distinct executable payload
+schema classes, backed by shared immutable context and failure primitives. The
+finite cross-target field vocabulary rejects arbitrary extension fields.
+
+The temporary internal `DispatchPlan` transport shape still includes:
 
 - `target`: the dispatch target selected by routing
 - `hook`: the planned upstream action name for that target
-- `payload`: the structured payload passed to the handler
+- `payload`: the target-owned DTO's serialized handler payload
 - `status`: the current dispatch state
-- `result`: optional execution output
+- `result`: private domain/provider detail normalized through a typed target
+  outcome before leaving the registry
+
+`DispatchPlan` is not a public command response. The canonical conversation
+API exposes only the finite `ConversationResult` contract.
 
 ## Planning
 
@@ -66,3 +75,6 @@ If the registry does not have a handler for the requested dispatch target:
 
 - dispatch status becomes `failed`
 - dispatch result includes `unknown_dispatch_target`
+
+Unknown system operations likewise fail as `system.unknown_operation`; they do
+not fall through to the cache-refresh maintenance action.

@@ -22,7 +22,7 @@ class AudiobookPlaybackRuntimeTests(unittest.TestCase):
             raise RuntimeError("play_longform_audio did not reach a playable long-form state")
 
         status, result = play_selected(
-            source="bedroom_satellite",
+            source="room_satellite",
             session_id="voice-1",
             user_id="reader_one",
             selection={"library_item_id": "book-1"},
@@ -52,7 +52,7 @@ class AudiobookPlaybackRuntimeTests(unittest.TestCase):
                 },
                 {
                     "playback_id": "playback-1",
-                    "source": "bedroom_satellite",
+                    "source": "room_satellite",
                     "abs_session_id": "abs-session-1",
                     "duration_seconds": 1000.0,
                 },
@@ -87,7 +87,7 @@ class AudiobookPlaybackRuntimeTests(unittest.TestCase):
             return {"ok": True, "state": "accepted"}
 
         status, result = play_selected(
-            source="bedroom_satellite",
+            source="room_satellite",
             session_id="routine-1",
             user_id="reader_one",
             selection={"library_item_id": "book-1"},
@@ -135,7 +135,7 @@ class AudiobookPlaybackRuntimeTests(unittest.TestCase):
             return {"ok": True, "state": "stopped"}
 
         status, result = sync_then_control(
-            source="bedroom_satellite",
+            source="room_satellite",
             action="stop_longform_audio",
             close_session=True,
             get_active_playback_for_source=lambda source: {

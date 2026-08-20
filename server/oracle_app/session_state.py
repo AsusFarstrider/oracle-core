@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from .interaction_synchronization import synchronized_interaction
 from .tracing import log_session_event
 
 logger = logging.getLogger("oracle-brain.session")
@@ -251,6 +252,19 @@ def _expire_pending_state_if_needed(
     return True
 
 
+def _clear_owned_interaction_compartments(source: str, session_id: str) -> dict[str, bool]:
+    from .command_events import clear_command_interim_events_for_session
+    from .conversation import clear_conversation
+
+    return {
+        "conversation_cleared": clear_conversation(source, session_id),
+        "command_events_cleared": clear_command_interim_events_for_session(
+            source=source,
+            session_id=session_id,
+        ),
+    }
+
+
 def _prune_expired(now_monotonic: float | None = None) -> None:
     current = time.monotonic() if now_monotonic is None else now_monotonic
     expired_keys = [key for key, session in _SESSIONS.items() if _session_expired(session, now_monotonic=current)]
@@ -261,13 +275,6 @@ def _prune_expired(now_monotonic: float | None = None) -> None:
         meta = session.get("session_meta") if isinstance(session, dict) else {}
         source = str((meta or {}).get("source") or "").strip()
         effective = str((meta or {}).get("effective_session_id") or "").strip()
-        _record_audit(
-            key,
-            "session",
-            event="session_expired",
-            reason="session_timeout",
-            detail="Session expired before the next request refreshed it.",
-        )
         log_session_event(
             "session_expired",
             source=source,
@@ -277,6 +284,9 @@ def _prune_expired(now_monotonic: float | None = None) -> None:
         )
         if source and effective and _FALLBACK_BY_SOURCE.get(source) == effective:
             _FALLBACK_BY_SOURCE.pop(source, None)
+        if source and effective:
+            _clear_owned_interaction_compartments(source, effective)
+        _SESSION_AUDIT.pop(key, None)
 
 
 def _build_fallback_session_id(source: str) -> str:
@@ -284,6 +294,7 @@ def _build_fallback_session_id(source: str) -> str:
     return f"fallback-{slug}-{uuid.uuid4().hex[:10]}"
 
 
+@synchronized_interaction
 def resolve_request_session(
     source: str | None,
     client_session_id: str | None,
@@ -321,6 +332,8 @@ def resolve_request_session(
     session = _SESSIONS.get(key)
     created_new_session = False
     if session is None:
+        _clear_owned_interaction_compartments(normalized_source, effective_session_id)
+        _SESSION_AUDIT.pop(key, None)
         session = _build_session(
             source=normalized_source,
             client_session_id=normalized_client_session_id,
@@ -371,6 +384,7 @@ def resolve_request_session(
     }
 
 
+@synchronized_interaction
 def refresh_session(source: str | None, session_id: str | None) -> bool:
     normalized_source = _normalize_source(source)
     normalized_session_id = normalize_client_session_id(session_id)
@@ -387,6 +401,7 @@ def refresh_session(source: str | None, session_id: str | None) -> bool:
     return True
 
 
+@synchronized_interaction
 def get_session(source: str | None, session_id: str | None) -> dict[str, Any] | None:
     now_monotonic = time.monotonic()
     _prune_expired(now_monotonic)
@@ -408,6 +423,7 @@ def get_session(source: str | None, session_id: str | None) -> dict[str, Any] | 
     return _copy_session(session)
 
 
+@synchronized_interaction
 def inspect_session(source: str | None, session_id: str | None) -> dict[str, Any] | None:
     now_monotonic = time.monotonic()
     _prune_expired(now_monotonic)
@@ -478,6 +494,7 @@ def inspect_session(source: str | None, session_id: str | None) -> dict[str, Any
     }
 
 
+@synchronized_interaction
 def iter_pending_states(*, domain: str | None = None) -> list[tuple[str, dict[str, Any]]]:
     now_monotonic = time.monotonic()
     _prune_expired(now_monotonic)
@@ -503,6 +520,7 @@ def iter_pending_states(*, domain: str | None = None) -> list[tuple[str, dict[st
     return items
 
 
+@synchronized_interaction
 def describe_followup_resolution(source: str | None, session_id: str | None) -> dict[str, Any]:
     session = get_session(source, session_id)
     if session is None:
@@ -544,6 +562,7 @@ def describe_followup_resolution(source: str | None, session_id: str | None) -> 
     }
 
 
+@synchronized_interaction
 def get_active_context(source: str | None, session_id: str | None) -> dict[str, Any] | None:
     session = get_session(source, session_id)
     if session is None:
@@ -552,6 +571,7 @@ def get_active_context(source: str | None, session_id: str | None) -> dict[str, 
     return dict(active) if isinstance(active, dict) else None
 
 
+@synchronized_interaction
 def get_user_context(source: str | None, session_id: str | None) -> dict[str, Any] | None:
     session = get_session(source, session_id)
     if session is None:
@@ -560,6 +580,7 @@ def get_user_context(source: str | None, session_id: str | None) -> dict[str, An
     return dict(user_context) if isinstance(user_context, dict) else None
 
 
+@synchronized_interaction
 def get_active_user_id(source: str | None, session_id: str | None) -> str | None:
     user_context = get_user_context(source, session_id)
     if not isinstance(user_context, dict):
@@ -567,6 +588,7 @@ def get_active_user_id(source: str | None, session_id: str | None) -> str | None
     return str(user_context.get("active_user_id") or "").strip() or None
 
 
+@synchronized_interaction
 def set_user_context(
     source: str | None,
     session_id: str | None,
@@ -621,6 +643,7 @@ def set_user_context(
     return True
 
 
+@synchronized_interaction
 def clear_user_context(source: str | None, session_id: str | None) -> bool:
     normalized_source = _normalize_source(source)
     normalized_session_id = normalize_client_session_id(session_id)
@@ -646,6 +669,7 @@ def clear_user_context(source: str | None, session_id: str | None) -> bool:
     return True
 
 
+@synchronized_interaction
 def set_pending_state(
     source: str | None,
     session_id: str | None,
@@ -718,6 +742,7 @@ def set_pending_state(
     return True
 
 
+@synchronized_interaction
 def set_active_context(
     source: str | None,
     session_id: str | None,
@@ -829,6 +854,7 @@ def _looks_like_home_brightness_context(text: str) -> bool:
     return re.fullmatch(r"set (?:the )?.+? lights to \d{1,3} percent brightness", text.strip()) is not None
 
 
+@synchronized_interaction
 def clear_active_context(source: str | None, session_id: str | None, *, reason: str = "cleared") -> bool:
     normalized_source = _normalize_source(source)
     normalized_session_id = normalize_client_session_id(session_id)
@@ -854,6 +880,7 @@ def clear_active_context(source: str | None, session_id: str | None, *, reason: 
     return True
 
 
+@synchronized_interaction
 def clear_session_state(source: str | None, session_id: str | None, *, reason: str = "explicit_reset") -> dict[str, bool]:
     pending_cleared = False
     active_cleared = clear_active_context(source, session_id, reason=reason)
@@ -862,8 +889,18 @@ def clear_session_state(source: str | None, session_id: str | None, *, reason: s
         pending_cleared = clear_pending_state(source, session_id, domain=domain, reason=reason) or pending_cleared
     normalized_source = _normalize_source(source)
     normalized_session_id = normalize_client_session_id(session_id)
+    owned_cleared = {
+        "conversation_cleared": False,
+        "command_events_cleared": False,
+    }
+    audit_cleared = False
     if normalized_source is not None and normalized_session_id is not None:
         key = _session_key(normalized_source, normalized_session_id)
+        owned_cleared = _clear_owned_interaction_compartments(
+            normalized_source,
+            normalized_session_id,
+        )
+        audit_cleared = _SESSION_AUDIT.pop(key, None) is not None
         _record_audit(
             key,
             "session",
@@ -882,9 +919,13 @@ def clear_session_state(source: str | None, session_id: str | None, *, reason: s
         "pending_cleared": pending_cleared,
         "active_context_cleared": active_cleared,
         "user_context_cleared": user_cleared,
+        "conversation_cleared": owned_cleared["conversation_cleared"],
+        "command_events_cleared": owned_cleared["command_events_cleared"],
+        "audit_cleared": audit_cleared,
     }
 
 
+@synchronized_interaction
 def get_pending_state(
     source: str | None,
     session_id: str | None,
@@ -903,6 +944,7 @@ def get_pending_state(
     return dict(payload) if isinstance(payload, dict) else None
 
 
+@synchronized_interaction
 def clear_pending_state(
     source: str | None,
     session_id: str | None,
@@ -940,7 +982,13 @@ def clear_pending_state(
     return True
 
 
+@synchronized_interaction
 def clear_all_sessions() -> None:
+    from .command_events import clear_command_interim_events
+    from .conversation import clear_all_conversations
+
     _SESSIONS.clear()
     _FALLBACK_BY_SOURCE.clear()
     _SESSION_AUDIT.clear()
+    clear_all_conversations()
+    clear_command_interim_events()

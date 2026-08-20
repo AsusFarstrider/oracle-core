@@ -12,7 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
 from oracle_app.memory import events, identities, schema, sources
-from oracle_app.memory.retention import describe_default_policy
+from oracle_app.memory.retention import retention_policy_from_configuration
+from oracle_app.configuration.runtime_models import MemoryRetentionConfiguration
 from oracle_app.memory.store import transaction
 from oracle_app.memory.taxonomy import category_for_event_type, validate_event_type
 
@@ -33,7 +34,7 @@ class OracleMemoryStoreTests(unittest.TestCase):
                 "memory_users",
                 "memory_sources",
                 "memory_events",
-                "memory_snapshots",
+                "memory_current_projections",
                 "memory_sessions",
                 "memory_transcripts",
                 "memory_orchestration_runs",
@@ -143,13 +144,11 @@ class OracleMemoryStoreTests(unittest.TestCase):
         created = identities.upsert_user(
             user_id="system",
             display_name="System",
-            role="system",
             payload={"owner": "memory"},
             db_path=self.db_path,
         )
 
         self.assertEqual(created["user_id"], "system")
-        self.assertEqual(created["role"], "system")
         self.assertEqual(created["payload"], {"owner": "memory"})
         self.assertEqual(identities.get_user("system", db_path=self.db_path)["display_name"], "System")
         self.assertEqual(len(identities.list_users(db_path=self.db_path)), 1)
@@ -174,17 +173,17 @@ class OracleMemoryStoreTests(unittest.TestCase):
 
         self.assertEqual(
             {definition["source_id"] for definition in definitions},
-            {"brain", "system", "api", "ui", "voice", "background"},
+            {"brain", "system", "api", "ui", "background"},
         )
         self.assertTrue(all(definition["payload"] == {"internal": True} for definition in definitions))
 
     def test_seed_default_sources_creates_internal_sources(self) -> None:
         seeded = sources.seed_default_sources(db_path=self.db_path)
 
-        self.assertEqual(len(seeded), 6)
+        self.assertEqual(len(seeded), 5)
         self.assertEqual(sources.get_source("brain", db_path=self.db_path)["display_name"], "Oracle Brain")
         self.assertEqual(sources.get_source("background", db_path=self.db_path)["source_type"], "background")
-        self.assertEqual(len(sources.list_sources(db_path=self.db_path)), 6)
+        self.assertEqual(len(sources.list_sources(db_path=self.db_path)), 5)
 
     def test_seed_default_sources_is_idempotent(self) -> None:
         sources.seed_default_sources(db_path=self.db_path)
@@ -193,7 +192,7 @@ class OracleMemoryStoreTests(unittest.TestCase):
         sources.seed_default_sources(db_path=self.db_path)
         second_brain = sources.get_source("brain", db_path=self.db_path)
 
-        self.assertEqual(len(sources.list_sources(db_path=self.db_path)), 6)
+        self.assertEqual(len(sources.list_sources(db_path=self.db_path)), 5)
         self.assertEqual(second_brain["created_at"], first_brain["created_at"])
         self.assertEqual(second_brain["display_name"], "Oracle Brain")
 
@@ -244,7 +243,7 @@ class OracleMemoryStoreTests(unittest.TestCase):
             satellite["payload"],
             {"fixed": True, "default_room": "bedroom", "source_registry": True},
         )
-        self.assertEqual(len(sources.list_sources(db_path=self.db_path)), 7)
+        self.assertEqual(len(sources.list_sources(db_path=self.db_path)), 6)
 
     def test_seed_sources_rejects_invalid_source_type(self) -> None:
         with self.assertRaises(ValueError):
@@ -265,7 +264,7 @@ class OracleMemoryStoreTests(unittest.TestCase):
         self.assertEqual(events.query_events(db_path=self.db_path), [])
 
     def test_insert_and_query_events(self) -> None:
-        identities.upsert_user(user_id="system", display_name="System", role="system", db_path=self.db_path)
+        identities.upsert_user(user_id="system", display_name="System", db_path=self.db_path)
         sources.upsert_source(source_id="brain", source_type="brain", display_name="Brain", db_path=self.db_path)
 
         created = events.record_event(
@@ -406,8 +405,8 @@ class OracleMemoryStoreTests(unittest.TestCase):
                 conn.execute(
                     """
                     INSERT INTO memory_users (
-                        user_id, created_at, updated_at, role, display_name, status, payload_json
-                    ) VALUES ('rolled-back', 'now', 'now', 'system', 'Rolled Back', 'active', '{}')
+                        user_id, created_at, updated_at, display_name, status, payload_json
+                    ) VALUES ('rolled-back', 'now', 'now', 'Rolled Back', 'active', '{}')
                     """
                 )
                 raise RuntimeError("force rollback")
@@ -437,12 +436,12 @@ class OracleMemoryStoreTests(unittest.TestCase):
         self.assertIn("payload_json", columns)
 
     def test_retention_scaffolding_exposes_defaults_without_deleting(self) -> None:
-        policy = describe_default_policy()
+        policy = retention_policy_from_configuration(MemoryRetentionConfiguration()).__dict__
 
         self.assertEqual(policy["successful_raw_transcript_days"], 14)
         self.assertEqual(policy["failed_raw_transcript_days"], 30)
         self.assertEqual(policy["transcript_metadata_days"], 90)
-        self.assertEqual(policy["rollup_days"], 365)
+        self.assertEqual(policy["orchestration_history_days"], 365)
 
     def test_no_execution_boundary_imports(self) -> None:
         forbidden_fragments = (

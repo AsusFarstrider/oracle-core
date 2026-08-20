@@ -24,6 +24,7 @@ def register_voice_routes(
     synthesize_speech: RouteHandler,
     transcribe_audio: RouteHandler,
 ) -> None:
+    """Register temporary Slice 9 compatibility aliases only."""
     app.post("/api/voice/route", response_model=RouteResponse)(route_request)
     app.post("/api/voice/command", response_model=CommandResponse)(command_request)
     app.post("/command", response_model=CommandResponse)(command_request)

@@ -95,8 +95,8 @@ class OracleMemoryDiagnosticsTests(unittest.TestCase):
         with transaction(self.db_path) as conn:
             conn.execute(
                 """
-                INSERT INTO memory_snapshots (
-                    snapshot_id, created_at, updated_at, observed_at, snapshot_type,
+                INSERT INTO memory_current_projections (
+                    projection_id, created_at, updated_at, observed_at, projection_type,
                     provider, domain, status, payload_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -114,8 +114,8 @@ class OracleMemoryDiagnosticsTests(unittest.TestCase):
             )
             conn.execute(
                 """
-                INSERT INTO memory_snapshots (
-                    snapshot_id, created_at, updated_at, observed_at, snapshot_type,
+                INSERT INTO memory_current_projections (
+                    projection_id, created_at, updated_at, observed_at, projection_type,
                     provider, domain, status, payload_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -164,8 +164,8 @@ class OracleMemoryDiagnosticsTests(unittest.TestCase):
         with transaction(self.db_path) as conn:
             conn.execute(
                 """
-                INSERT INTO memory_snapshots (
-                    snapshot_id, created_at, updated_at, observed_at, snapshot_type,
+                INSERT INTO memory_current_projections (
+                    projection_id, created_at, updated_at, observed_at, projection_type,
                     provider, domain, status, payload_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -183,8 +183,8 @@ class OracleMemoryDiagnosticsTests(unittest.TestCase):
             )
             conn.execute(
                 """
-                INSERT INTO memory_snapshots (
-                    snapshot_id, created_at, updated_at, observed_at, snapshot_type,
+                INSERT INTO memory_current_projections (
+                    projection_id, created_at, updated_at, observed_at, projection_type,
                     provider, domain, status, payload_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -241,14 +241,14 @@ class OracleMemoryDiagnosticsTests(unittest.TestCase):
         with transaction(self.db_path) as conn:
             conn.execute(
                 """
-                UPDATE memory_snapshots
+                UPDATE memory_current_projections
                 SET observed_at = ?, updated_at = ?
-                WHERE snapshot_id = ?
+                WHERE projection_id = ?
                 """,
                 (
                     "2026-04-24T11:59:59+00:00",
                     "2026-04-24T11:59:59+00:00",
-                    provider_status.provider_status_snapshot_id("ollama", "ollama"),
+                    provider_status.provider_status_projection_id("ollama", "ollama"),
                 ),
             )
 
@@ -281,8 +281,8 @@ class OracleMemoryDiagnosticsTests(unittest.TestCase):
             )
             conn.execute(
                 """
-                INSERT INTO memory_snapshots (
-                    snapshot_id, created_at, updated_at, observed_at, snapshot_type,
+                INSERT INTO memory_current_projections (
+                    projection_id, created_at, updated_at, observed_at, projection_type,
                     provider, domain, status, payload_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -425,8 +425,8 @@ class OracleMemoryDiagnosticsTests(unittest.TestCase):
             )
             conn.execute(
                 """
-                INSERT INTO memory_snapshots (
-                    snapshot_id, created_at, updated_at, observed_at, snapshot_type,
+                INSERT INTO memory_current_projections (
+                    projection_id, created_at, updated_at, observed_at, projection_type,
                     source_id, provider, domain, status, payload_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -480,7 +480,7 @@ class OracleMemoryDiagnosticsTests(unittest.TestCase):
         with transaction(self.db_path) as conn:
             before = {
                 "events": conn.execute("SELECT COUNT(*), MAX(observed_at) FROM memory_events").fetchone(),
-                "snapshots": conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_snapshots").fetchone(),
+                "snapshots": conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_current_projections").fetchone(),
                 "sources": conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_sources").fetchone(),
             }
 
@@ -492,7 +492,7 @@ class OracleMemoryDiagnosticsTests(unittest.TestCase):
         with transaction(self.db_path) as conn:
             after = {
                 "events": conn.execute("SELECT COUNT(*), MAX(observed_at) FROM memory_events").fetchone(),
-                "snapshots": conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_snapshots").fetchone(),
+                "snapshots": conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_current_projections").fetchone(),
                 "sources": conn.execute("SELECT COUNT(*), MAX(updated_at) FROM memory_sources").fetchone(),
             }
 

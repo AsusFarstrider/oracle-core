@@ -9,6 +9,7 @@ from .brain_application_composition import (
 from .config import get_orchestration_settings, get_source_registry
 from .orchestration_routine_canonical import CanonicalRoutineExecution
 from .orchestration_routines import cancel_routine, start_routine
+from . import state
 from .schemas import UiRoutineCancelRequest, UiRoutineRunRequest
 
 
@@ -43,6 +44,32 @@ def run_routine(
         raise HTTPException(status_code=409, detail="This routine is not available from UI controls.")
     if source and source not in (definition.get("source_ids") or []):
         raise HTTPException(status_code=409, detail="This routine is not available from that source.")
+    conversational = _missing_conversational_input(definition, request.inputs)
+    if conversational is not None:
+        input_id, spec = conversational
+        if not source or not request.ui_session_id:
+            raise HTTPException(status_code=400, detail="Routine conversational input requires source and ui_session_id.")
+        prompt = str(spec["prompt"])
+        if not state.store_pending_ui_context(
+            source,
+            request.ui_session_id,
+            {
+                "action": "routine_input",
+                "client_id": str(request.client_id),
+                "target_source_id": source,
+                "routine_id": orchestration_id,
+                "input_id": input_id,
+                "input_spec": spec,
+                "prompt": prompt,
+            },
+        ):
+            raise HTTPException(status_code=400, detail="Unable to start routine input conversation.")
+        return {
+            "ok": True,
+            "pending_input": True,
+            "orchestration_id": orchestration_id,
+            "prompt": prompt,
+        }
     if routine_execution is None:
         run = start_routine(
             orchestration_id,
@@ -115,3 +142,14 @@ def _compatibility_run(run: dict[str, object]) -> dict[str, object]:
         for key, value in run.items()
         if key not in _KERNEL_PRIVATE_RUN_FIELDS
     }
+
+
+def _missing_conversational_input(
+    definition: dict[str, object],
+    provided: dict[str, object],
+) -> tuple[str, dict[str, object]] | None:
+    for input_id, raw_spec in (definition.get("inputs") or {}).items():  # type: ignore[union-attr]
+        spec = dict(raw_spec)
+        if spec.get("spoken_duration") is True and input_id not in provided:
+            return str(input_id), spec
+    return None

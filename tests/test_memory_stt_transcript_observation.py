@@ -17,6 +17,11 @@ from stt import SttError, SttResult
 from oracle_app.api import _transcribe_audio_with_provider
 from oracle_app.memory.correlation import correlation_context
 from oracle_app.memory import sources, transcripts
+from oracle_app.memory.retention import retention_policy_from_configuration
+from oracle_app.configuration.runtime_models import MemoryRetentionConfiguration
+
+
+POLICY = retention_policy_from_configuration(MemoryRetentionConfiguration())
 
 
 class FakeSttProvider:
@@ -83,7 +88,11 @@ class SttTranscriptObservationTests(unittest.TestCase):
         self.assertIsNone(row["failure_stage"])
         self.assertEqual(
             row["payload"],
-            {"audio_bytes": len(b"fake-wav-bytes"), "endpoint": "/stt", "filename_suffix": ".wav"},
+            {
+                "audio_bytes": len(b"fake-wav-bytes"),
+                "endpoint": "/api/speech/stt",
+                "filename_suffix": ".wav",
+            },
         )
 
         raw_row = transcripts.get_transcript(
@@ -127,7 +136,7 @@ class SttTranscriptObservationTests(unittest.TestCase):
             row["payload"],
             {
                 "audio_bytes": len(b"fake-wav-bytes"),
-                "endpoint": "/stt",
+                "endpoint": "/api/speech/stt",
                 "error_type": "SttError",
                 "filename_suffix": ".wav",
             },
@@ -185,7 +194,9 @@ def _upload_file() -> UploadFile:
 
 def _run_transcribe(upload: UploadFile, *, provider: FakeSttProvider, source: str | None = None):
     try:
-        return asyncio.run(_transcribe_audio_with_provider(upload, provider, source=source))
+        return asyncio.run(_transcribe_audio_with_provider(
+            upload, provider, source=source, retention_policy=POLICY
+        ))
     finally:
         asyncio.run(upload.close())
 

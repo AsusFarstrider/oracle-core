@@ -5,7 +5,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from oracle_app import state
+from oracle_app import audiobook_state
 from oracle_app.music_runtime.control import build_control_plane_failure
 from oracle_app.provider_bridges.audiobookshelf_audiobook import (
     normalize_audiobook_item,
@@ -297,7 +297,7 @@ def _queue_deferred_audiobook_sync(
     sync_audiobook_session: Callable[..., None],
 ) -> None:
     now = time.time()
-    state.upsert_pending_audiobook_sync(
+    audiobook_state.upsert_pending_audiobook_sync(
         sync_id,
         {
             "sync_id": sync_id,
@@ -353,7 +353,7 @@ def _run_deferred_audiobook_sync(
             )
         except Exception as exc:
             last_error = str(exc)
-            state.mark_pending_audiobook_sync_status(
+            audiobook_state.mark_pending_audiobook_sync_status(
                 sync_id,
                 status="pending",
                 attempt_count=attempt_index,
@@ -362,7 +362,7 @@ def _run_deferred_audiobook_sync(
             if time.time() - start >= _AUDIOBOOK_SYNC_FAILURE_WINDOW_SECONDS:
                 break
             continue
-        state.mark_pending_audiobook_sync_status(
+        audiobook_state.mark_pending_audiobook_sync_status(
             sync_id,
             status="synced",
             attempt_count=attempt_index,
@@ -372,7 +372,7 @@ def _run_deferred_audiobook_sync(
         logger.info("Deferred Audiobookshelf sync succeeded sync_id=%s attempts=%s", sync_id, attempt_index)
         return
 
-    state.mark_pending_audiobook_sync_status(
+    audiobook_state.mark_pending_audiobook_sync_status(
         sync_id,
         status="failed",
         attempt_count=len(_AUDIOBOOK_SYNC_RETRY_DELAYS_SECONDS),

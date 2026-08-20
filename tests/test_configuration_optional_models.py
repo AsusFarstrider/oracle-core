@@ -223,6 +223,34 @@ class OptionalConfigurationModelTests(unittest.TestCase):
         model = validate_role("domains/routines.yaml", payload)
         self.assertEqual(model.definitions[0].steps[0].type, "wait")
 
+    def test_duration_confirmation_requires_spoken_duration(self) -> None:
+        payload = self._example_payload("domains/routines.yaml")
+        payload["enabled"] = True
+        payload["definitions"] = [
+            {
+                "id": "bedtime",
+                "display_name": "Bedtime",
+                "description": "Confirm a bounded duration.",
+                "enabled": True,
+                "user_id": "resident_one",
+                "source_ids": ["living_room_voice"],
+                "triggers": {"ui": True, "voice": False},
+                "inputs": {
+                    "delay": {
+                        "type": "integer",
+                        "default": 60,
+                        "minimum": 0,
+                        "maximum": 3600,
+                        "confirm_duration": True,
+                    }
+                },
+                "steps": [],
+            }
+        ]
+
+        with self.assertRaises(ValidationError):
+            validate_role("domains/routines.yaml", payload)
+
     def test_credential_free_urls_reject_embedded_or_query_credentials(self) -> None:
         payload = self._example_payload("domains/music.yaml")
         for url in ("http://user:password@plex.invalid", "https://plex.invalid/api?token=secret"):

@@ -17,7 +17,6 @@ import sounddevice as sd
 
 DEFAULT_ORACLE_URL = ""
 CONVERSATION_TIMEOUT_SECONDS = 90.0
-ALERTS_POLL_MILLISECONDS = 2000
 SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = "int16"
@@ -69,7 +68,6 @@ class PushToTalkApp:
         self.root.bind("<KeyRelease-space>", self._on_space_up)
         self.root.bind("<Escape>", self._on_escape)
         self.root.after(50, self._drain_events)
-        self.root.after(ALERTS_POLL_MILLISECONDS, self._poll_pending_alerts)
 
     def _build_ui(self) -> None:
         frame = ttk.Frame(self.root, padding=16)
@@ -202,7 +200,7 @@ class PushToTalkApp:
 
     def _send_stt(self, wav_bytes: bytes) -> str:
         response = requests.post(
-            f"{self._oracle_base_url()}/stt",
+            f"{self._oracle_base_url()}/api/speech/stt",
             files={"audio": ("speech.wav", wav_bytes, "audio/wav")},
             timeout=120,
         )
@@ -227,7 +225,7 @@ class PushToTalkApp:
     def _send_command(self, transcript: str) -> CommandOutcome:
         session_id = self._get_active_session_id()
         response = requests.post(
-            f"{self._oracle_base_url()}/command",
+            f"{self._oracle_base_url()}/api/conversation/command",
             json={"text": transcript, "source": "pc-push-to-talk", "session_id": session_id},
             timeout=120,
         )
@@ -237,180 +235,28 @@ class PushToTalkApp:
         return CommandOutcome(transcript=transcript, spoken_reply=spoken_reply, raw_response=data)
 
     def _extract_spoken_reply(self, payload: dict) -> str:
-        reply_text = str(payload.get("reply_text", "")).strip()
-        if reply_text:
-            return reply_text
-
-        dispatch = payload.get("dispatch", {})
-        target = dispatch.get("target")
-        status = dispatch.get("status")
-        result = dispatch.get("result") or {}
-
-        if status == "pending_confirmation":
-            return str(result.get("prompt", "Please confirm before I proceed.")).strip()
-        if status == "pending_clarification":
-            return str(result.get("prompt", "I found multiple matches. Which one did you want?")).strip()
-
-        if target == "home_assistant":
-            return self._extract_home_assistant_speech(result) or "Done."
-
-        if target == "calendar":
-            if status == "failed":
-                error = str(result.get("error", "")).strip()
-                if error == "calendar_query_failed":
-                    return "I couldn't read your calendar right now."
-                return "I couldn't complete that calendar request."
-            events = result.get("events") or []
-            spoken = [str(event.get("summary", "")).strip() for event in events[:3] if str(event.get("summary", "")).strip()]
-            if not spoken:
-                return "You have nothing on your calendar for that time."
-            if len(spoken) == 1:
-                return f"You have {spoken[0]}."
-            if len(spoken) == 2:
-                return f"You have {spoken[0]}, and {spoken[1]}."
-            return f"You have {spoken[0]}, {spoken[1]}, and {spoken[2]}."
-
-        if target == "news":
-            if status == "failed":
-                return "I couldn't get the latest headlines right now."
-            source_label = str(result.get("source_label", "the news")).strip()
-            spoken = [str(item.get("title", "")).strip() for item in (result.get("headlines") or [])[:3] if str(item.get("title", "")).strip()]
-            if not spoken:
-                return f"I couldn't find any current headlines from {source_label}."
-            if len(spoken) == 1:
-                return f"From {source_label}: {spoken[0]}."
-            if len(spoken) == 2:
-                return f"From {source_label}: {spoken[0]}. Also, {spoken[1]}."
-            return f"From {source_label}: {spoken[0]}. Also, {spoken[1]}. And {spoken[2]}."
-
-        if target == "system":
-            if result.get("action") == "ignore":
-                return ""
-            if result.get("action") == "refresh_cache":
-                return "My device cache has been refreshed."
-            if result.get("action") == "cancel_pending":
-                return "Canceled."
-            if result.get("action") == "current_weather":
-                speech = str(result.get("speech", "")).strip()
-                if speech:
-                    return speech
-                return "I could not get current weather right now."
-            if result.get("action") == "weather_forecast":
-                speech = str(result.get("speech", "")).strip()
-                if speech:
-                    return speech
-                return "I could not get the forecast right now."
-            if result.get("action") == "calculation":
-                speech = str(result.get("speech", "")).strip()
-                if speech:
-                    return speech
-                return "I could not calculate that right now."
-            if result.get("action") == "alerts":
-                speech = str(result.get("speech", "")).strip()
-                if speech:
-                    return speech
-                return "I could not manage that timer, alarm, or reminder right now."
-            if result.get("action") in {"current_time", "current_date", "current_time_date"}:
-                speech = str(result.get("speech", "")).strip()
-                if speech:
-                    return speech
-                return "I could not get the current time or date right now."
-            confirmed = result.get("confirmed_dispatch") or {}
-            confirmed_result = confirmed.get("result") or {}
-            return self._extract_home_assistant_speech(confirmed_result) or "Confirmed."
-
-        if target == "ollama":
-            decision = result.get("decision") or {}
-            reply = str(decision.get("reply", "")).strip()
-            if reply:
-                return reply
-            ha_result = result.get("home_assistant") or {}
-            return self._extract_home_assistant_speech(ha_result) or "Done."
-
-        if target == "music":
-            action = str(result.get("action", "")).strip()
-            if status == "failed":
-                error = str(result.get("error", "")).strip()
-                if error == "music_not_found":
-                    return "I couldn't find that in Plex."
-                if error == "satellite_command_failed":
-                    return "I couldn't reach the playback satellite."
-                if error == "plex_search_failed":
-                    return "I couldn't search Plex right now."
-                return "I couldn't complete that music request."
-            if action == "what_is_playing":
-                now_playing = result.get("now_playing") or {}
-                title = str(now_playing.get("title", "")).strip()
-                artist = str(now_playing.get("artist", "")).strip()
-                if title and artist:
-                    return f"You're listening to {title} by {artist}."
-                return "Nothing is playing right now."
-            if action == "play":
-                selected = result.get("selected") or {}
-                title = str(selected.get("title", "")).strip()
-                artist = str(selected.get("artist", "")).strip()
-                if title and artist:
-                    return f"Playing {title} by {artist}."
-                if title:
-                    return f"Playing {title}."
-            if action in {"pause", "resume", "stop", "next", "previous", "restart"}:
-                return {
-                    "pause": "Paused.",
-                    "resume": "Resumed.",
-                    "stop": "Stopped.",
-                    "next": "Skipping.",
-                    "previous": "Going back.",
-                    "restart": "Restarting.",
-                }.get(action, "Done.")
-            if action == "set_volume":
-                return "Volume updated."
-            if action == "volume_up":
-                return "Turning it up."
-            if action == "volume_down":
-                return "Turning it down."
-            prompt = str(result.get("prompt", "")).strip()
-            if prompt:
-                return prompt
-
-        return "Done."
-
-    def _extract_home_assistant_speech(self, payload: dict) -> str:
-        response = payload.get("response") or {}
-        speech = response.get("speech") or {}
-        plain = speech.get("plain") or {}
-        return str(plain.get("speech", "")).strip()
+        status = str(payload.get("status") or "").strip()
+        if status not in {
+            "executed",
+            "pending_confirmation",
+            "pending_clarification",
+            "failed",
+            "ignored",
+        }:
+            raise RuntimeError("Oracle returned an invalid conversation status")
+        reply = str(payload.get("reply_text", "")).strip()
+        if status != "ignored" and not reply:
+            raise RuntimeError("Oracle returned an empty conversation reply")
+        return reply
 
     def _request_tts(self, text: str) -> bytes:
         response = requests.post(
-            f"{self._oracle_base_url()}/tts",
+            f"{self._oracle_base_url()}/api/speech/tts",
             json={"text": text},
             timeout=120,
         )
         response.raise_for_status()
         return response.content
-
-    def _poll_pending_alerts(self) -> None:
-        try:
-            if not self.processing and not self.recording:
-                response = requests.get(
-                    f"{self._oracle_base_url()}/alerts/pending",
-                    params={"source": "pc-push-to-talk"},
-                    timeout=10,
-                )
-                response.raise_for_status()
-                data = response.json()
-                alerts = data.get("alerts") or []
-                for alert in alerts:
-                    message = str(alert.get("message", "")).strip()
-                    if not message:
-                        continue
-                    audio = self._request_tts(message)
-                    self.status_var.set("Playing alert...")
-                    self._play_wav_bytes(audio)
-        except Exception:
-            pass
-        finally:
-            self.root.after(ALERTS_POLL_MILLISECONDS, self._poll_pending_alerts)
 
     def _play_wav_bytes(self, wav_bytes: bytes) -> None:
         with wave.open(io.BytesIO(wav_bytes), "rb") as wav_file:

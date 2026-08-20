@@ -431,7 +431,7 @@ class SatelliteProjectionSyncTests(unittest.TestCase):
                 },
                 "activation": {
                     "activation_id": "sat_activation_" + activation_character * 32,
-                    "source_config_revision": "oracle-config-v1:sha256:" + "c" * 64,
+                    "source_config_revision": "oracle-config-v2:sha256:" + "c" * 64,
                 },
                 "projection": {
                     "generation_id": "sat_projection_" + generation_character * 32,

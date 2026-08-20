@@ -5,7 +5,7 @@ import shutil
 import tempfile
 import unittest
 
-from oracle_app.configuration import GenerationStore, load_runtime_cutover_marker
+from oracle_app.configuration import GenerationStore, SecretSnapshot, load_runtime_cutover_marker
 from oracle_app.installation import InstallationLayout, load_selected_activation, select_activation
 from oracle_app.installation_assembly import (
     InitialAssemblyError,
@@ -68,6 +68,17 @@ class InitialInstallationAssemblyTests(unittest.TestCase):
         self.assertIsNotNone(complete)
         with self.assertRaisesRegex(InitialAssemblyError, "empty staged"):
             assemble_initial_activation(self.layout, self.request)
+
+    def test_initial_assembly_accepts_separately_supplied_secret_authority(self) -> None:
+        request = InitialAssemblyRequest(
+            **{**self.request.__dict__, "initial_secret_snapshot": SecretSnapshot({"TOKEN": "value"})}
+        )
+
+        assemble_initial_activation(self.layout, request)
+
+        selected = GenerationStore(self.layout.configuration, secret_root=self.layout.secrets).load_selected()
+        self.assertEqual(selected.secrets.snapshot.present_ids, frozenset({"TOKEN"}))
+        self.assertTrue(selected.secrets.raw_present)
 
     def _update_request(self) -> InitialAssemblyRequest:
         request = InitialAssemblyRequest(

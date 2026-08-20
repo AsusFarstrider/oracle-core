@@ -33,25 +33,25 @@ class ConfigurationRoleTests(unittest.TestCase):
 
         manifest = BundleManifest.model_validate(parsed.primitive)
 
-        self.assertEqual(manifest.schema_version, 1)
+        self.assertEqual(manifest.schema_version, 2)
         self.assertEqual(manifest.bundle_id, "example-home")
 
     def test_bundle_manifest_rejects_unknown_fields_and_invalid_identity(self) -> None:
         for payload in (
             {
                 "kind": "oracle_configuration_bundle",
-                "schema_version": 1,
+                "schema_version": 2,
                 "bundle_id": "Example Home",
             },
             {
                 "kind": "oracle_configuration_bundle",
-                "schema_version": 1,
+                "schema_version": 2,
                 "bundle_id": "example_home",
                 "include": "other.yaml",
             },
             {
                 "kind": "oracle_configuration_bundle",
-                "schema_version": 2,
+                "schema_version": 3,
                 "bundle_id": "example_home",
             },
         ):

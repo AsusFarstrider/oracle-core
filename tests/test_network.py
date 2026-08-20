@@ -137,7 +137,7 @@ def _enabled_plex_restart_policy() -> dict[str, list[dict[str, object]]]:
                 "enabled": True,
                 "execution": {
                     "method": "systemd",
-                    "unit": "plexmediaserver.service",
+                    "unit": "example-media.service",
                     "wait_seconds": 0,
                     "restart_timeout_seconds": 5,
                 },
@@ -1627,7 +1627,7 @@ class NetworkDomainTests(unittest.TestCase):
         self.assertEqual(results[0]["status"], "failed")
         self.assertEqual(results[0]["observed_value"], "2/3")
         self.assertNotIn("md0", str(results))
-        self.assertNotIn("/mnt/storage", str(results))
+        self.assertNotIn("/srv/example-storage", str(results))
         _mock_check.assert_called_once_with(
             settings={"hosts": {}},
             host_id="storage_host",
@@ -2103,9 +2103,9 @@ class NetworkDomainTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["result_status"], "executed")
-        self.assertEqual(result["execution"]["unit"], "plexmediaserver.service")
+        self.assertEqual(result["execution"]["unit"], "example-media.service")
         mock_run.assert_called_once()
-        self.assertEqual(mock_run.call_args.args[0], ["sudo", "-n", "systemctl", "restart", "plexmediaserver.service"])
+        self.assertEqual(mock_run.call_args.args[0], ["sudo", "-n", "systemctl", "restart", "example-media.service"])
         self.assertEqual(mock_run.call_args.kwargs["timeout"], 5)
 
     @patch("oracle_app.network_control_execution.subprocess.run")
@@ -2125,7 +2125,7 @@ class NetworkDomainTests(unittest.TestCase):
     @patch("oracle_app.network_control_execution.subprocess.run")
     def test_network_control_executor_reports_systemd_timeout_without_command_output(self, mock_run) -> None:
         mock_run.side_effect = subprocess.TimeoutExpired(
-            ["sudo", "-n", "systemctl", "restart", "plexmediaserver.service"],
+            ["sudo", "-n", "systemctl", "restart", "example-media.service"],
             timeout=5,
             output="secret-ish systemctl output",
             stderr="secret-ish systemctl error",
@@ -3236,7 +3236,7 @@ class NetworkDomainTests(unittest.TestCase):
                         "services": {
                             "plex": {
                                 "adapter": "systemd",
-                                "target": "plexmediaserver.service",
+                                "target": "example-media.service",
                                 "commands": ["restart_service"],
                             }
                         },
@@ -3255,7 +3255,7 @@ class NetworkDomainTests(unittest.TestCase):
         self.assertTrue(action["service_control"]["service_configured"])
         self.assertTrue(action["service_control"]["command_allowed"])
         self.assertEqual(action["service_control"]["transport"], "ssh")
-        self.assertNotIn("plexmediaserver.service", str(action))
+        self.assertNotIn("example-media.service", str(action))
 
     def test_network_control_actions_diagnostics_reports_power_readiness_coverage(self) -> None:
         payload = build_network_control_actions_diagnostics(
@@ -4005,7 +4005,7 @@ class NetworkDomainTests(unittest.TestCase):
             "summary": "Restart completed and verification status is passed.",
             "execution": {
                 "method": "systemd",
-                "unit": "plexmediaserver.service",
+                "unit": "example-media.service",
                 "wait_seconds": 0,
                 "verification_status": "passed",
             },
@@ -4083,7 +4083,7 @@ class NetworkDomainTests(unittest.TestCase):
         results = get_network_control_results_snapshot()
         self.assertIn(("service", "plex", "restart_service"), results)
         self.assertEqual(results[("service", "plex", "restart_service")]["result_status"], "executed")
-        self.assertNotIn("plexmediaserver.service", str(results))
+        self.assertNotIn("example-media.service", str(results))
 
     @patch("oracle_app.admin_network_routes.safe_record_event", return_value=True)
     @patch(
@@ -4762,7 +4762,7 @@ class NetworkDomainTests(unittest.TestCase):
                         "services": {
                             "dns_primary": {
                                 "adapter": "systemd",
-                                "target": "pihole-FTL.service",
+                                "target": "example-filter.service",
                                 "commands": ["restart_service"],
                             }
                         },
@@ -4774,12 +4774,12 @@ class NetworkDomainTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["failed_check_ids"], ["dns_primary"])
-        self.assertNotIn("pihole-FTL.service", str(result))
+        self.assertNotIn("example-filter.service", str(result))
 
     @patch("oracle_app.provider_bridges.service_control.subprocess.run")
     def test_service_control_host_readiness_requires_read_write_mount(self, mock_run) -> None:
         mock_run.side_effect = [
-            subprocess.CompletedProcess(args=[], returncode=0, stdout="/mnt/storage\n"),
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="/srv/example-storage\n"),
             subprocess.CompletedProcess(args=[], returncode=0),
         ]
 
@@ -4793,7 +4793,7 @@ class NetworkDomainTests(unittest.TestCase):
                         "allowed_actions": {
                             "restart_host": {
                                 "enabled": True,
-                                "readiness": {"read_write_mounts": ["/mnt/storage"]},
+                                "readiness": {"read_write_mounts": ["/srv/example-storage"]},
                             }
                         },
                         "services": {},
@@ -4805,12 +4805,12 @@ class NetworkDomainTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["check_count"], 1)
-        self.assertEqual(result["checks"], [{"id": "mount:/mnt/storage", "kind": "mount", "status": "passed"}])
+        self.assertEqual(result["checks"], [{"id": "mount:/srv/example-storage", "kind": "mount", "status": "passed"}])
 
     @patch("oracle_app.provider_bridges.service_control.subprocess.run")
     def test_service_control_host_readiness_rejects_mount_when_write_probe_fails(self, mock_run) -> None:
         mock_run.side_effect = [
-            subprocess.CompletedProcess(args=[], returncode=0, stdout="/mnt/storage\n"),
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="/srv/example-storage\n"),
             subprocess.CompletedProcess(args=[], returncode=1),
         ]
 
@@ -4824,7 +4824,7 @@ class NetworkDomainTests(unittest.TestCase):
                         "allowed_actions": {
                             "restart_host": {
                                 "enabled": True,
-                                "readiness": {"read_write_mounts": ["/mnt/storage"]},
+                                "readiness": {"read_write_mounts": ["/srv/example-storage"]},
                             }
                         },
                         "services": {},
@@ -4835,7 +4835,7 @@ class NetworkDomainTests(unittest.TestCase):
         )
 
         self.assertFalse(result["ok"])
-        self.assertEqual(result["failed_check_ids"], ["mount:/mnt/storage"])
+        self.assertEqual(result["failed_check_ids"], ["mount:/srv/example-storage"])
 
     @patch("oracle_app.provider_bridges.service_control.subprocess.run")
     def test_service_control_storage_safety_checks_fixed_read_only_state(self, mock_run) -> None:
@@ -4848,7 +4848,7 @@ class NetworkDomainTests(unittest.TestCase):
             subprocess.CompletedProcess(
                 args=[],
                 returncode=0,
-                stdout="/dev/md0 /mnt/storage rw,relatime\n",
+                stdout="/dev/md0 /srv/example-storage rw,relatime\n",
             ),
             subprocess.CompletedProcess(args=[], returncode=0),
         ]
@@ -4865,7 +4865,7 @@ class NetworkDomainTests(unittest.TestCase):
                                     "host_storage_safe_for_restart": {
                                         "kind": "linux_storage",
                                         "array": "md0",
-                                        "mount": "/mnt/storage",
+                                        "mount": "/srv/example-storage",
                                         "service": "network_storage",
                                     }
                                 }
@@ -4890,14 +4890,14 @@ class NetworkDomainTests(unittest.TestCase):
         self.assertEqual(mock_run.call_args_list[0].args[0], ["cat", "/proc/mdstat"])
         self.assertEqual(
             mock_run.call_args_list[1].args[0],
-            ["findmnt", "-rn", "-o", "SOURCE,TARGET,OPTIONS", "/mnt/storage"],
+            ["findmnt", "-rn", "-o", "SOURCE,TARGET,OPTIONS", "/srv/example-storage"],
         )
         self.assertEqual(
             mock_run.call_args_list[2].args[0],
             ["sudo", "-n", "systemctl", "is-active", "--quiet", "nfs-server.service"],
         )
         self.assertNotIn("md0", str(result))
-        self.assertNotIn("/mnt/storage", str(result))
+        self.assertNotIn("/srv/example-storage", str(result))
         self.assertNotIn("nfs-server.service", str(result))
 
     @patch("oracle_app.provider_bridges.service_control.subprocess.run")
@@ -4911,7 +4911,7 @@ class NetworkDomainTests(unittest.TestCase):
             subprocess.CompletedProcess(
                 args=[],
                 returncode=0,
-                stdout="/dev/md0 /mnt/storage rw,relatime\n",
+                stdout="/dev/md0 /srv/example-storage rw,relatime\n",
             ),
             subprocess.CompletedProcess(args=[], returncode=0),
         ]
@@ -4928,7 +4928,7 @@ class NetworkDomainTests(unittest.TestCase):
                                     "host_storage_safe_for_restart": {
                                         "kind": "linux_storage",
                                         "array": "md0",
-                                        "mount": "/mnt/storage",
+                                        "mount": "/srv/example-storage",
                                         "service": "network_storage",
                                     }
                                 }
@@ -4966,7 +4966,7 @@ class NetworkDomainTests(unittest.TestCase):
                     },
                     "services": {
                         "caddy": {"adapter": "systemd", "target": "caddy.service"},
-                        "dns_primary": {"adapter": "systemd", "target": "pihole-FTL.service"},
+                        "dns_primary": {"adapter": "systemd", "target": "example-filter.service"},
                     },
                 }
             }
@@ -4981,7 +4981,7 @@ class NetworkDomainTests(unittest.TestCase):
             ["stop_host_services", "restart_host", "verify_host_recovery"],
         )
         self.assertNotIn("caddy.service", str(plan))
-        self.assertNotIn("pihole-FTL.service", str(plan))
+        self.assertNotIn("example-filter.service", str(plan))
 
     @patch("oracle_app.provider_bridges.service_control._configured_target_has_state", return_value=True)
     @patch("oracle_app.provider_bridges.service_control.subprocess.run")
@@ -5002,13 +5002,13 @@ class NetworkDomainTests(unittest.TestCase):
                                 "prepare_services": ["mqtt"],
                                 "client_release": {
                                     "host_id": "oracle_host",
-                                    "mount": "/mnt/storage",
-                                    "mount_service": "mnt-storage-mount.service",
+                                    "mount": "/srv/example-storage",
+                                    "mount_service": "example-storage-mount.service",
                                     "services": ["nextcloud"],
                                 },
                                 "storage": {
                                     "array": "md0",
-                                    "mount": "/mnt/storage",
+                                    "mount": "/srv/example-storage",
                                     "sharing_service": "network_storage",
                                 },
                             }
@@ -5040,7 +5040,7 @@ class NetworkDomainTests(unittest.TestCase):
         flattened = [" ".join(command) for command in commands]
         self.assertLess(
             next(index for index, command in enumerate(flattened) if "docker stop nextcloud-cron" in command),
-            next(index for index, command in enumerate(flattened) if "umount /mnt/storage" in command),
+            next(index for index, command in enumerate(flattened) if "umount /srv/example-storage" in command),
         )
         self.assertLess(
             next(index for index, command in enumerate(flattened) if "systemctl stop nfs-server.service" in command),
@@ -5058,9 +5058,9 @@ class NetworkDomainTests(unittest.TestCase):
         mock_set_state.return_value = {"ok": True}
         mock_run.side_effect = [
             {"ok": True},
-            {"ok": True, "stdout": "192.0.2.200:/ /mnt/storage ro,nosuid,nodev,noatime\n"},
+            {"ok": True, "stdout": "192.0.2.200:/ /srv/example-storage ro,nosuid,nodev,noatime\n"},
             {"ok": True},
-            {"ok": True, "stdout": "192.0.2.200:/ /mnt/storage rw,nosuid,nodev,noatime\n"},
+            {"ok": True, "stdout": "192.0.2.200:/ /srv/example-storage rw,nosuid,nodev,noatime\n"},
         ]
         settings = {
             "hosts": {
@@ -5071,8 +5071,8 @@ class NetworkDomainTests(unittest.TestCase):
                                 "mode": "graceful",
                                 "client_release": {
                                     "host_id": "oracle_host",
-                                    "mount": "/mnt/storage",
-                                    "mount_service": "mnt-storage-mount.service",
+                                    "mount": "/srv/example-storage",
+                                    "mount_service": "example-storage-mount.service",
                                     "services": ["nextcloud"],
                                 },
                             }
@@ -5102,7 +5102,7 @@ class NetworkDomainTests(unittest.TestCase):
                 "mount",
                 "-o",
                 "remount,rw",
-                "/mnt/storage",
+                "/srv/example-storage",
             ],
             commands,
         )
@@ -5577,7 +5577,7 @@ class NetworkDomainTests(unittest.TestCase):
                         "services": {
                             "dns_secondary": {
                                 "adapter": "systemd",
-                                "target": "pihole-FTL.service",
+                                "target": "example-filter.service",
                                 "commands": ["restart_service"],
                             }
                         },
@@ -5590,7 +5590,7 @@ class NetworkDomainTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertFalse(result["available"])
-        self.assertNotIn("pihole-FTL.service", str(result))
+        self.assertNotIn("example-filter.service", str(result))
 
     @patch("oracle_app.provider_bridges.service_control.subprocess.run")
     def test_service_control_checks_docker_status_through_ssh_bridge(self, mock_run) -> None:

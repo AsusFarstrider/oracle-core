@@ -431,6 +431,94 @@ class OrchestrationRoutineTests(unittest.TestCase):
         self.assertEqual([name for name, _args in self.calls], ["ui_action", "audiobook_start", "ui_action"])
         self.assertEqual(self.calls[-1][1]["action_id"], "office_off")
 
+    def test_bedtime_duration_waits_then_warns_five_minutes_before_verified_lights_and_book(self) -> None:
+        definition = routine_definition(
+            {
+                "id": "requested_delay", "type": "wait", "label": "Requested delay",
+                "duration_input": "delay_seconds", "duration_unit": "seconds",
+                "max_lateness_seconds": 30, "required": True,
+            },
+            {
+                "id": "warning", "type": "notification", "label": "Warning",
+                "notification_id": "child_lights_out_five_minutes", "required": True,
+                "when": {"input_id": "delay_seconds", "operator": "greater_than", "value": 0},
+            },
+            {
+                "id": "timer_sound", "type": "timer_sound", "label": "Timer sound",
+                "source_id": "test-source", "required": True,
+                "when": {"input_id": "delay_seconds", "operator": "greater_than", "value": 0},
+            },
+            {
+                "id": "final_wait", "type": "wait", "label": "Five minutes",
+                "duration_seconds": 300, "max_lateness_seconds": 30, "required": True,
+                "when": {"input_id": "delay_seconds", "operator": "greater_than", "value": 0},
+            },
+            {"id": "lights", "type": "ui_action", "label": "Lights", "action_id": "room_off", "required": True},
+            {"id": "verify", "type": "state_check", "label": "Verify", "check_id": "room", "expected_state": "off", "required": True},
+            {"id": "book", "type": "audiobook_start", "label": "Book", "source_id": "test-source", "user_id": "test", "duration_seconds": 1200, "required": True},
+        )
+        configure_routine_adapters(
+            ui_action=lambda **kwargs: self.calls.append(("ui_action", kwargs)) or {"ok": True},
+            audiobook_start=lambda **kwargs: self.calls.append(("audiobook_start", kwargs)) or {"ok": True},
+            sleep_timer=lambda **_kwargs: {"ok": True},
+            state_check=lambda **kwargs: self.calls.append(("state_check", kwargs)) or {"ok": True},
+            playback_check=lambda **_kwargs: {"ok": True},
+            notification=lambda **kwargs: self.calls.append(("notification", kwargs)) or {"ok": True},
+            timer_sound=lambda **kwargs: self.calls.append(("timer_sound", kwargs)) or {"ok": True},
+        )
+
+        started = self.start(definition, inputs={"delay_seconds": 30})
+        first_due = datetime.fromisoformat(started["steps"][0]["payload"]["due_at"])
+        self.assertEqual(self.calls, [])
+        with patch("oracle_app.orchestration_routines._utc_datetime", return_value=first_due):
+            warned = resume_due_routines(now=first_due, db_path=self.db_path)
+        warning_run = warned[0]
+        second_due = datetime.fromisoformat(warning_run["steps"][3]["payload"]["due_at"])
+        self.assertEqual((second_due - first_due).total_seconds(), 300)
+        self.assertEqual([name for name, _ in self.calls], ["notification", "timer_sound"])
+        self.assertEqual(self.calls[0][1]["notification_id"], "child_lights_out_five_minutes")
+        self.assertEqual(self.calls[1][1]["source_id"], "test-source")
+
+        completed = resume_due_routines(now=second_due, db_path=self.db_path)[0]
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual([name for name, _ in self.calls], ["notification", "timer_sound", "ui_action", "state_check", "audiobook_start"])
+        self.assertEqual(self.calls[-1][1]["user_id"], "test")
+        self.assertEqual(self.calls[-1][1]["sleep_timer_seconds"], 1200)
+
+    def test_bedtime_no_timer_warns_then_waits_one_minute_and_verification_failure_blocks_book(self) -> None:
+        definition = routine_definition(
+            {"id": "requested_delay", "type": "wait", "label": "Requested delay", "duration_input": "delay_seconds", "duration_unit": "seconds", "max_lateness_seconds": 30, "required": True},
+            {"id": "warning", "type": "notification", "label": "Warning", "notification_id": "child_lights_out_one_minute", "required": True, "when": {"input_id": "delay_seconds", "operator": "equals", "value": 0}},
+            {"id": "timer_sound", "type": "timer_sound", "label": "Timer sound", "source_id": "test-source", "required": True, "when": {"input_id": "delay_seconds", "operator": "greater_than", "value": 0}},
+            {"id": "final_wait", "type": "wait", "label": "One minute", "duration_seconds": 60, "max_lateness_seconds": 30, "required": True, "when": {"input_id": "delay_seconds", "operator": "equals", "value": 0}},
+            {"id": "lights", "type": "ui_action", "label": "Lights", "action_id": "room_off", "required": True},
+            {"id": "verify", "type": "state_check", "label": "Verify", "check_id": "room", "expected_state": "off", "required": True},
+            {"id": "book", "type": "audiobook_start", "label": "Book", "source_id": "test-source", "user_id": "test", "duration_seconds": 1200, "required": True},
+        )
+        configure_routine_adapters(
+            ui_action=lambda **kwargs: self.calls.append(("ui_action", kwargs)) or {"ok": True},
+            audiobook_start=lambda **kwargs: self.calls.append(("audiobook_start", kwargs)) or {"ok": True},
+            sleep_timer=lambda **_kwargs: {"ok": True},
+            state_check=lambda **kwargs: self.calls.append(("state_check", kwargs)) or {"ok": False, "error": "state_mismatch"},
+            playback_check=lambda **_kwargs: {"ok": True},
+            notification=lambda **kwargs: self.calls.append(("notification", kwargs)) or {"ok": True},
+            timer_sound=lambda **kwargs: self.calls.append(("timer_sound", kwargs)) or {"ok": True},
+        )
+
+        base_time = datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc)
+        with patch("oracle_app.orchestration_routines._utc_datetime", return_value=base_time):
+            started = self.start(definition, inputs={"delay_seconds": 0})
+        self.assertEqual(started["status"], "waiting")
+        self.assertEqual([name for name, _ in self.calls], ["notification"])
+        self.assertEqual(self.calls[0][1]["notification_id"], "child_lights_out_one_minute")
+        due = datetime.fromisoformat(started["steps"][3]["payload"]["due_at"])
+        self.assertEqual((due - base_time).total_seconds(), 60)
+
+        failed = resume_due_routines(now=due, db_path=self.db_path)[0]
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual([name for name, _ in self.calls], ["notification", "ui_action", "state_check"])
+        self.assertEqual(failed["steps"][-1]["status"], "not_run")
+
     def test_late_continuation_fails_without_running_followup(self) -> None:
         definition = routine_definition(
             {

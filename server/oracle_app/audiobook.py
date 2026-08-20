@@ -175,7 +175,10 @@ def build_longform_payload(
             continue
         normalized_tracks.append(
             {
-                "url": f"{effective_oracle_base_url}/audiobooks/stream/{playback_id}/{index}",
+                "url": (
+                    f"{effective_oracle_base_url}/api/satellite/media/audiobooks/"
+                    f"{playback_id}/tracks/{index}"
+                ),
                 "mime_type": str(track.get("mime_type", "")).strip(),
                 "duration_seconds": float(track.get("duration_seconds") or 0),
                 "start_offset_seconds": float(track.get("start_offset_seconds") or 0),

@@ -5,9 +5,11 @@ import unittest
 from pathlib import Path
 
 
-FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "phase_c_utterance_bank.json"
+FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "utterance_ledger.json"
+MATRIX_PATH = Path(__file__).resolve().parent / "fixtures" / "utterance_capability_matrix.json"
 
 ALLOWED_CATEGORIES = {
+    "route_positive",
     "route_miss",
     "parser_miss",
     "clarification_policy_miss",
@@ -21,6 +23,27 @@ ALLOWED_TARGETS = {
     "audiobook",
     "home_assistant",
     "fallback_router",
+    "calendar",
+    "facts",
+    "network",
+    "news",
+    "system",
+    "weather",
+}
+
+ALLOWED_OWNERS = {
+    "alerts",
+    "audiobook",
+    "calculation",
+    "calendar",
+    "facts",
+    "fallback",
+    "home_automation",
+    "music",
+    "network",
+    "news",
+    "system",
+    "weather",
 }
 
 ALLOWED_BEHAVIORS = {
@@ -44,10 +67,11 @@ ALLOWED_SETUPS = {
 
 ALLOWED_RISKS = {"high", "medium", "low"}
 ALLOWED_ORIGINS = {"synthetic", "operator_observed"}
-ALLOWED_COVERAGE = {"fixture_only", "route_executed", "handler_executed"}
+ALLOWED_EXECUTION_LEVELS = {"route_executed", "handler_executed"}
+ALLOWED_DISPOSITIONS = {"supported"}
 
 
-class PhaseCUtteranceBankTests(unittest.TestCase):
+class UtteranceLedgerSchemaTests(unittest.TestCase):
     def test_fixture_entries_follow_agreed_shape(self) -> None:
         entries = json.loads(FIXTURE_PATH.read_text())
 
@@ -69,7 +93,9 @@ class PhaseCUtteranceBankTests(unittest.TestCase):
             setup = entry.get("setup")
             risk = entry.get("risk")
             origin = entry.get("origin")
-            coverage = entry.get("coverage")
+            owner = entry.get("owner")
+            execution_level = entry.get("execution_level")
+            capability_disposition = entry.get("capability_disposition")
 
             self.assertIsInstance(entry_id, str)
             self.assertTrue(entry_id)
@@ -89,7 +115,12 @@ class PhaseCUtteranceBankTests(unittest.TestCase):
                 self.assertIn(setup, ALLOWED_SETUPS)
             self.assertIn(risk, ALLOWED_RISKS)
             self.assertIn(origin, ALLOWED_ORIGINS)
-            self.assertIn(coverage, ALLOWED_COVERAGE)
+            self.assertIn(owner, ALLOWED_OWNERS)
+            self.assertIn(execution_level, ALLOWED_EXECUTION_LEVELS)
+            self.assertIn(capability_disposition, ALLOWED_DISPOSITIONS)
+            if "expected_action" in entry:
+                self.assertIsInstance(entry["expected_action"], str)
+                self.assertTrue(entry["expected_action"])
 
         self.assertTrue(
             {
@@ -113,7 +144,7 @@ class PhaseCUtteranceBankTests(unittest.TestCase):
         )
         self.assertIn("operator_observed", {entry.get("origin") for entry in entries})
 
-    def test_fixture_meets_current_phase_c_close_out_threshold(self) -> None:
+    def test_migrated_media_cases_retain_their_characterization_strength(self) -> None:
         entries = json.loads(FIXTURE_PATH.read_text())
 
         def classify_surface(entry: dict) -> set[str]:
@@ -154,7 +185,7 @@ class PhaseCUtteranceBankTests(unittest.TestCase):
             surfaces = classify_surface(entry)
             risk = entry.get("risk")
             origin = entry.get("origin")
-            coverage = entry.get("coverage")
+            execution_level = entry.get("execution_level")
             category = entry.get("category")
 
             for surface in surfaces:
@@ -164,9 +195,9 @@ class PhaseCUtteranceBankTests(unittest.TestCase):
                     operator_observed_coverage[surface] = True
 
             if risk == "high":
-                self.assertIn(coverage, {"route_executed", "handler_executed"})
+                self.assertIn(execution_level, {"route_executed", "handler_executed"})
                 if category in {"cross_domain_rescue_miss", "clarification_policy_miss", "hard_not_found"}:
-                    self.assertEqual(coverage, "handler_executed")
+                    self.assertEqual(execution_level, "handler_executed")
 
         self.assertEqual(
             {surface for surface, present in meaningful_surface_coverage.items() if not present},
@@ -176,3 +207,48 @@ class PhaseCUtteranceBankTests(unittest.TestCase):
             {surface for surface, present in operator_observed_coverage.items() if not present},
             set(),
         )
+
+    def test_all_legacy_facts_cases_are_owned_by_the_ledger(self) -> None:
+        entries = json.loads(FIXTURE_PATH.read_text())
+        facts = [entry for entry in entries if entry["owner"] == "facts"]
+
+        self.assertEqual(len(facts), 6)
+        self.assertEqual(
+            {entry["facts_expectations"]["case_id"] for entry in facts},
+            {
+                "lifespan_sloth",
+                "author_frankenstein",
+                "location_machu_picchu",
+                "date_eiffel_tower",
+                "definition_photosynthesis",
+                "superlative_largest_animal",
+            },
+        )
+
+    def test_capability_matrix_covers_every_supported_ledger_owner(self) -> None:
+        entries = json.loads(FIXTURE_PATH.read_text())
+        matrix = json.loads(MATRIX_PATH.read_text())
+        entries_by_id = {entry["id"]: entry for entry in entries}
+        supported = matrix["supported"]
+
+        self.assertEqual(matrix["format_version"], 1)
+        self.assertEqual(
+            {row["owner"] for row in supported},
+            {entry["owner"] for entry in entries},
+        )
+        for row in supported:
+            with self.subTest(owner=row["owner"]):
+                self.assertTrue(row["case_ids"])
+                for case_id in row["case_ids"]:
+                    self.assertIn(case_id, entries_by_id)
+                    self.assertEqual(entries_by_id[case_id]["owner"], row["owner"])
+                    self.assertEqual(entries_by_id[case_id]["expected_target"], row["target"])
+
+    def test_deferred_capabilities_have_durable_roadmap_dispositions_not_fake_cases(self) -> None:
+        matrix = json.loads(MATRIX_PATH.read_text())
+        for row in matrix["deferred"]:
+            with self.subTest(owner=row["owner"]):
+                self.assertTrue(row["capabilities"])
+                self.assertRegex(row["roadmap_destination"], r"^V2 Stage [6-9]$")
+                self.assertTrue(row["reason"])
+                self.assertNotIn("case_ids", row)

@@ -80,7 +80,10 @@ class MusicRuntimeSettingsTests(unittest.TestCase):
         )
 
         with (
-            patch.object(execution.bridge, "search", return_value=[{"title": "Test Song"}]) as search,
+            patch(
+                "oracle_app.music_runtime.canonical.search_plex_catalog",
+                return_value=[{"title": "Test Song"}],
+            ) as search,
             patch("oracle_app.music_runtime.canonical.execute_satellite_command", return_value={"ok": True}) as command,
             patch(
                 "oracle_app.music_runtime.canonical.fetch_satellite_playback_authority",
@@ -100,7 +103,7 @@ class MusicRuntimeSettingsTests(unittest.TestCase):
             execution.execute_satellite_command("living_room_voice", "pause")
             execution.fetch_playback_authority("living_room_voice")
 
-        search.assert_called_once_with(intent)
+        search.assert_called_once_with(execution.bridge, intent)
         control_target = command.call_args.kwargs["control_target"]
         self.assertEqual(control_target.base_url, "http://living-room.invalid:8021")
         self.assertEqual(control_target.credential, "control-secret-value")
@@ -160,7 +163,7 @@ class MusicRuntimeSettingsTests(unittest.TestCase):
                 satellite_projection_activation_ids=MappingProxyType(projection_ids),
                 config_revision=inspection.normalized_candidate_revision,
                 bundle_id="example-home",
-                schema_version=1,
+                schema_version=2,
                 roles=inspection.bundle.roles,  # type: ignore[union-attr]
                 secrets=inspection.secrets,  # type: ignore[arg-type]
             )

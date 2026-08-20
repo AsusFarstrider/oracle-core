@@ -6,17 +6,16 @@ from dataclasses import dataclass
 from typing import Any
 from urllib import error, parse, request
 
-from fastapi import HTTPException
-
 from oracle_app.audiobook_runtime.matching import build_search_queries
 from oracle_app.config import get_audiobook_connection_settings
 
 
 class AudiobookBridgeError(RuntimeError):
-    def __init__(self, error_code: str, detail: str) -> None:
+    def __init__(self, error_code: str, detail: str, *, http_status: int | None = None) -> None:
         super().__init__(detail)
         self.error_code = error_code
         self.detail = detail
+        self.http_status = http_status
 
 
 class AudiobookBridgeConfigurationError(AudiobookBridgeError):
@@ -263,14 +262,14 @@ class AudiobookshelfAudiobookBridge:
     ):
         tracks = playback.get("tracks")
         if not isinstance(tracks, list) or track_index < 0 or track_index >= len(tracks):
-            raise HTTPException(status_code=404, detail="Audiobook track not found")
+            raise AudiobookBridgeError("audiobook_track_not_found", "Audiobook track not found", http_status=404)
         track = tracks[track_index]
         if not isinstance(track, dict):
-            raise HTTPException(status_code=404, detail="Audiobook track not found")
+            raise AudiobookBridgeError("audiobook_track_not_found", "Audiobook track not found", http_status=404)
 
         relative_url = str(track.get("content_url", "")).strip()
         if not relative_url:
-            raise HTTPException(status_code=404, detail="Audiobook track not found")
+            raise AudiobookBridgeError("audiobook_track_not_found", "Audiobook track not found", http_status=404)
 
         settings = self._connection_resolver(str(playback.get("user_id") or "").strip() or None)
         self._validate_user_audiobook_settings(settings)
@@ -285,9 +284,13 @@ class AudiobookshelfAudiobookBridge:
             return request.urlopen(req, timeout=settings.timeout_seconds)
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise HTTPException(status_code=exc.code, detail=detail or "Audiobookshelf returned an error") from exc
+            raise AudiobookBridgeError(
+                "audiobook_provider_request_failed",
+                detail or "Audiobookshelf returned an error",
+                http_status=exc.code,
+            ) from exc
         except error.URLError as exc:
-            raise HTTPException(status_code=502, detail=str(exc.reason)) from exc
+            raise AudiobookBridgeError("audiobook_provider_unreachable", str(exc.reason), http_status=502) from exc
 
     def request_json(
         self,
@@ -381,10 +384,10 @@ class AudiobookshelfAudiobookBridge:
             return
         user_id = str(settings.user_id or "").strip()
         if user_id and not settings.user_enabled:
-            raise HTTPException(status_code=500, detail=f"Audiobooks are not enabled for {user_id}")
+            raise AudiobookBridgeConfigurationError("audiobook_user_disabled", f"Audiobooks are not enabled for {user_id}")
         if user_id:
-            raise HTTPException(status_code=500, detail=f"Audiobooks are not configured for {user_id}")
-        raise HTTPException(status_code=500, detail="Audiobookshelf is not configured")
+            raise AudiobookBridgeConfigurationError("audiobook_user_not_configured", f"Audiobooks are not configured for {user_id}")
+        raise AudiobookBridgeConfigurationError("audiobook_provider_not_configured", "Audiobookshelf is not configured")
 
 
 def _legacy_connection(user_id: str | None) -> AudiobookProviderConnection:

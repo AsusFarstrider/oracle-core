@@ -124,6 +124,7 @@ The music domain now has an explicit Plex bridge under the existing music client
 Current seams:
 
 - [server/oracle_app/music_runtime/client.py](../../server/oracle_app/music_runtime/client.py)
+- [server/oracle_app/music_runtime/plex_search.py](../../server/oracle_app/music_runtime/plex_search.py)
 - [server/oracle_app/provider_bridges/plex_music.py](../../server/oracle_app/provider_bridges/plex_music.py)
 - [server/oracle_app/music_runtime/control.py](../../server/oracle_app/music_runtime/control.py)
 - [server/oracle_app/music_runtime/policy.py](../../server/oracle_app/music_runtime/policy.py)
@@ -131,7 +132,8 @@ Current seams:
 
 Current shape:
 
-- the Plex bridge owns endpoint construction, tokenized requests, XML parsing, metadata traversal, fallback track lookup, and native queue manifest expansion
+- the music domain owns query planning, result deduplication, and album/artist fallback-track policy
+- the Plex bridge owns endpoint construction, tokenized requests, XML parsing, low-level metadata traversal, and native queue manifest expansion
 - satellite control-plane logic is already separated from provider lookup
 - the domain still carries Plex IDs and Plex-specific candidate shapes directly as migration debt
 
@@ -142,12 +144,13 @@ Home Assistant now has an explicit provider bridge without pretending Oracle has
 Current seams:
 
 - [server/oracle_app/handlers/home_assistant.py](../../server/oracle_app/handlers/home_assistant.py)
+- [server/oracle_app/home_assistant_policy.py](../../server/oracle_app/home_assistant_policy.py)
 - [server/oracle_app/provider_bridges/home_assistant.py](../../server/oracle_app/provider_bridges/home_assistant.py)
 
 Current shape:
 
-- the domain owns room-context and confirmation behavior
-- the bridge owns Home Assistant conversation requests, direct service requests, conversation-id reuse/update, provider payload parsing, success-target extraction, and entity state verification
+- the domain owns room-context, confirmation behavior, expected outcomes, bounded post-action verification, and failure shaping
+- the bridge owns Home Assistant conversation requests, direct service requests, conversation-id reuse/update, provider payload parsing, success-target extraction, and entity-state reads
 - final dispatch status and user-facing reply behavior remain in the domain/brain path
 
 ### Apprise

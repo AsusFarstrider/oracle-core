@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import timedelta
 from typing import Any
-
-from oracle_app.alerts import record_alert_idempotency_key
 
 from .audit import record_notification_event
 from .catalog import resolve_notification_definition
 from .channels.satellite_announcement import (
     build_satellite_delivery_decisions,
     dispatch_satellite_announcement,
+    reserve_suppressed_satellite_receipts,
 )
 from .channels.external import reserve_external_deliveries
 from .errors import (
@@ -51,16 +51,14 @@ def submit_notification(
         )
         raise NotificationSuppressionUnavailableError(clean_type)
     if suppression == "active":
-        duplicate = record_alert_idempotency_key(
-            f"notification:{clean_type}:{clean_occurrence_id}",
-            metadata={
-                "notification_id": clean_type,
-                "event_id": clean_occurrence_id,
-                "receipt_status": "suppressed",
-                **({} if clean_caller == "home_assistant" else {"caller": clean_caller}),
-            },
+        created = reserve_suppressed_satellite_receipts(
+            notification_type=clean_type,
+            occurrence_id=clean_occurrence_id,
+            targets=tuple(str(value) for value in definition.get("targets") or ()),
+            expires_at=_now_local()
+            + timedelta(seconds=int(definition.get("delivery_ttl_seconds") or 1)),
         )
-        status = "duplicate" if duplicate else "suppressed"
+        status = "suppressed" if created else "duplicate"
         record_notification_event(
             notification_type=clean_type,
             occurrence_id=clean_occurrence_id,

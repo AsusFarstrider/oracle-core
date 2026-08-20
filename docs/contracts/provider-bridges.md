@@ -315,7 +315,8 @@ variables.
 
 The canonical Plex bridge accepts the selected typed music-provider connection
 directly. It does not require a V1-shaped settings dictionary and cannot reopen
-environment or local-file configuration. Provider search and queue construction
-remain bridge responsibilities; playback targeting, transport, interruption,
-and local playback truth remain music-domain and control-service
-responsibilities.
+environment or local-file configuration. Provider query execution, payload
+translation, and queue construction remain bridge responsibilities. Query
+planning, matching, deduplication, and fallback-track policy remain music-domain
+responsibilities; playback targeting, transport, interruption, and local
+playback truth remain music-domain and control-service responsibilities.

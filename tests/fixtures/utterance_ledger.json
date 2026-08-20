@@ -7,7 +7,9 @@
     "expected_behavior": "cross_domain_rescue",
     "risk": "high",
     "origin": "operator_observed",
-    "coverage": "handler_executed"
+    "owner": "music",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "media-put-on-dune-cross-domain-rescue",
@@ -17,7 +19,9 @@
     "expected_behavior": "cross_domain_rescue",
     "risk": "high",
     "origin": "operator_observed",
-    "coverage": "handler_executed"
+    "owner": "music",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "media-queue-up-dune-cross-domain-rescue",
@@ -27,7 +31,9 @@
     "expected_behavior": "cross_domain_rescue",
     "risk": "high",
     "origin": "operator_observed",
-    "coverage": "handler_executed"
+    "owner": "music",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "media-cue-up-dune-cross-domain-rescue",
@@ -37,7 +43,9 @@
     "expected_behavior": "cross_domain_rescue",
     "risk": "medium",
     "origin": "operator_observed",
-    "coverage": "handler_executed"
+    "owner": "music",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "media-probable-audiobook-title-route",
@@ -47,7 +55,9 @@
     "expected_behavior": "route_only",
     "risk": "high",
     "origin": "operator_observed",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "media-i-want-to-hear-audiobook-route",
@@ -57,7 +67,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "operator_observed",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "media-queue-up-audiobook-route",
@@ -67,7 +79,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "media-regular-edition-audiobook-route",
@@ -77,7 +91,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "media-circle-audiobook-route",
@@ -87,7 +103,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-narrator-phrase-parse",
@@ -97,7 +115,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-series-play-parse",
@@ -107,7 +127,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-book-two-series-parse",
@@ -117,7 +139,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-second-book-series-parse",
@@ -127,7 +151,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-stephen-fry-narrator-parse",
@@ -137,7 +163,9 @@
     "expected_behavior": "route_only",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-jim-dale-version-parse",
@@ -147,7 +175,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-resume-natural-parse",
@@ -157,7 +187,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-article-resume-natural-parse",
@@ -167,7 +199,9 @@
     "expected_behavior": "route_only",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-start-dune-book-two-parse",
@@ -177,7 +211,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-edition-shorthand-clarify",
@@ -187,7 +223,9 @@
     "expected_behavior": "deterministic_clarify",
     "risk": "high",
     "origin": "synthetic",
-    "coverage": "handler_executed"
+    "owner": "audiobook",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-jim-dale-shorthand-clarify",
@@ -197,7 +235,9 @@
     "expected_behavior": "deterministic_clarify",
     "risk": "high",
     "origin": "synthetic",
-    "coverage": "handler_executed"
+    "owner": "audiobook",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-full-cast-shorthand-clarify",
@@ -207,7 +247,9 @@
     "expected_behavior": "deterministic_clarify",
     "risk": "high",
     "origin": "operator_observed",
-    "coverage": "handler_executed"
+    "owner": "audiobook",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-regular-edition-shorthand-clarify",
@@ -217,7 +259,9 @@
     "expected_behavior": "deterministic_clarify",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "handler_executed"
+    "owner": "audiobook",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-negative-narrow-reprompt",
@@ -227,7 +271,9 @@
     "expected_behavior": "clarification_narrow",
     "risk": "high",
     "origin": "synthetic",
-    "coverage": "handler_executed"
+    "owner": "audiobook",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-safe-other-pronoun",
@@ -237,7 +283,9 @@
     "expected_behavior": "deterministic_clarify",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "handler_executed"
+    "owner": "audiobook",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-pending-first-one-followup",
@@ -248,7 +296,9 @@
     "setup": "pending_audiobook_two_candidates",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-unsafe-vague-followup-rejected",
@@ -258,7 +308,9 @@
     "expected_behavior": "hard_not_found",
     "risk": "high",
     "origin": "synthetic",
-    "coverage": "handler_executed"
+    "owner": "audiobook",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-unsafe-vague-pronoun-rejected",
@@ -268,7 +320,9 @@
     "expected_behavior": "hard_not_found",
     "risk": "high",
     "origin": "synthetic",
-    "coverage": "handler_executed"
+    "owner": "audiobook",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "home-room-first-brighter",
@@ -278,7 +332,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "home_automation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "home-implied-dark-room",
@@ -288,7 +344,9 @@
     "expected_behavior": "route_only",
     "risk": "high",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "home_automation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "home-room-first-little-brighter",
@@ -298,7 +356,9 @@
     "expected_behavior": "route_only",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "home_automation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "home-room-first-color",
@@ -308,7 +368,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "home_automation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "home-room-first-office-lamp",
@@ -318,7 +380,9 @@
     "expected_behavior": "route_only",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "home_automation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "home-room-first-warmer",
@@ -328,7 +392,9 @@
     "expected_behavior": "route_only",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "home_automation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "home-room-first-cool-off",
@@ -338,7 +404,9 @@
     "expected_behavior": "route_only",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "home_automation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "home-leading-wakeword-prefix",
@@ -348,7 +416,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "home_automation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "home-okay-oracle-brighter",
@@ -358,7 +428,9 @@
     "expected_behavior": "route_only",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "home_automation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "home-stt-prefix-residue",
@@ -368,7 +440,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "home_automation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "home-strong-followup-turn-them-back-on",
@@ -379,7 +453,9 @@
     "setup": "strong_home_context_guest_room_off",
     "risk": "medium",
     "origin": "operator_observed",
-    "coverage": "route_executed"
+    "owner": "home_automation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "home-strong-followup-what-about-room",
@@ -390,7 +466,9 @@
     "setup": "strong_home_context_generic",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "home_automation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "home-strong-followup-set-it-to-temperature",
@@ -401,7 +479,9 @@
     "setup": "strong_home_context_generic",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "home_automation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-natural-album-phrase",
@@ -411,7 +491,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "operator_observed",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-dark-side-album-phrase",
@@ -421,7 +503,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "operator_observed",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-put-on-album-phrase",
@@ -431,7 +515,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-play-me-some-artist",
@@ -441,7 +527,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-article-play-me-some-artist",
@@ -451,7 +539,9 @@
     "expected_behavior": "route_only",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-soundtrack-phrase",
@@ -461,7 +551,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-listen-to-track-phrase",
@@ -471,7 +563,9 @@
     "expected_behavior": "route_only",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-queue-up-track-phrase",
@@ -481,7 +575,9 @@
     "expected_behavior": "route_only",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-explicit-soundtrack-phrase",
@@ -491,7 +587,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-track-from-album-phrase",
@@ -501,7 +599,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-something-off-album-phrase",
@@ -511,7 +611,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "operator_observed",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-music-from-soundtrack-phrase",
@@ -521,7 +623,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "operator_observed",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-ultra-generic-single-word-one",
@@ -531,7 +635,9 @@
     "expected_behavior": "deterministic_clarify",
     "risk": "high",
     "origin": "operator_observed",
-    "coverage": "handler_executed"
+    "owner": "music",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-ultra-generic-single-word-hello",
@@ -541,7 +647,9 @@
     "expected_behavior": "deterministic_clarify",
     "risk": "high",
     "origin": "operator_observed",
-    "coverage": "handler_executed"
+    "owner": "music",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-ultra-generic-single-word-stay",
@@ -551,7 +659,9 @@
     "expected_behavior": "deterministic_clarify",
     "risk": "high",
     "origin": "operator_observed",
-    "coverage": "handler_executed"
+    "owner": "music",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-song-by-artist-shorthand",
@@ -561,7 +671,9 @@
     "expected_behavior": "route_only",
     "risk": "medium",
     "origin": "operator_observed",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-okay-oracle-what-song-playing",
@@ -571,7 +683,9 @@
     "expected_behavior": "route_only",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-pending-second-one-followup",
@@ -582,7 +696,9 @@
     "setup": "pending_music_two_candidates",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "music-strong-session-pause-followup",
@@ -593,7 +709,9 @@
     "setup": "strong_music_context_no_live_media",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "music",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "audiobook-strong-session-resume-followup",
@@ -604,7 +722,9 @@
     "setup": "strong_audiobook_context_no_live_media",
     "risk": "low",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "audiobook",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "generic-chat-stays-fallback-router",
@@ -614,7 +734,9 @@
     "expected_behavior": "fallback_router_last_resort",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "fallback",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "generic-chat-short-joke-stays-fallback-router",
@@ -624,7 +746,9 @@
     "expected_behavior": "fallback_router_last_resort",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "fallback",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "generic-chat-stays-fallback-router-question",
@@ -634,7 +758,9 @@
     "expected_behavior": "fallback_router_last_resort",
     "risk": "medium",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "fallback",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "generic-chat-weak-facts-context-does-not-hijack-home",
@@ -645,7 +771,9 @@
     "setup": "weak_facts_context",
     "risk": "high",
     "origin": "synthetic",
-    "coverage": "route_executed"
+    "owner": "fallback",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "weak-single-match-should-not-overcommit",
@@ -655,7 +783,9 @@
     "expected_behavior": "deterministic_clarify",
     "risk": "high",
     "origin": "synthetic",
-    "coverage": "handler_executed"
+    "owner": "music",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
   },
   {
     "id": "no-defensible-media-candidate-hard-not-found",
@@ -665,6 +795,245 @@
     "expected_behavior": "hard_not_found",
     "risk": "high",
     "origin": "operator_observed",
-    "coverage": "handler_executed"
+    "owner": "music",
+    "execution_level": "handler_executed",
+    "capability_disposition": "supported"
+  },
+  {
+    "id": "facts-lifespan-sloth",
+    "category": "route_positive",
+    "utterance": "How long do sloths live?",
+    "expected_target": "facts",
+    "expected_behavior": "route_only",
+    "expected_action": "facts_lookup",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "facts",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported",
+    "facts_expectations": {
+      "case_id": "lifespan_sloth",
+      "intent": "lifespan",
+      "expected_search_fragment": "srsearch=sloth+lifespan",
+      "good_summary": "Median life expectancy in human care is about 16 years.",
+      "generic_summary": "Sloths are arboreal mammals.",
+      "verbose_summary": "Median life expectancy in human care is about 16 years, and one individual at the Smithsonian Institution's National Zoo reached an age of 49 years before her death."
+    }
+  },
+  {
+    "id": "facts-author-frankenstein",
+    "category": "route_positive",
+    "utterance": "Who wrote Frankenstein?",
+    "expected_target": "facts",
+    "expected_behavior": "route_only",
+    "expected_action": "facts_lookup",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "facts",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported",
+    "facts_expectations": {
+      "case_id": "author_frankenstein",
+      "intent": "authorship",
+      "expected_search_fragment": "srsearch=frankenstein",
+      "good_summary": "Frankenstein was written by Mary Shelley.",
+      "generic_summary": "Frankenstein is an 1818 Gothic novel.",
+      "verbose_summary": "Frankenstein was written by Mary Shelley, who started writing the story when she was 18 and first published it anonymously in London."
+    }
+  },
+  {
+    "id": "facts-location-machu-picchu",
+    "category": "route_positive",
+    "utterance": "Where is Machu Picchu?",
+    "expected_target": "facts",
+    "expected_behavior": "route_only",
+    "expected_action": "facts_lookup",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "facts",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported",
+    "facts_expectations": {
+      "case_id": "location_machu_picchu",
+      "intent": "location",
+      "expected_search_fragment": "srsearch=machu+picchu",
+      "good_summary": "Machu Picchu is in Peru.",
+      "generic_summary": "Machu Picchu is a 15th-century Inca citadel.",
+      "verbose_summary": "Machu Picchu is located in the Eastern Cordillera of southern Peru on a mountain ridge at 2,430 meters, about 80 kilometers northwest of Cusco."
+    }
+  },
+  {
+    "id": "facts-date-eiffel-tower",
+    "category": "route_positive",
+    "utterance": "When was the Eiffel Tower built?",
+    "expected_target": "facts",
+    "expected_behavior": "route_only",
+    "expected_action": "facts_lookup",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "facts",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported",
+    "facts_expectations": {
+      "case_id": "date_eiffel_tower",
+      "intent": "date",
+      "expected_search_fragment": "srsearch=eiffel+tower",
+      "good_summary": "The Eiffel Tower was built from 1887 to 1889.",
+      "generic_summary": "The Eiffel Tower is a landmark in Paris.",
+      "verbose_summary": "The Eiffel Tower was designed by Gustave Eiffel's company and built from 1887 to 1889 on the Champ de Mars in Paris, France."
+    }
+  },
+  {
+    "id": "facts-definition-photosynthesis",
+    "category": "route_positive",
+    "utterance": "What is photosynthesis?",
+    "expected_target": "facts",
+    "expected_behavior": "route_only",
+    "expected_action": "facts_lookup",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "facts",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported",
+    "facts_expectations": {
+      "case_id": "definition_photosynthesis",
+      "intent": "general",
+      "good_summary": "Photosynthesis converts light energy into chemical energy.",
+      "verbose_summary": "Photosynthesis is a system of biological processes by which plants, algae, and cyanobacteria convert sunlight into chemical energy and release oxygen through water splitting."
+    }
+  },
+  {
+    "id": "facts-superlative-largest-animal",
+    "category": "route_positive",
+    "utterance": "What is the largest animal?",
+    "expected_target": "facts",
+    "expected_behavior": "route_only",
+    "expected_action": "facts_lookup",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "facts",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported",
+    "facts_expectations": {
+      "case_id": "superlative_largest_animal",
+      "intent": "superlative",
+      "good_summary": "The largest animal is the blue whale.",
+      "generic_summary": "The largest animals are blue whales, with some estimated to weigh over 250 tonnes.",
+      "verbose_summary": "The largest animal currently alive, as well as the largest animal known to have ever existed, is the blue whale, with some individuals estimated to exceed 250 tonnes."
+    }
+  },
+  {
+    "id": "system-current-time-route",
+    "category": "route_positive",
+    "utterance": "what time is it",
+    "expected_target": "system",
+    "expected_behavior": "route_only",
+    "expected_action": "current_time",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "system",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
+  },
+  {
+    "id": "system-calculation-route",
+    "category": "route_positive",
+    "utterance": "what is 12 times 13",
+    "expected_target": "system",
+    "expected_behavior": "route_only",
+    "expected_action": "calculation",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "calculation",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
+  },
+  {
+    "id": "system-alert-route",
+    "category": "route_positive",
+    "utterance": "set a timer for 5 minutes",
+    "expected_target": "system",
+    "expected_behavior": "route_only",
+    "expected_action": "alerts",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "alerts",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
+  },
+  {
+    "id": "calendar-read-route",
+    "category": "route_positive",
+    "utterance": "what's on my calendar tomorrow",
+    "expected_target": "calendar",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "calendar",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
+  },
+  {
+    "id": "network-status-route",
+    "category": "route_positive",
+    "utterance": "how's the network?",
+    "expected_target": "network",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "network",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
+  },
+  {
+    "id": "news-headlines-route",
+    "category": "route_positive",
+    "utterance": "give me the latest from npr",
+    "expected_target": "news",
+    "expected_behavior": "route_only",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "news",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
+  },
+  {
+    "id": "weather-current-route",
+    "category": "route_positive",
+    "utterance": "what's the weather right now",
+    "expected_target": "weather",
+    "expected_behavior": "route_only",
+    "expected_action": "current_weather",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "weather",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
+  },
+  {
+    "id": "weather-forecast-route",
+    "category": "route_positive",
+    "utterance": "what is the weather tomorrow",
+    "expected_target": "weather",
+    "expected_behavior": "route_only",
+    "expected_action": "weather_forecast",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "weather",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
+  },
+  {
+    "id": "weather-history-route",
+    "category": "route_positive",
+    "utterance": "what was the weather yesterday",
+    "expected_target": "weather",
+    "expected_behavior": "route_only",
+    "expected_action": "weather_history",
+    "risk": "medium",
+    "origin": "synthetic",
+    "owner": "weather",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
   }
 ]

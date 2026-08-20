@@ -48,6 +48,14 @@ Suggestion runs and review history are durable Oracle operational data. Review
 records may preserve decisions, notes, corrections, rejection reasons, and
 repeat-suppression preference without becoming executable policy.
 
+Suggestions storage is part of the Memory-owned schema and transaction
+boundary. The latest redacted packet and provider response overwrite one
+current exchange row instead of accumulating sidecar files. A single Memory
+retention executor protects active and genuine unreviewed work, scrubs raw
+evidence and diagnostics after their approved horizons, removes mock work on
+its shorter horizon, and retains completed provider envelopes only while no
+durable suggestion depends on them.
+
 ## Lifecycle And Future Boundary
 
 Generation is asynchronous from the UI: Oracle records the run, performs one
