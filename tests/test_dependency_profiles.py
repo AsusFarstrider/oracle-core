@@ -38,8 +38,14 @@ class DependencyProfileTests(unittest.TestCase):
         self.assertIn("faster-whisper==1.2.1", fast_whisper)
         self.assertIn("-r requirements-fast-whisper.txt", full_production)
         self.assertIn("piper-tts==1.4.1", full_production)
+        self.assertIn("pathvalidate==3.3.1", full_production)
         self.assertIn("openwakeword==0.6.0", satellite)
         self.assertNotIn("faster-whisper", satellite)
+
+    def test_full_production_lock_closes_piper_cli_runtime_imports(self) -> None:
+        lock = (ROOT / "server/requirements-full-production.lock").read_text(encoding="utf-8")
+        self.assertIn("piper-tts==1.4.1", lock)
+        self.assertIn("pathvalidate==3.3.1", lock)
 
 
 if __name__ == "__main__":

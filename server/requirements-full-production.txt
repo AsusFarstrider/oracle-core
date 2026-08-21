@@ -1,3 +1,5 @@
 # Fixed full-production Brain profile.
 -r requirements-fast-whisper.txt
 piper-tts==1.4.1
+# Piper 1.4.1 imports this from its CLI but declares it only in the train extra.
+pathvalidate==3.3.1

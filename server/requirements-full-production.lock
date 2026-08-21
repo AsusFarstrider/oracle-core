@@ -251,6 +251,10 @@ packaging==26.3 \
     # via
     #   huggingface-hub
     #   onnxruntime
+pathvalidate==3.3.1 \
+    --hash=sha256:5263baab691f8e1af96092fa5137ee17df5bdfbd6cff1fcac4d6ef4bc2e1735f \
+    --hash=sha256:b18c07212bfead624345bb8e1d6141cdcf15a39736994ea0b94035ad2b1ba177
+    # via -r server/requirements-full-production.txt
 piper-tts==1.4.1 \
     --hash=sha256:058c025f2a929180d034ed8c333f6b9dd286178703be2133efbafba7f4db13ff \
     --hash=sha256:3dbc990b4e28c680a44e26dc7a880b3e1068e06ffc1deecc8690929895ffb005 \
