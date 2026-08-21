@@ -13,6 +13,8 @@ import pwd
 import shutil
 from contextlib import nullcontext
 
+from oracle_app.configuration.secrets import SecretSnapshot
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("oracle_admin", ROOT / "scripts" / "oracle-admin.py")
@@ -396,6 +398,72 @@ print(json.dumps({"status": "ready"}))
         self.assertIn("active selection", result["plan"]["excluded"])
         self.assertFalse(result["mutation_performed"])
         self.assertEqual(list((installation / "selection").iterdir()), [])
+
+    def test_update_assembly_plan_carries_forward_selected_secret_identity(self) -> None:
+        installation = self.root / "oracle"
+        artifacts = oracle_admin.artifact_preflight(self.core, self.household)
+        pair = dict(artifacts["pair"])
+        pair["logical_secret_requirements"] = ["API_TOKEN"]
+        application_identity = "core-" + pair["core_commit"]
+        deployment_identity = pair["deployment_revision"]
+        environment_identity = "oracle-python-environment-v1:sha256:" + "7" * 64
+        (installation / "revisions" / application_identity).mkdir(parents=True)
+        deployment = installation / "deployments" / deployment_identity
+        (deployment / "configuration").mkdir(parents=True)
+        environment = installation / "environments" / ("environment-" + "7" * 64)
+        environment.mkdir(parents=True)
+        (installation / "selection").mkdir(parents=True)
+        secrets = SecretSnapshot({"API_TOKEN": "private-value"})
+        selected = SimpleNamespace(
+            config=SimpleNamespace(config_revision="oracle-config-v1:sha256:" + "8" * 64),
+            secrets=SimpleNamespace(snapshot=secrets),
+        )
+        eligible = SimpleNamespace(
+            report=SimpleNamespace(activation_eligible=True),
+            normalized=SimpleNamespace(config_revision=selected.config.config_revision),
+        )
+        snapshot = SimpleNamespace(authored_revision=pair["configuration"]["authored_revision"])
+        installed = SimpleNamespace(activation_id="oracle-installation-activation-v1:sha256:" + "9" * 64)
+        generation_store = mock.Mock()
+        generation_store.load_selected.return_value = selected
+        with (
+            mock.patch.object(
+                oracle_admin,
+                "artifact_preflight",
+                return_value={**artifacts, "pair": pair},
+            ),
+            mock.patch.object(oracle_admin, "inspect_candidate", return_value=eligible),
+            mock.patch.object(oracle_admin, "snapshot_candidate", return_value=snapshot),
+            mock.patch.object(
+                oracle_admin,
+                "_payload_inventory",
+                side_effect=lambda path: (
+                    oracle_admin.verify(self.core)["inventory"]
+                    if path == installation / "revisions" / application_identity
+                    else oracle_admin.verify(self.household)["inventory"]
+                ),
+            ),
+            mock.patch.object(oracle_admin, "_tree_identity", return_value=pair["core_git_tree"]),
+            mock.patch.object(oracle_admin, "validate_python_environment"),
+            mock.patch.object(oracle_admin, "load_selected_activation", return_value=installed),
+            mock.patch(
+                "oracle_app.configuration.generations.GenerationStore",
+                return_value=generation_store,
+            ),
+        ):
+            result = oracle_admin.build_update_assembly_plan(
+                self.core,
+                self.household,
+                environment_identity,
+                root=installation,
+            )
+        expected_identity = "oracle-secret-companion-v1:sha256:" + oracle_admin.hashlib.sha256(
+            secrets._companion_bytes()
+        ).hexdigest()
+        self.assertEqual(result["status"], "ready")
+        self.assertEqual(result["blockers"], [])
+        self.assertEqual(result["plan"]["target"]["secret_companion_identity"], expected_identity)
+        self.assertNotIn("private-value", json.dumps(result))
 
     def test_initial_publication_drops_to_service_authority_and_restores_elevation(self) -> None:
         account = SimpleNamespace(pw_uid=901)

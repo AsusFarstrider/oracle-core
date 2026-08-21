@@ -1278,9 +1278,13 @@ def build_initial_assembly_plan(
                         root / "configuration",
                         secret_root=root / "secrets",
                     ).load_selected()
+                    secret_snapshot = selected_configuration.secrets.snapshot
+                    secret_identity = "oracle-secret-companion-v1:sha256:" + hashlib.sha256(
+                        secret_snapshot._companion_bytes()
+                    ).hexdigest()
                     inspection = inspect_candidate(
                         candidate,
-                        secret_snapshot=selected_configuration.secrets.snapshot,
+                        secret_snapshot=secret_snapshot,
                     )
                 else:
                     selected_configuration = None
