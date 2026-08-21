@@ -1167,7 +1167,8 @@ print(json.dumps({"status": "ready"}))
                 "deployment_inventory_sha256": oracle_admin.inventory_sha256(
                     oracle_admin._payload_inventory(deployment)
                 ),
-            }
+            },
+            "environment": {"profile": "full-production-brain"},
         }
 
         def selection(_layout, name="active"):
@@ -1184,7 +1185,11 @@ print(json.dumps({"status": "ready"}))
             mock.patch.object(oracle_admin.grp, "getgrnam", return_value=group),
             mock.patch.object(oracle_admin.pwd, "getpwnam", return_value=account),
             mock.patch.object(oracle_admin, "require_immutable_permissions"),
-            mock.patch.object(oracle_admin, "validate_python_environment", return_value={}),
+            mock.patch.object(
+                oracle_admin,
+                "validate_python_environment",
+                return_value={},
+            ) as validate_environment,
             mock.patch.object(oracle_admin, "_tree_identity", return_value=core_tree),
             mock.patch.object(oracle_admin, "_latest_staging_evidence", return_value=evidence),
             mock.patch.object(
@@ -1207,6 +1212,11 @@ print(json.dumps({"status": "ready"}))
         self.assertEqual(result["selections"]["active"]["activation_id"], activation_id)
         self.assertEqual(result["selections"]["active"]["core_git_tree"], core_tree)
         self.assertEqual(result["findings"], [])
+        validate_environment.assert_called_once_with(
+            application,
+            environment,
+            profile="full-production-brain",
+        )
 
     def test_mutating_lifecycle_remains_elevation_gated(self) -> None:
         with mock.patch.object(oracle_admin.os, "geteuid", return_value=1000):

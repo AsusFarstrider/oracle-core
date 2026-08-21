@@ -2169,6 +2169,15 @@ def build_managed_status(*, root: Path = STANDARD_ROOT) -> dict[str, object]:
             deployment_identity=str(record["household_deployment_revision"]),
         )
         expected_inventory = evidence.get("components") if isinstance(evidence, dict) else None
+
+        def validate_managed_environment() -> object:
+            require_immutable_permissions(environment, owner_uid=0, read_gid=operator_gid)
+            staged_environment = evidence.get("environment") if isinstance(evidence, dict) else None
+            profile = staged_environment.get("profile") if isinstance(staged_environment, dict) else None
+            if not isinstance(profile, str) or not profile:
+                raise RuntimeError("exact staged Python environment profile evidence is unavailable")
+            return validate_python_environment(application, environment, profile=profile)
+
         checks = {
             "application": lambda: (
                 require_immutable_permissions(application, owner_uid=0, read_gid=operator_gid),
@@ -2178,10 +2187,7 @@ def build_managed_status(*, root: Path = STANDARD_ROOT) -> dict[str, object]:
                 if isinstance(expected_inventory, dict)
                 else False,
             ),
-            "environment": lambda: (
-                require_immutable_permissions(environment, owner_uid=0, read_gid=operator_gid),
-                validate_python_environment(application, environment),
-            ),
+            "environment": validate_managed_environment,
             "deployment": lambda: (
                 require_immutable_permissions(deployment, owner_uid=0, read_gid=operator_gid),
                 inventory_sha256(_payload_inventory(deployment))
