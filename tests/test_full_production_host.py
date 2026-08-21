@@ -114,3 +114,11 @@ def test_secret_provider_asset_rejects_group_readability() -> None:
             assert "readable by another" in str(exc)
         else:
             raise AssertionError("group-readable secret provider asset was accepted")
+
+
+def test_elevated_full_production_helpers_suppress_staged_tree_bytecode() -> None:
+    for relative in ("scripts/full-production-host.py", "scripts/full-production-data.py"):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assignment = source.index("sys.dont_write_bytecode = True")
+        first_local_import = source.index("from core_artifact import")
+        assert assignment < first_local_import

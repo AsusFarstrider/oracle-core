@@ -12,6 +12,8 @@ from pathlib import Path
 import sys
 import tempfile
 
+sys.dont_write_bytecode = True
+
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 SERVER_DIRECTORY = SCRIPT_DIRECTORY.parent / "server"
 for path in (SCRIPT_DIRECTORY, SERVER_DIRECTORY):
