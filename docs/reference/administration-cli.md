@@ -95,6 +95,10 @@ Required arguments: both artifact paths and `--environment-identity`;
 `required_safety_acknowledgements`; pass each exact listed ID with a repeated
 `--acknowledge` argument. Missing, additional, or unknown acknowledgements fail
 before assembly mutates the installation.
+The fixed full-production profile also requires `--runtime-compatibility-store`
+on both commands. It must identify an existing canonical configuration store
+whose exact accepted report set matches and validates every enabled satellite;
+the reports remain runtime evidence and never become household policy.
 
 Validates the complete initial combination, installs canonical configuration
 and secret generations, publishes one immutable complete activation record,

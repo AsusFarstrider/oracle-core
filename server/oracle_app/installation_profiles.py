@@ -12,6 +12,7 @@ class InstallationProfile:
     profile_id: str
     dependency_lock: Path
     service_definition: Path
+    initial_runtime_compatibility_required: bool = False
 
 
 PROFILES = {
@@ -24,6 +25,7 @@ PROFILES = {
         profile_id="full-production-brain",
         dependency_lock=Path("server/requirements-full-production.lock"),
         service_definition=Path("scripts/oracle-brain-full-production.service"),
+        initial_runtime_compatibility_required=True,
     ),
 }
 

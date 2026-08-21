@@ -9,6 +9,7 @@ from oracle_app.configuration import (
     GenerationStore,
     SafetyAcknowledgementRequired,
     SecretSnapshot,
+    inspect_candidate,
     load_runtime_cutover_marker,
 )
 from oracle_app.installation import InstallationLayout, load_selected_activation, select_activation
@@ -17,6 +18,7 @@ from oracle_app.installation_assembly import (
     InitialAssemblyRequest,
     assemble_initial_activation,
     assemble_update_activation,
+    load_runtime_compatibility_companion,
 )
 from oracle_app.installation_identity import environment_directory_name
 
@@ -110,6 +112,22 @@ class InitialInstallationAssemblyTests(unittest.TestCase):
         )
         complete = assemble_initial_activation(self.layout, request)
         self.assertEqual(load_selected_activation(self.layout, "staged").activation_id, complete.activation_id)
+
+    def test_runtime_compatibility_companion_binds_exact_enabled_fleet_inventory(self) -> None:
+        deployment = self.layout.deployments / self.request.household_deployment_revision
+        inspection = inspect_candidate(deployment / "configuration")
+        source_root = Path(self.temporary.name) / "source-configuration"
+        source = GenerationStore(source_root)
+        source.initialize("example-home")
+        (source_root / "runtime-compatibility").mkdir()
+
+        companion = load_runtime_compatibility_companion(source_root, inspection)
+        self.assertEqual(companion.accepted, ())
+        self.assertTrue(companion.identity.startswith("oracle-runtime-compatibility-companion-v1:sha256:"))
+
+        (source_root / "runtime-compatibility" / "unexpected.json").write_text("{}", encoding="utf-8")
+        with self.assertRaisesRegex(InitialAssemblyError, "differs from the enabled fleet"):
+            load_runtime_compatibility_companion(source_root, inspection)
 
     def _update_request(self) -> InitialAssemblyRequest:
         request = InitialAssemblyRequest(

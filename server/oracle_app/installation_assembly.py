@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import json
 from pathlib import Path
 
 from .configuration import (
@@ -23,6 +24,11 @@ from .installation import (
     select_activation,
 )
 from .installation_identity import environment_directory_name
+from .configuration.projections import (
+    AcceptedSatelliteRuntimeCompatibility,
+    SatelliteRuntimeCompatibilityStore,
+    generate_satellite_projection,
+)
 
 
 class InitialAssemblyError(RuntimeError):
@@ -40,6 +46,66 @@ class InitialAssemblyRequest:
     service_definition_path: str = "scripts/oracle-brain-standard.service"
     initial_secret_snapshot: SecretSnapshot | None = None
     safety_acknowledgements: frozenset[str] = frozenset()
+    initial_runtime_compatibility: tuple[AcceptedSatelliteRuntimeCompatibility, ...] = ()
+
+
+@dataclass(frozen=True)
+class RuntimeCompatibilityCompanion:
+    identity: str
+    accepted: tuple[AcceptedSatelliteRuntimeCompatibility, ...]
+
+
+def load_runtime_compatibility_companion(
+    source_store_root: Path,
+    inspection,
+) -> RuntimeCompatibilityCompanion:
+    """Validate one exact accepted-fleet snapshot for first installation."""
+
+    if source_store_root.is_symlink() or not source_store_root.is_dir():
+        raise InitialAssemblyError("Initial runtime compatibility store is absent or unsafe.")
+    if inspection.bundle is None or inspection.normalized is None or inspection.secrets is None:
+        raise InitialAssemblyError("Initial runtime compatibility requires an activation-eligible configuration.")
+    required_ids = sorted(item.id for item in inspection.bundle.satellites.satellites if item.enabled)
+    directory = source_store_root / "runtime-compatibility"
+    if directory.is_symlink() or not directory.is_dir():
+        raise InitialAssemblyError("Initial runtime compatibility inventory is absent or unsafe.")
+    files = sorted(directory.iterdir(), key=lambda item: item.name)
+    if any(item.is_symlink() or not item.is_file() for item in files):
+        raise InitialAssemblyError("Initial runtime compatibility inventory contains an unsafe entry.")
+    if [item.name for item in files] != [f"{satellite_id}.json" for satellite_id in required_ids]:
+        raise InitialAssemblyError("Initial runtime compatibility inventory differs from the enabled fleet.")
+    source = GenerationStore(source_store_root, supported_schema_versions=frozenset({1, 2}))
+    reports = SatelliteRuntimeCompatibilityStore(source)
+    accepted = []
+    inventory = []
+    for satellite_id, path in zip(required_ids, files, strict=True):
+        item = reports.load(satellite_id)
+        if item is None:
+            raise InitialAssemblyError("Initial runtime compatibility report is absent.")
+        generate_satellite_projection(
+            inspection.bundle,
+            source_config_revision=inspection.normalized.config_revision,
+            satellite_id=satellite_id,
+            runtime_compatibility=item.report,
+            secrets=inspection.secrets,
+        )
+        accepted.append(item)
+        inventory.append(
+            {
+                "satellite_id": satellite_id,
+                "accepted_at": item.accepted_at,
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+        )
+    basis = {
+        "format": "oracle-runtime-compatibility-companion-v1",
+        "source": str(source_store_root.resolve()),
+        "reports": inventory,
+    }
+    identity = "oracle-runtime-compatibility-companion-v1:sha256:" + hashlib.sha256(
+        (json.dumps(basis, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    ).hexdigest()
+    return RuntimeCompatibilityCompanion(identity, tuple(accepted))
 
 
 def service_definition_identity(path: Path) -> str:
@@ -87,10 +153,23 @@ def assemble_initial_activation(
     )
     if not inspection.report.activation_eligible or inspection.bundle is None:
         raise InitialAssemblyError("The staged canonical configuration is not activation eligible.")
+    enabled_satellites = {
+        item.id for item in inspection.bundle.satellites.satellites if item.enabled
+    }
+    supplied_satellites = {item.satellite_id for item in request.initial_runtime_compatibility}
+    if supplied_satellites != enabled_satellites or len(supplied_satellites) != len(request.initial_runtime_compatibility):
+        raise InitialAssemblyError("Initial runtime compatibility differs from the enabled fleet.")
     bundle_id = inspection.bundle.roles["bundle.yaml"].bundle_id
 
     store = GenerationStore(layout.configuration, secret_root=layout.secrets)
     store.initialize(bundle_id)
+    compatibility = SatelliteRuntimeCompatibilityStore(store)
+    for accepted in request.initial_runtime_compatibility:
+        compatibility.accept(
+            accepted.satellite_id,
+            accepted.report,
+            accepted_at=accepted.accepted_at,
+        )
     service = ConfigurationService(store)
     activated = service.activate_candidate(
         bundle,

@@ -55,6 +55,7 @@ def test_standard_installation_runbook_covers_the_complete_cli_lifecycle() -> No
         "--approved-plan",
         "required_safety_acknowledgements",
         "--acknowledge",
+        "--runtime-compatibility-store",
         "systemctl is-enabled",
         "/health/config",
         "recovered_failed",

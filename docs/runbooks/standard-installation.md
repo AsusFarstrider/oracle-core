@@ -154,10 +154,12 @@ only the trusted entrypoint into that re-execution.
 Plan and apply the complete initial activation assembly:
 
 ```sh
+RUNTIME_COMPATIBILITY_STORE='/path/to/recovered/configuration-store'
 "$HOST_PYTHON" -S -B "$BOOTSTRAP_CLI" --json assemble-plan \
   --core-artifact "$CORE_ARTIFACT" \
   --household-artifact "$HOUSEHOLD_ARTIFACT" \
   --environment-identity "$ENVIRONMENT_IDENTITY" \
+  --runtime-compatibility-store "$RUNTIME_COMPATIBILITY_STORE" \
   > /tmp/oracle-assemble-plan.json
 
 ASSEMBLE_PLAN='oracle-operation-plan-v1:sha256:<exact-digest>'
@@ -170,6 +172,7 @@ sudo "$HOST_PYTHON" -S -B "$BOOTSTRAP_CLI" --json assemble \
   --environment-identity "$ENVIRONMENT_IDENTITY" \
   --approved-plan "$ASSEMBLE_PLAN" \
   --acknowledge "$ASSEMBLE_ACKNOWLEDGEMENT" \
+  --runtime-compatibility-store "$RUNTIME_COMPATIBILITY_STORE" \
   > /tmp/oracle-assemble-result.json
 ```
 

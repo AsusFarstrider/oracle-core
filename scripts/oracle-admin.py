@@ -102,6 +102,12 @@ def InitialAssemblyRequest(*args: object, **kwargs: object):  # noqa: N802 - laz
     return implementation(*args, **kwargs)
 
 
+def load_runtime_compatibility_companion(*args: object, **kwargs: object):
+    from oracle_app.installation_assembly import load_runtime_compatibility_companion as implementation
+
+    return implementation(*args, **kwargs)
+
+
 def assemble_initial_activation(*args: object, **kwargs: object):
     from oracle_app.installation_assembly import assemble_initial_activation as implementation
 
@@ -1196,6 +1202,7 @@ def build_initial_assembly_plan(
     root: Path = STANDARD_ROOT,
     update: bool = False,
     secret_companion: Path | None = None,
+    runtime_compatibility_store: Path | None = None,
 ) -> dict[str, object]:
     """Inspect one already-staged standard installation without changing it."""
 
@@ -1243,6 +1250,7 @@ def build_initial_assembly_plan(
         if deployment.is_dir() and not deployment.is_symlink():
             if _payload_inventory(deployment) != household_manifest["inventory"]:
                 blockers.append({"code": "staged_deployment_drift", "detail": str(deployment)})
+        profile = None
         if application.is_dir() and environment.is_dir() and not application.is_symlink() and not environment.is_symlink():
             try:
                 profile = require_single_profile(pair.get("installation_profiles", []))
@@ -1290,6 +1298,26 @@ def build_initial_assembly_plan(
                 target["required_safety_acknowledgements"] = (
                     [] if update else sorted(initial_safety_acknowledgements(inspection))
                 )
+                target["runtime_compatibility_companion_identity"] = None
+                target["runtime_compatibility_satellite_ids"] = []
+                if update and runtime_compatibility_store is not None:
+                    blockers.append({"code": "unexpected_runtime_compatibility_companion", "detail": str(runtime_compatibility_store)})
+                elif not update and profile is not None:
+                    if profile.initial_runtime_compatibility_required and runtime_compatibility_store is None:
+                        blockers.append({"code": "initial_runtime_compatibility_required", "detail": profile.profile_id})
+                    elif runtime_compatibility_store is not None:
+                        if not profile.initial_runtime_compatibility_required:
+                            blockers.append({"code": "unexpected_runtime_compatibility_companion", "detail": profile.profile_id})
+                        else:
+                            try:
+                                companion = load_runtime_compatibility_companion(runtime_compatibility_store, inspection)
+                            except (OSError, ValueError, RuntimeError) as exc:
+                                blockers.append({"code": "initial_runtime_compatibility_invalid", "detail": str(exc)})
+                            else:
+                                target["runtime_compatibility_companion_identity"] = companion.identity
+                                target["runtime_compatibility_satellite_ids"] = [
+                                    item.satellite_id for item in companion.accepted
+                                ]
                 if actual_authored != authored_revision:
                     blockers.append({"code": "staged_configuration_revision_mismatch", "detail": actual_authored})
                 if (
@@ -1374,6 +1402,7 @@ def execute_initial_assembly(
     update: bool = False,
     secret_companion: Path | None = None,
     acknowledgements: frozenset[str] = frozenset(),
+    runtime_compatibility_store: Path | None = None,
 ) -> dict[str, object]:
     if os.geteuid() != 0:
         raise RuntimeError("initial assembly requires an explicitly elevated oracle-admin invocation")
@@ -1384,6 +1413,7 @@ def execute_initial_assembly(
         root=root,
         update=update,
         secret_companion=secret_companion,
+        runtime_compatibility_store=runtime_compatibility_store,
     )
     if preflight["status"] != "ready" or preflight["plan"]["identity"] != approved_plan:
         raise RuntimeError("initial assembly plan is blocked, stale, or unapproved")
@@ -1398,12 +1428,24 @@ def execute_initial_assembly(
             root=root,
             update=update,
             secret_companion=secret_companion,
+            runtime_compatibility_store=runtime_compatibility_store,
         )
         if locked["status"] != "ready" or locked["plan"]["identity"] != approved_plan:
             raise RuntimeError("initial assembly assumptions changed before the operation lock was acquired")
         target = locked["plan"]["target"]
         secret_snapshot = None if secret_companion is None else parse_secret_companion(secret_companion.read_bytes())
         profile = require_single_profile(target["installation_profiles"])
+        runtime_compatibility = ()
+        if runtime_compatibility_store is not None:
+            deployment = root / "deployments" / target["household_deployment_revision"]
+            inspection = inspect_candidate(
+                deployment / target["configuration_root"],
+                secret_snapshot=secret_snapshot,
+            )
+            companion = load_runtime_compatibility_companion(runtime_compatibility_store, inspection)
+            if companion.identity != target.get("runtime_compatibility_companion_identity"):
+                raise RuntimeError("runtime compatibility companion changed after plan approval")
+            runtime_compatibility = companion.accepted
         with _service_authority():
             assembly = assemble_update_activation if update else assemble_initial_activation
             complete = assembly(
@@ -1418,6 +1460,7 @@ def execute_initial_assembly(
                     service_definition_path=profile.service_definition.as_posix(),
                     initial_secret_snapshot=secret_snapshot,
                     safety_acknowledgements=acknowledgements,
+                    initial_runtime_compatibility=runtime_compatibility,
                 ),
             )
         result = {
@@ -2427,6 +2470,7 @@ def parser() -> argparse.ArgumentParser:
     assemble_plan.add_argument("--household-artifact", type=Path, required=True)
     assemble_plan.add_argument("--environment-identity", required=True)
     assemble_plan.add_argument("--secret-companion", type=Path)
+    assemble_plan.add_argument("--runtime-compatibility-store", type=Path)
     assemble = commands.add_parser("assemble", help="Create one initial complete activation and select it as staged")
     assemble.add_argument("--core-artifact", type=Path, required=True)
     assemble.add_argument("--household-artifact", type=Path, required=True)
@@ -2434,6 +2478,7 @@ def parser() -> argparse.ArgumentParser:
     assemble.add_argument("--approved-plan", required=True)
     assemble.add_argument("--secret-companion", type=Path)
     assemble.add_argument("--acknowledge", action="append", default=[])
+    assemble.add_argument("--runtime-compatibility-store", type=Path)
     update_assemble_plan = commands.add_parser(
         "update-assemble-plan",
         help="Plan one complete no-configuration-change update activation",
@@ -2610,6 +2655,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.household_artifact,
                     args.environment_identity,
                     secret_companion=args.secret_companion,
+                    runtime_compatibility_store=args.runtime_compatibility_store,
                 )
             elif args.command == "assemble":
                 result = execute_initial_assembly(
@@ -2619,6 +2665,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.approved_plan,
                     secret_companion=args.secret_companion,
                     acknowledgements=frozenset(args.acknowledge),
+                    runtime_compatibility_store=args.runtime_compatibility_store,
                 )
             elif args.command == "update-assemble-plan":
                 result = build_update_assembly_plan(
