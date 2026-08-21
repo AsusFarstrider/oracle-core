@@ -502,7 +502,7 @@ print(json.dumps({"status": "ready"}))
         }
         command = {
             "reply_text": "It is 3 PM.",
-            "source_id": "stage4-install-verifier",
+            "source_id": "canonical-installation-verifier",
             "session_id": "stage4-install-verifier",
             "status": "executed",
             "failure_code": None,

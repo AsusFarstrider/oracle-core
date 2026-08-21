@@ -1735,7 +1735,8 @@ def verify_initial_runtime(
                     "failure_code", "trace_id", "effects",
                 }
                 or command.get("status") != "executed"
-                or command.get("source_id") != "stage4-install-verifier"
+                or not isinstance(command.get("source_id"), str)
+                or not command["source_id"].strip()
                 or command.get("session_id") != "stage4-install-verifier"
                 or command.get("failure_code") is not None
                 or not isinstance(command.get("trace_id"), str)
