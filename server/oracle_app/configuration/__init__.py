@@ -243,6 +243,7 @@ from .service import (
     StoreLockTimeout,
     TransitionActivationBlocked,
     VALIDATION_VERSION,
+    initial_safety_acknowledgements,
 )
 from .host_local import (
     HOST_LOCAL_PROTOCOL_FORMAT,
@@ -469,6 +470,7 @@ __all__ = [
     "classify_access_safety",
     "candidate_role_text",
     "intrinsic_access_acknowledgements",
+    "initial_safety_acknowledgements",
     "normalize_bundle",
     "parse_secret_companion",
     "semantic_diff",

@@ -91,7 +91,10 @@ only the explicitly named operator. It does not activate Oracle.
 ### `assemble-plan` / `assemble`
 
 Required arguments: both artifact paths and `--environment-identity`;
-`assemble` also requires `--approved-plan`.
+`assemble` also requires `--approved-plan`. The plan reports
+`required_safety_acknowledgements`; pass each exact listed ID with a repeated
+`--acknowledge` argument. Missing, additional, or unknown acknowledgements fail
+before assembly mutates the installation.
 
 Validates the complete initial combination, installs canonical configuration
 and secret generations, publishes one immutable complete activation record,

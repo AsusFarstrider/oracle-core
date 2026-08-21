@@ -84,6 +84,24 @@ _KNOWN_ACKNOWLEDGEMENTS = frozenset(
 )
 
 
+def initial_safety_acknowledgements(inspection: CandidateInspection) -> frozenset[str]:
+    """Return the established safety acknowledgements for first activation."""
+
+    if inspection.normalized is None:
+        return frozenset()
+    roles = inspection.normalized.configuration["roles"]
+    required = set(intrinsic_access_acknowledgements(inspection.normalized.configuration))
+    for role_path in (
+        "domains/home-assistant.yaml",
+        "domains/routines.yaml",
+        "domains/network/inventory.yaml",
+    ):
+        role = roles.get(role_path)
+        if role is not None and role["enabled"]:
+            required.add("mutating_control_enablement")
+    return frozenset(required)
+
+
 class StoreLockTimeout(GenerationStoreError):
     pass
 
@@ -1606,20 +1624,9 @@ class ConfigurationService:
 
     @staticmethod
     def _intrinsic_acknowledgements(inspection: CandidateInspection | None) -> frozenset[str]:
-        if inspection is None or inspection.normalized is None:
+        if inspection is None:
             return frozenset()
-        roles = inspection.normalized.configuration["roles"]
-        required: set[str] = set()
-        required.update(intrinsic_access_acknowledgements(inspection.normalized.configuration))
-        for role_path in (
-            "domains/home-assistant.yaml",
-            "domains/routines.yaml",
-            "domains/network/inventory.yaml",
-        ):
-            role = roles.get(role_path)
-            if role is not None and role["enabled"]:
-                required.add("mutating_control_enablement")
-        return frozenset(required)
+        return initial_safety_acknowledgements(inspection)
 
     def _candidate_changes(
         self,

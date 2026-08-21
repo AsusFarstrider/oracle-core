@@ -39,6 +39,7 @@ class InitialAssemblyRequest:
     configuration_root: str = "configuration"
     service_definition_path: str = "scripts/oracle-brain-standard.service"
     initial_secret_snapshot: SecretSnapshot | None = None
+    safety_acknowledgements: frozenset[str] = frozenset()
 
 
 def service_definition_identity(path: Path) -> str:
@@ -96,6 +97,7 @@ def assemble_initial_activation(
         expected_authored_revision=snapshot_candidate(bundle).authored_revision,
         expected_secret_generation_id=None,
         actor="host_local_cli",
+        acknowledgements=request.safety_acknowledgements,
         initial_secret_snapshot=request.initial_secret_snapshot,
     )
     selected = store.load_selected()

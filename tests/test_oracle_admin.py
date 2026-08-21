@@ -370,6 +370,7 @@ print(json.dumps({"status": "ready"}))
         snapshot = SimpleNamespace(authored_revision=pair["configuration"]["authored_revision"])
         with (
             mock.patch.object(oracle_admin, "inspect_candidate", return_value=eligible),
+            mock.patch.object(oracle_admin, "initial_safety_acknowledgements", return_value=frozenset()),
             mock.patch.object(oracle_admin, "snapshot_candidate", return_value=snapshot),
             mock.patch.object(
                 oracle_admin,
@@ -391,6 +392,7 @@ print(json.dumps({"status": "ready"}))
             )
         self.assertEqual(result["status"], "ready")
         self.assertEqual(result["plan"]["operation"], "assemble-initial-activation")
+        self.assertEqual(result["plan"]["target"]["required_safety_acknowledgements"], [])
         self.assertIn("active selection", result["plan"]["excluded"])
         self.assertFalse(result["mutation_performed"])
         self.assertEqual(list((installation / "selection").iterdir()), [])
@@ -426,6 +428,29 @@ print(json.dumps({"status": "ready"}))
                 ("groups", [0]),
             ],
         )
+
+    def test_initial_assembly_rejects_missing_or_extra_plan_acknowledgements_before_mutation(self) -> None:
+        plan = {
+            "identity": "oracle-operation-plan-v1:sha256:" + "1" * 64,
+            "target": {"required_safety_acknowledgements": ["access_expansion"]},
+        }
+        preflight = {"status": "ready", "plan": plan}
+        with (
+            mock.patch.object(oracle_admin.os, "geteuid", return_value=0),
+            mock.patch.object(oracle_admin, "build_initial_assembly_plan", return_value=preflight),
+            mock.patch.object(oracle_admin, "_maintenance_lock") as maintenance_lock,
+        ):
+            for provided in (frozenset(), frozenset({"access_expansion", "public_health_enablement"})):
+                with self.assertRaisesRegex(RuntimeError, "exact safety acknowledgements"):
+                    oracle_admin.execute_initial_assembly(
+                        self.core,
+                        self.household,
+                        "oracle-python-environment-v1:sha256:" + "2" * 64,
+                        plan["identity"],
+                        root=self.root / "oracle",
+                        acknowledgements=provided,
+                    )
+        maintenance_lock.assert_not_called()
 
     def test_service_plan_keeps_unit_disabled_and_binds_current_systemd_state(self) -> None:
         exact = SimpleNamespace(

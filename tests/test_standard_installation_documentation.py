@@ -53,6 +53,8 @@ def test_standard_installation_runbook_covers_the_complete_cli_lifecycle() -> No
         "mktemp -d",
         "/srv/oracle",
         "--approved-plan",
+        "required_safety_acknowledgements",
+        "--acknowledge",
         "systemctl is-enabled",
         "/health/config",
         "recovered_failed",

@@ -78,6 +78,12 @@ def parse_secret_companion(*args: object, **kwargs: object):
     return implementation(*args, **kwargs)
 
 
+def initial_safety_acknowledgements(*args: object, **kwargs: object):
+    from oracle_app.configuration import initial_safety_acknowledgements as implementation
+
+    return implementation(*args, **kwargs)
+
+
 def InstallationLayout(*args: object, **kwargs: object):  # noqa: N802 - lazy class-compatible factory
     from oracle_app.installation import InstallationLayout as implementation
 
@@ -1281,6 +1287,9 @@ def build_initial_assembly_plan(
             else:
                 if not inspection.report.activation_eligible:
                     blockers.append({"code": "staged_configuration_ineligible", "detail": str(candidate)})
+                target["required_safety_acknowledgements"] = (
+                    [] if update else sorted(initial_safety_acknowledgements(inspection))
+                )
                 if actual_authored != authored_revision:
                     blockers.append({"code": "staged_configuration_revision_mismatch", "detail": actual_authored})
                 if (
@@ -1364,6 +1373,7 @@ def execute_initial_assembly(
     lock_path: Path = MAINTENANCE_LOCK,
     update: bool = False,
     secret_companion: Path | None = None,
+    acknowledgements: frozenset[str] = frozenset(),
 ) -> dict[str, object]:
     if os.geteuid() != 0:
         raise RuntimeError("initial assembly requires an explicitly elevated oracle-admin invocation")
@@ -1377,6 +1387,9 @@ def execute_initial_assembly(
     )
     if preflight["status"] != "ready" or preflight["plan"]["identity"] != approved_plan:
         raise RuntimeError("initial assembly plan is blocked, stale, or unapproved")
+    required_acknowledgements = frozenset(preflight["plan"]["target"].get("required_safety_acknowledgements", []))
+    if acknowledgements != required_acknowledgements:
+        raise RuntimeError("initial assembly requires the exact safety acknowledgements declared by its approved plan")
     with _maintenance_lock(lock_path):
         locked = build_initial_assembly_plan(
             core_archive,
@@ -1404,6 +1417,7 @@ def execute_initial_assembly(
                     configuration_root=target["configuration_root"],
                     service_definition_path=profile.service_definition.as_posix(),
                     initial_secret_snapshot=secret_snapshot,
+                    safety_acknowledgements=acknowledgements,
                 ),
             )
         result = {
@@ -2419,6 +2433,7 @@ def parser() -> argparse.ArgumentParser:
     assemble.add_argument("--environment-identity", required=True)
     assemble.add_argument("--approved-plan", required=True)
     assemble.add_argument("--secret-companion", type=Path)
+    assemble.add_argument("--acknowledge", action="append", default=[])
     update_assemble_plan = commands.add_parser(
         "update-assemble-plan",
         help="Plan one complete no-configuration-change update activation",
@@ -2603,6 +2618,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.environment_identity,
                     args.approved_plan,
                     secret_companion=args.secret_companion,
+                    acknowledgements=frozenset(args.acknowledge),
                 )
             elif args.command == "update-assemble-plan":
                 result = build_update_assembly_plan(

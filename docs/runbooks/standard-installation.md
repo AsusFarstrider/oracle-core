@@ -161,11 +161,15 @@ Plan and apply the complete initial activation assembly:
   > /tmp/oracle-assemble-plan.json
 
 ASSEMBLE_PLAN='oracle-operation-plan-v1:sha256:<exact-digest>'
+# Repeat this argument for every exact ID listed by the reviewed plan. Omit it
+# when required_safety_acknowledgements is empty.
+ASSEMBLE_ACKNOWLEDGEMENT='mutating_control_enablement'
 sudo "$HOST_PYTHON" -S -B "$BOOTSTRAP_CLI" --json assemble \
   --core-artifact "$CORE_ARTIFACT" \
   --household-artifact "$HOUSEHOLD_ARTIFACT" \
   --environment-identity "$ENVIRONMENT_IDENTITY" \
   --approved-plan "$ASSEMBLE_PLAN" \
+  --acknowledge "$ASSEMBLE_ACKNOWLEDGEMENT" \
   > /tmp/oracle-assemble-result.json
 ```
 

@@ -5,7 +5,12 @@ import shutil
 import tempfile
 import unittest
 
-from oracle_app.configuration import GenerationStore, SecretSnapshot, load_runtime_cutover_marker
+from oracle_app.configuration import (
+    GenerationStore,
+    SafetyAcknowledgementRequired,
+    SecretSnapshot,
+    load_runtime_cutover_marker,
+)
 from oracle_app.installation import InstallationLayout, load_selected_activation, select_activation
 from oracle_app.installation_assembly import (
     InitialAssemblyError,
@@ -79,6 +84,32 @@ class InitialInstallationAssemblyTests(unittest.TestCase):
         selected = GenerationStore(self.layout.configuration, secret_root=self.layout.secrets).load_selected()
         self.assertEqual(selected.secrets.snapshot.present_ids, frozenset({"TOKEN"}))
         self.assertTrue(selected.secrets.raw_present)
+
+    def test_initial_assembly_preserves_explicit_safety_acknowledgements(self) -> None:
+        access = (
+            self.layout.deployments
+            / self.request.household_deployment_revision
+            / "configuration"
+            / "access.yaml"
+        )
+        access.write_text(
+            access.read_text(encoding="utf-8").replace(
+                "public_health:\n  enabled: false",
+                "public_health:\n  enabled: true",
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaises(SafetyAcknowledgementRequired):
+            assemble_initial_activation(self.layout, self.request)
+
+        request = InitialAssemblyRequest(
+            **{
+                **self.request.__dict__,
+                "safety_acknowledgements": frozenset({"public_health_enablement"}),
+            }
+        )
+        complete = assemble_initial_activation(self.layout, request)
+        self.assertEqual(load_selected_activation(self.layout, "staged").activation_id, complete.activation_id)
 
     def _update_request(self) -> InitialAssemblyRequest:
         request = InitialAssemblyRequest(
