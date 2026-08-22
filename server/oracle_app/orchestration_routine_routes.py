@@ -84,13 +84,13 @@ def run_routine(
         )
     return {
         "ok": run.get("status") in {"completed", "waiting"},
-        "run": _compatibility_run(run),
+        "run": _public_run(run),
     }
 
 
 def cancel_routine_run(run_id: str, request: UiRoutineCancelRequest) -> dict[str, object]:
     run = cancel_routine(run_id, cancellation_requester=str(request.client_id))
-    return {"ok": run.get("status") == "canceled", "run": _compatibility_run(run)}
+    return {"ok": run.get("status") == "canceled", "run": _public_run(run)}
 
 
 def register_orchestration_routine_routes(app: FastAPI) -> None:
@@ -136,7 +136,7 @@ def _find_routine(
     raise HTTPException(status_code=404, detail="Routine definition was not found.")
 
 
-def _compatibility_run(run: dict[str, object]) -> dict[str, object]:
+def _public_run(run: dict[str, object]) -> dict[str, object]:
     return {
         key: value
         for key, value in run.items()

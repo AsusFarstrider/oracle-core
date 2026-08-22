@@ -97,7 +97,7 @@ def run_retention(
     active_session_ids: Iterable[str] = (),
 ) -> RetentionReport:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     clock = _utc(now or datetime.now(timezone.utc))
     active_sessions = frozenset(str(item) for item in active_session_ids)
     with transaction(path) as conn:

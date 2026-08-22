@@ -106,7 +106,6 @@ from .orchestration_routines import (
 from .orchestration_routine_canonical import CanonicalRoutineExecution
 from .health_routes import (
     canonical_health,
-    health,
     health_audiobook,
     health_calendar,
     health_config,
@@ -1500,13 +1499,13 @@ def _validate_ui_action_source(source: str | None) -> str:
 
 
 def _ui_context_start_impl(payload: UiContextStartRequest, request: Request | None = None) -> dict[str, object]:
-    target_source_id = str(payload.target_source_id or payload.source or "").strip()
+    target_source_id = str(payload.target_source_id or "").strip()
     if payload.action in {"music_search", "audiobook_search"}:
         target_source_id = _validate_ui_action_source(target_source_id or None)
 
-    request_source_id = str(payload.source or "").strip()
+    request_source_id = ""
     if request is not None:
-        resolved_source = _canonical_http_request_source(payload.source, request)
+        resolved_source = _canonical_http_request_source(None, request)
         if resolved_source is not None:
             request_source_id = resolved_source.request_source_id
         if payload.action == "set_alarm":

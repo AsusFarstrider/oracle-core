@@ -1,12 +1,10 @@
 """Canonical runtime boundary for retired process-local configuration access.
 
 The standard Oracle runtime receives typed settings through the canonical
-application composition.  The former environment and local-JSON authority is
-retained only in the private compatibility boundary until Stage 5.
-
-These fail-closed names keep imports explicit while mixed modules finish their
-bounded Stage 5 simplification.  Canonical execution must inject its typed
-settings before reaching any of them.
+application composition. The former environment and local-JSON authority has
+been deleted. These remaining fail-closed names keep incomplete internal
+injection seams explicit; canonical execution must inject typed settings before
+reaching any of them.
 """
 
 from __future__ import annotations
@@ -38,50 +36,12 @@ def load_home_assistant_cache() -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def load_local_config() -> dict[str, Any]:
-    """Expose an empty retired-input surface for rejection reporting only."""
-
-    return {}
-
-
-def load_network_inventory_config() -> None:
-    return None
-
-
-def load_network_control_config() -> None:
-    return None
-
-
-def load_network_service_control_config() -> None:
-    return None
-
-
-def load_network_router_control_config() -> None:
-    return None
-
-
-def load_orchestration_config() -> None:
-    return None
-
-
-def load_notifications_config() -> None:
-    return None
-
-
-def load_home_automation_runbooks_config() -> None:
-    return None
-
-
 def get_tts_provider() -> NoReturn:
     return _canonical_only("get_tts_provider")
 
 
 def get_stt_provider() -> NoReturn:
     return _canonical_only("get_stt_provider")
-
-
-def get_tts_settings() -> NoReturn:
-    return _canonical_only("get_tts_settings")
 
 
 def get_stt_settings() -> NoReturn:
@@ -114,10 +74,6 @@ def get_facts_settings() -> NoReturn:
 
 def get_weather_current_settings() -> NoReturn:
     return _canonical_only("get_weather_current_settings")
-
-
-def get_weather_settings() -> NoReturn:
-    return _canonical_only("get_weather_settings")
 
 
 def get_weather_history_settings() -> NoReturn:
@@ -201,14 +157,6 @@ def get_network_control_policy_settings() -> NoReturn:
 
 def get_orchestration_settings() -> NoReturn:
     return _canonical_only("get_orchestration_settings")
-
-
-def get_home_assistant_event_ingress_token() -> NoReturn:
-    return _canonical_only("get_home_assistant_event_ingress_token")
-
-
-def get_home_automation_runbook_settings() -> NoReturn:
-    return _canonical_only("get_home_automation_runbook_settings")
 
 
 def get_notification_settings() -> NoReturn:

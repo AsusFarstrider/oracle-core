@@ -74,7 +74,7 @@ Current route refinement covers:
 ## Current API
 
 - `GET /health`
-- `POST /api/voice/route`
+- `POST /api/conversation/route`
 
 Example request body:
 

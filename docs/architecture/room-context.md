@@ -49,7 +49,7 @@ Implementation grouping:
 Room-context behavior is currently visible through:
 
 - `GET /health/config` for config-report findings tied to room-context inputs such as source-registry shape and room-vocabulary checks
-- `GET /api/voice/session` for session-scoped room-context state such as
+- `GET /api/conversation/session` for session-scoped room-context state such as
   `active_room_ref`
 - request-path logs for room-resolution behavior, including resolved room and resolution source where logged
 

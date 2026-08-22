@@ -30,9 +30,6 @@ storage:
       suggestion_exchange_days: 30
       suggestion_envelope_days: 365
       suggestion_mock_days: 30
-  alerts:
-    backend: json_file
-    state_path: data/alerts-state.json
 speech:
   stt:
     enabled: false

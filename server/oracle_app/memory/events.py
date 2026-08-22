@@ -66,7 +66,7 @@ def record_event(
 ) -> dict[str, Any]:
     category = category_for_event_type(event_type)
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     now = utc_now_iso()
     resolved_event_id = event_id or uuid.uuid4().hex
     with transaction(path) as conn:
@@ -103,7 +103,7 @@ def record_event(
 
 def get_event(event_id: str, *, db_path: Path | None = None) -> dict[str, Any] | None:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         row = conn.execute("SELECT * FROM memory_events WHERE event_id = ?", (event_id,)).fetchone()
     return _row_to_event(row) if row else None
@@ -112,7 +112,7 @@ def get_event(event_id: str, *, db_path: Path | None = None) -> dict[str, Any] |
 def query_events(query: EventQuery | None = None, *, db_path: Path | None = None) -> list[dict[str, Any]]:
     query = query or EventQuery()
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     sql = "SELECT * FROM memory_events"
     args: list[str] = []
     where: list[str] = []

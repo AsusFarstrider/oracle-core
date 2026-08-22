@@ -75,7 +75,7 @@ def observe_provider_status(
     normalized_provider = _clean_required(provider, "provider")
     normalized_domain = _clean_required(domain, "domain")
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     projection_id = provider_status_projection_id(normalized_provider, normalized_domain)
     now = utc_now_iso()
     resolved_correlation_id = correlation_id or get_correlation_id()
@@ -191,7 +191,7 @@ def get_latest_provider_status(
     db_path: Path | None = None,
 ) -> dict[str, Any] | None:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     clean_provider = _clean_required(provider, "provider")
     clean_domain = _clean_filter(domain)
     if clean_domain:
@@ -216,7 +216,7 @@ def query_provider_status_snapshots(
 ) -> list[dict[str, Any]]:
     query = query or ProviderStatusQuery()
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     sql = "SELECT * FROM memory_current_projections WHERE projection_type = ?"
     args: list[Any] = ["provider_status"]
     filters = {

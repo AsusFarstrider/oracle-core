@@ -20,7 +20,6 @@ class StandardRuntimePathTests(unittest.TestCase):
 
         self.assertFalse(paths.standard_installation)
         self.assertEqual(paths.memory_database, root / "data/oracle-memory.sqlite3")
-        self.assertEqual(paths.alerts_state, root / "data/alerts-state.json")
         self.assertEqual(paths.home_assistant_cache, root / "data/home-assistant-cache.json")
         self.assertEqual(paths.facts_cache, root / "data/facts-cache.json")
         self.assertEqual(paths.tts_cache, root / "data/tts-cache")
@@ -35,8 +34,6 @@ class StandardRuntimePathTests(unittest.TestCase):
         self.assertTrue(paths.standard_installation)
         writable_paths = (
             paths.memory_database,
-            paths.provisional_suggestions_database,
-            paths.alerts_state,
             paths.home_assistant_cache,
             paths.facts_cache,
             paths.tts_cache,
@@ -58,14 +55,14 @@ class StandardRuntimePathTests(unittest.TestCase):
         environment["PYTHONPATH"] = str(REPO_ROOT / "server")
         code = """
 import json
-from oracle_app.constants import ALERTS_STATE_PATH, CACHE_PATH, NETWORK_LOCAL_RESTART_STATE_PATH, NETWORK_LOCAL_SERVICE_RESTART_STATE_PATH
+from oracle_app.constants import CACHE_PATH, NETWORK_LOCAL_RESTART_STATE_PATH, NETWORK_LOCAL_SERVICE_RESTART_STATE_PATH
 from oracle_app.facts_cache import FACTS_CACHE_PATH
-from oracle_app.memory.store import DB_PATH, PROVISIONAL_SUGGESTIONS_DB_PATH
+from oracle_app.memory.store import DB_PATH
 from tts import PREGENERATED_DIR
 print(json.dumps([str(path) for path in (
-    ALERTS_STATE_PATH, CACHE_PATH, NETWORK_LOCAL_RESTART_STATE_PATH,
+    CACHE_PATH, NETWORK_LOCAL_RESTART_STATE_PATH,
     NETWORK_LOCAL_SERVICE_RESTART_STATE_PATH, FACTS_CACHE_PATH, DB_PATH,
-    PROVISIONAL_SUGGESTIONS_DB_PATH, PREGENERATED_DIR,
+    PREGENERATED_DIR,
 )]))
 """
         completed = subprocess.run(
@@ -87,13 +84,11 @@ print(json.dumps([str(path) for path in (
     def test_standard_storage_configuration_must_match_managed_data_paths(self) -> None:
         validate_standard_storage_settings(
             "data/oracle-memory.sqlite3",
-            "data/alerts-state.json",
         )
 
         with self.assertRaisesRegex(ValueError, "managed /srv/oracle data paths"):
             validate_standard_storage_settings(
                 "/tmp/oracle-memory.sqlite3",
-                "data/alerts-state.json",
             )
 
     def test_standard_unit_redirects_interpreter_library_and_temporary_caches(self) -> None:

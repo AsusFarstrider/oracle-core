@@ -131,8 +131,6 @@ class UiContextStartRequest(BaseModel):
     client_id: str = Field(..., min_length=1, description="Stable UI client identifier")
     ui_session_id: str | None = Field(default=None, min_length=1, description="Bounded UI session id for temporary state")
     target_source_id: str | None = Field(default=None, min_length=1, description="Explicit Oracle target for the contextual action")
-    source: str | None = Field(default=None, min_length=1, description="Deprecated request-source or target compatibility alias")
-    session_id: str | None = Field(default=None, min_length=1, description="Deprecated ui_session_id compatibility alias")
 
 
 class UiAlarmCancelRequest(BaseModel):

@@ -181,7 +181,6 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                         return_value=TtsResult(b"audio", "audio/wav", "disabled-test"),
                     ),
                     patch("oracle_app.handlers.fallback_router.get_fallback_router_settings") as legacy_inference,
-                    patch("oracle_app.health_routes.build_brain_config_report") as legacy_report,
                 ):
                     response = api.synthesize_speech(TtsRequest(text="Hello"))
                     result = api._execute_application_dispatch(dispatch)
@@ -195,7 +194,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                             {
                                 "type": "http",
                                 "method": "POST",
-                                "path": "/api/voice/command",
+                                "path": "/api/conversation/command",
                                 "query_string": b"",
                                 "headers": [],
                                 "app": api.app,
@@ -213,7 +212,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                                 {
                                     "type": "http",
                                     "method": "POST",
-                                    "path": "/api/voice/command",
+                                    "path": "/api/conversation/command",
                                     "query_string": b"",
                                     "headers": [(b"authorization", b"Bearer wrong-token")],
                                     "app": api.app,
@@ -231,7 +230,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                                 {
                                     "type": "http",
                                     "method": "POST",
-                                    "path": "/api/voice/command",
+                                    "path": "/api/conversation/command",
                                     "query_string": b"",
                                     "headers": [(b"authorization", b"Basic not-supported")],
                                     "app": api.app,
@@ -243,7 +242,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                             {
                                 "type": "http",
                                 "method": "GET",
-                                "path": "/health/config",
+                                "path": "/api/admin/health/config",
                                 "query_string": b"",
                                 "headers": [],
                                 "app": api.app,
@@ -255,7 +254,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                             {
                                 "type": "http",
                                 "method": "GET",
-                                "path": "/health/config",
+                                "path": "/api/admin/health/config",
                                 "query_string": b"format=text",
                                 "headers": [],
                                 "app": api.app,
@@ -313,7 +312,6 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                 legacy_context_sources.assert_not_called()
                 legacy_context_users.assert_not_called()
                 legacy_inference.assert_not_called()
-                legacy_report.assert_not_called()
             finally:
                 if previous is not None:
                     api.install_brain_application_composition(api.app, previous)

@@ -84,7 +84,7 @@ def record_transcript(
     db_path: Path | None = None,
 ) -> dict[str, Any]:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     now = utc_now_iso()
     resolved_transcript_id = _clean_filter(transcript_id) or uuid.uuid4().hex
     resolved_captured_at = captured_at or now
@@ -168,7 +168,7 @@ def enrich_transcripts_for_correlation(
     if not clean_correlation_id:
         return 0
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     now = utc_now_iso()
     assignments: list[str] = ["updated_at = ?"]
     args: list[Any] = [now]
@@ -212,7 +212,7 @@ def get_transcript(
     db_path: Path | None = None,
 ) -> dict[str, Any] | None:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         row = conn.execute(
             "SELECT * FROM memory_transcripts WHERE transcript_id = ?",
@@ -228,7 +228,7 @@ def query_transcripts(
 ) -> list[dict[str, Any]]:
     query = query or TranscriptQuery()
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     sql = "SELECT * FROM memory_transcripts"
     args: list[Any] = []
     where: list[str] = []

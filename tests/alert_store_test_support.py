@@ -26,7 +26,7 @@ class IsolatedAlertStoreTestCase(unittest.TestCase):
             self.alert_db_path,
         )
         self._alert_path_patch.start()
-        ensure_schema(self.alert_db_path, copy_provisional_suggestions=False)
+        ensure_schema(self.alert_db_path)
         with transaction(self.alert_db_path) as conn:
             for source_id in (
                 "child-room",

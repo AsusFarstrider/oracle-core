@@ -91,7 +91,7 @@ class OracleMemoryDiagnosticsTests(unittest.TestCase):
             status="unavailable",
             db_path=self.db_path,
         )
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         with transaction(self.db_path) as conn:
             conn.execute(
                 """
@@ -160,7 +160,7 @@ class OracleMemoryDiagnosticsTests(unittest.TestCase):
                 status="available",
                 db_path=self.db_path,
             )
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         with transaction(self.db_path) as conn:
             conn.execute(
                 """
@@ -261,7 +261,7 @@ class OracleMemoryDiagnosticsTests(unittest.TestCase):
         self.assertEqual(summary["providers"]["stale_provider_count_threshold_hours"], 24)
 
     def test_summary_passes_through_malformed_event_provider_and_source_payloads(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         with transaction(self.db_path) as conn:
             conn.execute(
                 """
@@ -405,7 +405,7 @@ class OracleMemoryDiagnosticsTests(unittest.TestCase):
         self.assertEqual(summary["satellites"]["latest"][0]["source_id"], "satellite-beta")
 
     def test_summary_marks_malformed_satellite_observed_at_as_stale_unknown(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         with transaction(self.db_path) as conn:
             conn.execute(
                 """

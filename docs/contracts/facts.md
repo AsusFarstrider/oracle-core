@@ -98,9 +98,9 @@ is latency-cover feedback for voice clients. It is not part of final
 `reply_text`, and it must not be emitted for facts states that do not invoke the
 summarizer.
 
-Voice satellites may poll `/api/voice/command-events` while their `/command`
+Voice satellites may poll `/api/conversation/command-events` while their canonical command
 request is in flight and play a matching `facts_summarizer_ack` event once.
-Final answer playback still comes from canonical `/command` `reply_text`.
+Final answer playback comes from canonical `/api/conversation/command` `reply_text`.
 
 The interim event must contain only safe routing/presentation fields such as
 event type, source, session id, domain, message, and timestamp. It must not
@@ -125,7 +125,7 @@ prompts, tokens, secrets, credentials, or provider-specific API internals.
 
 Diagnostic summarization is presentation/debug visibility only. It must not
 emit voice interim acknowledgment events, dispatch actions, or change the
-canonical `/command` reply path.
+canonical `/api/conversation/command` reply path.
 
 ## Provider-Neutral Cache
 

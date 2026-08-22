@@ -3,8 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
-from urllib import error as urlerror
+from unittest.mock import Mock
 
 from fastapi import FastAPI, HTTPException
 
@@ -41,32 +40,33 @@ class MediaRoutesTests(unittest.TestCase):
         self.assertIn(("GET", "/api/satellite/media/audiobooks/{playback_id}/tracks/{track_index}"), routes)
         self.assertNotIn(("GET", "/audiobooks/stream/{playback_id}/{track_index}"), routes)
 
-    @patch("oracle_app.media_routes.fetch_audiobook_cover")
-    def test_audiobook_art_returns_upstream_content_type(self, mock_fetch_cover) -> None:
-        mock_fetch_cover.return_value = _FakeResponse(
+    def test_audiobook_art_returns_upstream_content_type(self) -> None:
+        execution = Mock()
+        execution.request_raw.return_value = _FakeResponse(
             body=b"cover",
             headers={"Content-Type": "image/png; charset=binary"},
         )
 
-        response = ui_audio_audiobook_art("book-1", user_id="reader_one")
+        response = ui_audio_audiobook_art(
+            "book-1", user_id="reader_one", audiobook_execution=execution
+        )
 
         self.assertEqual(response.body, b"cover")
         self.assertEqual(response.media_type, "image/png")
-        mock_fetch_cover.assert_called_once_with("book-1", user_id="reader_one")
+        execution.request_raw.assert_called_once_with(
+            "/api/items/book-1/cover", method="GET", user_id="reader_one"
+        )
 
-    @patch("oracle_app.media_routes.fetch_audiobook_cover", side_effect=RuntimeError("missing"))
-    def test_audiobook_art_maps_fetch_failure_to_404(self, _mock_fetch_cover) -> None:
+    def test_audiobook_art_maps_fetch_failure_to_404(self) -> None:
+        execution = Mock()
+        execution.request_raw.side_effect = RuntimeError("missing")
         with self.assertRaises(HTTPException) as context:
-            ui_audio_audiobook_art("book-1")
+            ui_audio_audiobook_art("book-1", audiobook_execution=execution)
 
         self.assertEqual(context.exception.status_code, 404)
         self.assertIn("Audiobook artwork unavailable", str(context.exception.detail))
 
-    @patch(
-        "oracle_app.media_routes.fetch_audiobook_cover",
-        side_effect=AssertionError("canonical artwork used V1 provider"),
-    )
-    def test_canonical_audiobook_art_uses_typed_execution(self, _legacy_cover) -> None:
+    def test_canonical_audiobook_art_uses_typed_execution(self) -> None:
         execution = Mock()
         execution.request_raw.return_value = _FakeResponse(
             body=b"canonical-cover",
@@ -77,7 +77,6 @@ class MediaRoutesTests(unittest.TestCase):
             "book 1",
             user_id="reader_one",
             audiobook_execution=execution,
-            canonical_authority=True,
         )
 
         self.assertEqual(response.body, b"canonical-cover")
@@ -91,39 +90,11 @@ class MediaRoutesTests(unittest.TestCase):
         for path in ("", "relative/path", "https://plex.example/art.jpg"):
             with self.subTest(path=path):
                 with self.assertRaises(HTTPException) as context:
-                    ui_audio_music_art(path)
+                    ui_audio_music_art(path, music_execution=Mock())
 
                 self.assertEqual(context.exception.status_code, 400)
 
-    @patch(
-        "oracle_app.media_routes.get_music_settings",
-        return_value={
-            "plex_configured": True,
-            "plex_base_url": "http://plex.local",
-            "plex_token": "secret token",
-            "plex_timeout_seconds": 7,
-        },
-    )
-    @patch("oracle_app.media_routes.urlrequest.urlopen")
-    def test_music_art_proxies_plex_artwork_with_token(self, mock_urlopen, _mock_settings) -> None:
-        mock_urlopen.return_value = _FakeResponse(
-            body=b"art",
-            headers={"Content-Type": "image/jpeg"},
-        )
-
-        response = ui_audio_music_art("/library/metadata/1/thumb")
-
-        self.assertEqual(response.body, b"art")
-        self.assertEqual(response.media_type, "image/jpeg")
-        request = mock_urlopen.call_args.args[0]
-        self.assertEqual(request.full_url, "http://plex.local/library/metadata/1/thumb?X-Plex-Token=secret%20token")
-        self.assertEqual(mock_urlopen.call_args.kwargs["timeout"], 7)
-
-    @patch(
-        "oracle_app.media_routes.get_music_settings",
-        side_effect=AssertionError("canonical artwork used V1 music settings"),
-    )
-    def test_canonical_music_art_uses_typed_execution(self, _legacy_settings) -> None:
+    def test_canonical_music_art_uses_typed_execution(self) -> None:
         execution = Mock()
         execution.fetch_artwork.return_value = _FakeResponse(
             body=b"canonical-art",
@@ -133,28 +104,18 @@ class MediaRoutesTests(unittest.TestCase):
         response = ui_audio_music_art(
             "/library/metadata/1/thumb",
             music_execution=execution,
-            canonical_authority=True,
         )
 
         self.assertEqual(response.body, b"canonical-art")
         self.assertEqual(response.media_type, "image/webp")
         execution.fetch_artwork.assert_called_once_with("/library/metadata/1/thumb")
 
-    @patch(
-        "oracle_app.media_routes.get_music_settings",
-        return_value={
-            "plex_configured": True,
-            "plex_base_url": "http://plex.local",
-            "plex_token": "token",
-            "plex_timeout_seconds": 10,
-        },
-    )
-    @patch("oracle_app.media_routes.urlrequest.urlopen")
-    def test_music_art_maps_upstream_failure_to_404(self, mock_urlopen, _mock_settings) -> None:
-        mock_urlopen.side_effect = urlerror.URLError("offline")
+    def test_music_art_maps_upstream_failure_to_404(self) -> None:
+        execution = Mock()
+        execution.fetch_artwork.side_effect = RuntimeError("offline")
 
         with self.assertRaises(HTTPException) as context:
-            ui_audio_music_art("/library/metadata/1/thumb")
+            ui_audio_music_art("/library/metadata/1/thumb", music_execution=execution)
 
         self.assertEqual(context.exception.status_code, 404)
         self.assertIn("Music artwork unavailable", str(context.exception.detail))

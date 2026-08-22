@@ -249,26 +249,6 @@
     },
     "brain.yaml": {
       "$defs": {
-        "AlertStorageConfiguration": {
-          "additionalProperties": false,
-          "properties": {
-            "backend": {
-              "const": "json_file",
-              "default": "json_file",
-              "title": "Backend",
-              "type": "string"
-            },
-            "state_path": {
-              "default": "data/alerts-state.json",
-              "maxLength": 1024,
-              "minLength": 1,
-              "title": "State Path",
-              "type": "string"
-            }
-          },
-          "title": "AlertStorageConfiguration",
-          "type": "object"
-        },
         "BrainRuntimeConfiguration": {
           "additionalProperties": false,
           "properties": {
@@ -289,9 +269,6 @@
         "BrainStorageConfiguration": {
           "additionalProperties": false,
           "properties": {
-            "alerts": {
-              "$ref": "#/$defs/AlertStorageConfiguration"
-            },
             "memory": {
               "$ref": "#/$defs/MemoryStorageConfiguration"
             }

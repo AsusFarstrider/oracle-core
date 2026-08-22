@@ -33,7 +33,6 @@ class BrainRuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.runtime.wake_arbitration.window_ms, 1000)
         self.assertEqual(settings.logging.level, "INFO")
         self.assertEqual(settings.memory_storage.database_path, "data/oracle-memory.sqlite3")
-        self.assertEqual(settings.alert_storage.state_path, "data/alerts-state.json")
         self.assertFalse(settings.stt.enabled)
         self.assertIsNone(settings.stt.provider_id)
         self.assertIsNone(settings.stt.provider)

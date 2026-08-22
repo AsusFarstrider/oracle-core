@@ -135,29 +135,6 @@ def submit_notification(
     )
 
 
-def emit_notification(
-    notification_type: str,
-    occurrence_id: str,
-    *,
-    context: dict[str, Any] | None = None,
-    caller: str = "oracle",
-    correlation_id: str = "",
-) -> dict[str, Any]:
-    """Compatibility alias for the provider-neutral submission capability."""
-    return submit_notification(
-        notification_type,
-        occurrence_id,
-        context=context,
-        caller=caller,
-        correlation_id=correlation_id,
-    )
-
-
-def build_notification_delivery_decisions(source: str | None) -> dict[str, str]:
-    """Compatibility adapter for satellite alert polling."""
-    return build_satellite_delivery_decisions(source, now=_now_local())
-
-
 def _result(
     notification_type: str,
     occurrence_id: str,

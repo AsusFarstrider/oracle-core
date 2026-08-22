@@ -11,7 +11,6 @@ from oracle_app.memory.alerts import (
     acknowledge_alert,
     claim_due_alerts,
     create_alert_record,
-    import_legacy_alerts,
     list_alert_records,
 )
 from oracle_app.memory.identity_reconciliation import reconcile_identities
@@ -19,10 +18,6 @@ from oracle_app.memory.retention import retention_policy_from_configuration
 from oracle_app.memory.retention_executor import run_retention
 from oracle_app.memory.sources import seed_sources
 from oracle_app.memory.store import transaction
-from oracle_app.notifications.receipts import (
-    NotificationDeliveryQuery,
-    list_notification_deliveries,
-)
 
 
 UTC = timezone.utc
@@ -108,53 +103,6 @@ class Stage5Slice7MemoryAlertTests(unittest.TestCase):
                 now=NOW + timedelta(seconds=33),
                 db_path=self.db_path,
             )
-
-    def test_migration_imports_canonical_records_and_rejects_invalid_inventory(self) -> None:
-        base = {
-            "kind": "reminder",
-            "created_at": (NOW - timedelta(days=1)).isoformat(),
-            "due_at": NOW.isoformat(),
-            "message": "Remember.",
-            "metadata": {},
-        }
-        report = import_legacy_alerts(
-            [
-                {**base, "alert_id": "valid", "source": "source-a"},
-                {**base, "alert_id": "ephemeral", "source": "ephemeral_http"},
-                {**base, "alert_id": "bad-kind", "source": "source-a", "kind": "unknown"},
-            ],
-            db_path=self.db_path,
-        )
-        self.assertEqual(report, {"imported": 1, "duplicates": 0, "rejected": 2})
-        retried = import_legacy_alerts(
-            [{**base, "alert_id": "valid", "source": "source-a"}],
-            db_path=self.db_path,
-        )
-        self.assertEqual(retried, {"imported": 0, "duplicates": 1, "rejected": 0})
-
-        notification_report = import_legacy_alerts(
-            [{
-                **base,
-                "alert_id": "notification",
-                "source": "source-a",
-                "kind": "notification",
-                "expires_at": (NOW + timedelta(minutes=5)).isoformat(),
-                "delivered": True,
-                "metadata": {"notification_id": "door", "event_id": "legacy-event"},
-            }],
-            db_path=self.db_path,
-        )
-        self.assertEqual(
-            notification_report,
-            {"imported": 1, "duplicates": 0, "rejected": 0},
-        )
-        [receipt] = list_notification_deliveries(
-            NotificationDeliveryQuery(
-                notification_type="door", occurrence_id="legacy-event"
-            ),
-            db_path=self.db_path,
-        )
-        self.assertEqual(receipt["status"], "accepted")
 
     def test_retention_protects_active_and_deletes_terminal_with_transitions(self) -> None:
         active, _ = self._create(alert_id="active")

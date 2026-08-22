@@ -146,7 +146,7 @@ When a failure path is chosen at a seam boundary, logs should also make the sele
 
 ## End-To-End Trace Expectations
 
-For a normal `/command` request on the brain, logs must allow an operator to follow:
+For a normal `/api/conversation/command` request, logs must allow an operator to follow:
 
 1. request received
 2. route chosen

@@ -129,8 +129,8 @@ Representative modules by area include:
 
 ### Config and Health
 
-- `tests/test_config.py`
-- `tests/test_config_validation.py`
+- `tests/test_configuration_required_models.py`
+- `tests/test_configuration_bootstrap.py`
 - `tests/test_health_config.py`
 - `tests/test_sync_home_assistant.py`
 

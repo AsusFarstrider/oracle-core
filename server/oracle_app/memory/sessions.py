@@ -70,7 +70,7 @@ def record_session(
     if clean_mode not in VALID_SESSION_MODES:
         raise ValueError(f"Unknown Oracle Memory session mode: {mode!r}")
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     now = utc_now_iso()
     resolved_started_at = started_at or now
     resolved_source_id = _existing_reference("memory_sources", "source_id", source_id, db_path=path)
@@ -124,7 +124,7 @@ def update_session_status(
 ) -> dict[str, Any] | None:
     clean_session_id = _clean_required(session_id, "session_id")
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     existing = get_session(clean_session_id, db_path=path)
     if existing is None:
         return None
@@ -153,7 +153,7 @@ def update_session_status(
 
 def get_session(session_id: str, *, db_path: Path | None = None) -> dict[str, Any] | None:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         row = conn.execute(
             "SELECT * FROM memory_sessions WHERE session_id = ?",
@@ -165,7 +165,7 @@ def get_session(session_id: str, *, db_path: Path | None = None) -> dict[str, An
 def query_sessions(query: SessionQuery | None = None, *, db_path: Path | None = None) -> list[dict[str, Any]]:
     query = query or SessionQuery()
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     sql = "SELECT * FROM memory_sessions"
     args: list[Any] = []
     where: list[str] = []

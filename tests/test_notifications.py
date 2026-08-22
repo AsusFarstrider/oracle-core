@@ -19,12 +19,12 @@ from oracle_app.alerts import (
 from oracle_app.notifications import (
     NotificationContextNotSupportedError,
     NotificationRequestError,
-    build_notification_delivery_decisions,
     evaluate_notification_suppression,
     submit_notification,
 )
 from oracle_app.memory.alerts import acknowledge_alert, claim_due_alerts
 from oracle_app.notifications.channels.satellite_announcement import (
+    build_satellite_delivery_decisions,
     dispatch_satellite_announcement_values,
     reconcile_satellite_receipts,
 )
@@ -319,7 +319,10 @@ class NotificationServiceTests(IsolatedAlertStoreTestCase):
             )
         ]
 
-        decisions = build_notification_delivery_decisions("living_room_satellite")
+        decisions = build_satellite_delivery_decisions(
+            "living_room_satellite",
+            now=datetime.now().astimezone(),
+        )
 
         self.assertEqual(decisions, {"alert-1": "deliver"})
 

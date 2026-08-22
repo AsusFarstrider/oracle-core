@@ -54,14 +54,8 @@ class MemoryStorageConfiguration(ConfigurationModel):
     retention: MemoryRetentionConfiguration = Field(default_factory=MemoryRetentionConfiguration)
 
 
-class AlertStorageConfiguration(ConfigurationModel):
-    backend: Literal["json_file"] = "json_file"
-    state_path: MachinePath = "data/alerts-state.json"
-
-
 class BrainStorageConfiguration(ConfigurationModel):
     memory: MemoryStorageConfiguration = Field(default_factory=MemoryStorageConfiguration)
-    alerts: AlertStorageConfiguration = Field(default_factory=AlertStorageConfiguration)
 
 
 class WhisperCppProvider(ConfigurationModel):

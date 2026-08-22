@@ -1,89 +1,43 @@
 # Brain Smoke Checks
 
-This runbook records the current minimal smoke-check surface for the Oracle brain.
+Use these checks for quick confirmation of the selected canonical Brain. Stop
+at the first unexpected result and continue with `incident-triage.md`.
 
-Use [incident-triage.md](incident-triage.md) when a smoke check fails and deeper
-diagnosis is needed.
+## Installed State First
 
-## What This Runbook Is For
+Run the selected activation's `oracle-admin.py status` with its locked Python
+environment. Require healthy status, exact selected identities, and no material
+managed drift before interpreting application checks.
 
-Use this runbook for quick operational confirmation that the brain is up, its health surfaces respond, and basic command handling is reachable.
+## HTTP Check Order
 
-## Stop On Failure
+1. `GET /health` must return `200` liveness.
+2. `GET /api/admin/health/config` must report the selected canonical
+   configuration/secret activation identity.
+3. Enabled providers under `/api/admin/health/*` must report their actual
+   readiness. A disabled provider is intentionally unavailable and does not
+   make the Brain unhealthy.
+4. `POST /api/conversation/command` must return the finite public result for the
+   provider-free deterministic request declared by the installation.
+5. When speech is enabled, `POST /api/speech/stt` and
+   `POST /api/speech/tts` must use the selected providers/assets.
+6. When durable alerts are enabled, exercise authenticated satellite claim and
+   acknowledgement; do not create or consume a household alert merely as a
+   liveness probe.
 
-Run the checks in order and stop at the first unexpected failure before moving deeper.
-
-## Recommended Check Order
-
-1. core brain health
-2. config-report health
-3. enabled-profile health
-4. alerts surface when enabled
-5. deterministic `/command` check
-
-## Core Brain Health
-
-- `GET /health`
-  Expected result: `200 OK`
-
-## Config-Report Health
-
-- `GET /health/config`
-  Expected result: `200 OK`
-
-## Enabled-Profile Health
-
-Check only the providers and facilities enabled by canonical configuration.
-Common endpoints include `/health/home-assistant`, `/health/audiobook`,
-`/health/calendar`, `/health/ollama`, `/health/music`, `/health/news`,
-`/health/tts`, and `/health/stt`.
-
-An enabled provider must report its real readiness. A canonically disabled
-provider must report intentionally unavailable without making the Brain
-unhealthy. The provider-free minimal profile requires no external provider,
-LLM, STT, TTS, or audio hardware.
-
-## Alerts Surface
-
-- `GET /alerts/pending?source=<source>` when the selected profile and
-  configuration expose alerts
-  Expected result: `200 OK`
-
-## Deterministic `/command` Check
-
-- `POST /command`
-  Expected result: `200 OK`
-
-Use one already-supported provider-free deterministic request from the
-installation's declared minimal validation surface. Do not use a household
-device, external provider, or LLM-backed request as the base smoke proof.
-
-Illustrative request shape:
+Example deterministic conversation request:
 
 ```bash
-curl -sS -X POST http://127.0.0.1:8011/command \
+curl -sS -X POST http://127.0.0.1:8011/api/conversation/command \
   -H 'Content-Type: application/json' \
-  -d '{"text":"what time is it","source":"manual"}'
+  -d '{"text":"what time is it","source":"manual-smoke","session_id":"manual-smoke"}'
 ```
 
-Provider-backed checks are additional and run only when their provider and
-profile are enabled. For example, facts checks may be appropriate after facts
-or summarizer changes, but they are not part of the provider-free base gate:
+Expected fields are exactly `reply_text`, `session_id`, `source_id`, `status`,
+`failure_code`, `trace_id`, and `effects`. The response must not expose raw
+route or dispatch envelopes.
 
-```bash
-curl -sS -X POST http://127.0.0.1:8011/command \
-  -H 'Content-Type: application/json' \
-  -d '{"text":"How long do sloths live?","source":"manual"}'
-
-curl -sS -X POST http://127.0.0.1:8011/command \
-  -H 'Content-Type: application/json' \
-  -d '{"text":"Who wrote Frankenstein?","source":"manual"}'
-
-curl -sS -X POST http://127.0.0.1:8011/command \
-  -H 'Content-Type: application/json' \
-  -d '{"text":"Where is Machu Picchu?","source":"manual"}'
-
-curl -sS -X POST http://127.0.0.1:8011/command \
-  -H 'Content-Type: application/json' \
-  -d '{"text":"When was the Eiffel Tower built?","source":"manual"}'
-```
+Provider-backed facts, Home Assistant, media, or household behavior and other
+external provider systems are
+additional profile-specific gates. Run them only after base health and only
+when the selected configuration declares the provider/capability enabled.

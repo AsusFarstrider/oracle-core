@@ -108,5 +108,4 @@ belong to `brain.yaml:storage.memory`, satellite claim/cue/playback behavior bel
 to satellite configuration and projections, and notification delivery or
 suppression policy belongs to `domains/notifications.yaml`. A dedicated role
 would require later evidence of substantial operator-owned alert policy and
-schema review. The obsolete `storage.alerts` JSON setting remains accepted only
-through the coordinated Slice 10 configuration/data cutover.
+schema review. The obsolete `storage.alerts` JSON setting is rejected.

@@ -25,7 +25,7 @@ class OracleMemoryStoreTests(unittest.TestCase):
         self.db_path = Path(self.tmpdir.name) / "oracle-memory.sqlite3"
 
     def test_schema_creation_creates_core_tables(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
 
         self.assertTrue(self.db_path.exists())
         self.assertTrue(
@@ -44,8 +44,8 @@ class OracleMemoryStoreTests(unittest.TestCase):
         )
 
     def test_schema_migration_is_idempotent(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
+        schema.ensure_schema(self.db_path)
 
         conn = sqlite3.connect(self.db_path)
         try:
@@ -105,7 +105,7 @@ class OracleMemoryStoreTests(unittest.TestCase):
         finally:
             conn.close()
 
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
 
         conn = sqlite3.connect(self.db_path)
         try:
@@ -364,7 +364,7 @@ class OracleMemoryStoreTests(unittest.TestCase):
         self.assertEqual(len(events.list_events(event_type="server_started", db_path=self.db_path)), 3)
 
     def test_query_events_handles_malformed_payload_json(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         with transaction(self.db_path) as conn:
             conn.execute(
                 """
@@ -387,7 +387,7 @@ class OracleMemoryStoreTests(unittest.TestCase):
         self.assertEqual(event["payload"], {"_payload_parse_error": True, "raw_payload_json": "{not-json"})
 
     def test_query_events_do_not_write_rows(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         before = len(events.query_events(db_path=self.db_path))
 
         events.query_events(events.EventQuery(event_type="server_started"), db_path=self.db_path)
@@ -398,7 +398,7 @@ class OracleMemoryStoreTests(unittest.TestCase):
         self.assertEqual(after, before)
 
     def test_transaction_rolls_back_on_error(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
 
         with self.assertRaises(RuntimeError):
             with transaction(self.db_path) as conn:
@@ -422,7 +422,7 @@ class OracleMemoryStoreTests(unittest.TestCase):
             validate_event_type("invented_event")
 
     def test_payload_json_discipline_keeps_core_event_fields_as_columns(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         conn = sqlite3.connect(self.db_path)
         try:
             columns = {
@@ -472,99 +472,6 @@ class OracleMemoryStoreTests(unittest.TestCase):
             source = inspect.getsource(module)
             for fragment in forbidden_fragments:
                 self.assertNotIn(fragment, source, f"{fragment} leaked into {module_name}")
-
-    def test_can_copy_existing_provisional_suggestion_rows(self) -> None:
-        provisional = Path(self.tmpdir.name) / "openclaw_suggestions.sqlite3"
-        conn = sqlite3.connect(provisional)
-        try:
-            conn.executescript(
-                """
-                CREATE TABLE suggestion_runs (
-                    run_id TEXT PRIMARY KEY,
-                    created_at TEXT NOT NULL,
-                    completed_at TEXT,
-                    status TEXT NOT NULL,
-                    run_type TEXT NOT NULL,
-                    window_start TEXT NOT NULL,
-                    window_end TEXT NOT NULL,
-                    reason TEXT,
-                    custom_prompt TEXT,
-                    openclaw_status TEXT,
-                    collector_status_json TEXT NOT NULL DEFAULT '{}',
-                    error TEXT,
-                    packet_path TEXT,
-                    response_path TEXT,
-                    suggestion_count INTEGER NOT NULL DEFAULT 0,
-                    mock INTEGER NOT NULL DEFAULT 0
-                );
-                CREATE TABLE suggestions (
-                    id TEXT PRIMARY KEY,
-                    run_id TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    severity TEXT NOT NULL,
-                    category TEXT NOT NULL,
-                    source TEXT NOT NULL,
-                    summary TEXT NOT NULL,
-                    evidence_json TEXT NOT NULL,
-                    suggested_action TEXT NOT NULL,
-                    recommended_oracle_action TEXT,
-                    confidence REAL NOT NULL,
-                    requires_review INTEGER NOT NULL,
-                    similarity_key TEXT NOT NULL,
-                    similar_to_id TEXT,
-                    raw_openclaw_item_json TEXT NOT NULL,
-                    reviewed_at TEXT,
-                    review_decision TEXT,
-                    review_notes TEXT,
-                    correction_text TEXT,
-                    rejection_reason TEXT,
-                    future_automation_candidate INTEGER NOT NULL DEFAULT 0,
-                    suppress_if_repeated INTEGER NOT NULL DEFAULT 0,
-                    mock INTEGER NOT NULL DEFAULT 0
-                );
-                CREATE TABLE suggestion_reviews (
-                    review_id TEXT PRIMARY KEY,
-                    suggestion_id TEXT NOT NULL,
-                    run_id TEXT NOT NULL,
-                    reviewed_at TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    notes TEXT,
-                    correction_text TEXT,
-                    rejection_reason TEXT,
-                    future_automation_candidate INTEGER NOT NULL DEFAULT 0,
-                    suppress_if_repeated INTEGER NOT NULL DEFAULT 0
-                );
-                INSERT INTO suggestion_runs (
-                    run_id, created_at, status, run_type, window_start, window_end
-                ) VALUES ('run-1', 'now', 'completed', 'oracle', 'start', 'end');
-                INSERT INTO suggestions (
-                    id, run_id, created_at, status, title, severity, category, source,
-                    summary, evidence_json, suggested_action, confidence, requires_review,
-                    similarity_key, raw_openclaw_item_json
-                ) VALUES (
-                    'sug-1', 'run-1', 'now', 'new', 'Test', 'low', 'oracle', 'oracle',
-                    'summary', '[]', 'review', 0.5, 1, 'test', '{}'
-                );
-                INSERT INTO suggestion_reviews (
-                    review_id, suggestion_id, run_id, reviewed_at, status
-                ) VALUES ('rev-1', 'sug-1', 'run-1', 'now', 'ignored');
-                """
-            )
-        finally:
-            conn.close()
-
-        schema.ensure_schema(self.db_path, provisional_db_path=provisional)
-
-        conn = sqlite3.connect(self.db_path)
-        try:
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM suggestion_runs").fetchone()[0], 1)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM suggestions").fetchone()[0], 1)
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM suggestion_reviews").fetchone()[0], 1)
-        finally:
-            conn.close()
-
 
 if __name__ == "__main__":
     unittest.main()

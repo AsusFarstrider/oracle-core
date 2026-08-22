@@ -7,13 +7,11 @@ from .brain_application_composition import (
     BRAIN_APPLICATION_COMPOSITION_STATE_KEY,
     CanonicalBrainApplicationComposition,
 )
-from .config import get_home_assistant_settings, get_ollama_settings
 from .config_reporting import (
     build_config_report_payload,
     choose_config_report_format,
     render_config_report_text,
 )
-from .config_validation import build_brain_config_report
 from .health import (
     check_audiobook_health,
     check_calendar_health,
@@ -51,134 +49,100 @@ AVAILABLE_HOOKS = (
     HookInfo(
         name="health_config",
         method="GET",
-        path="/health/config",
-        description="Report sanitized config validation findings for the running Oracle brain.",
+        path="/api/admin/health/config",
+        description="Report the exact applied canonical configuration identity.",
     ),
     HookInfo(
         name="session",
         method="GET",
-        path="/api/voice/session",
+        path="/api/conversation/session",
         description="Inspect a specific brain-owned session by source and effective session ID.",
     ),
     HookInfo(
         name="route",
         method="POST",
-        path="/api/voice/route",
+        path="/api/conversation/route",
         description="Classify text and return the chosen backend target.",
     ),
     HookInfo(
         name="command",
         method="POST",
-        path="/command",
-        description="Primary hook for clients. Routes a request and returns a dispatch plan.",
-    ),
-    HookInfo(
-        name="ingest_text",
-        method="POST",
-        path="/api/voice/ingest/text",
-        description="Command-style submission for text-only clients.",
+        path="/api/conversation/command",
+        description="Route a canonical conversation request and return its finite result.",
     ),
     HookInfo(
         name="health_audiobook",
         method="GET",
-        path="/health/audiobook",
+        path="/api/admin/health/audiobook",
         description="Verify connectivity and authentication for the configured Audiobookshelf server.",
     ),
     HookInfo(
         name="health_calendar",
         method="GET",
-        path="/health/calendar",
+        path="/api/admin/health/calendar",
         description="Verify connectivity and parsing for the configured calendar feed.",
     ),
     HookInfo(
         name="health_home_assistant",
         method="GET",
-        path="/health/home-assistant",
+        path="/api/admin/health/home-assistant",
         description="Verify live connectivity and authentication to Home Assistant.",
     ),
     HookInfo(
         name="health_ollama",
         method="GET",
-        path="/health/ollama",
+        path="/api/admin/health/ollama",
         description="Verify live connectivity to the local Ollama API.",
     ),
     HookInfo(
         name="health_music",
         method="GET",
-        path="/health/music",
+        path="/api/admin/health/music",
         description="Verify Plex and satellite control configuration for music.",
     ),
     HookInfo(
         name="health_news",
         method="GET",
-        path="/health/news",
+        path="/api/admin/health/news",
         description="Verify configuration for live news feeds.",
     ),
     HookInfo(
         name="health_tts",
         method="GET",
-        path="/health/tts",
+        path="/api/admin/health/tts",
         description="Verify TTS provider configuration and local availability.",
     ),
     HookInfo(
         name="health_stt",
         method="GET",
-        path="/health/stt",
+        path="/api/admin/health/stt",
         description="Verify STT provider configuration and local availability.",
     ),
     HookInfo(
         name="audiobook_stream",
         method="GET",
-        path="/audiobooks/stream/{playback_id}/{track_index}",
+        path="/api/satellite/media/audiobooks/{playback_id}/tracks/{track_index}",
         description="Proxy a prepared audiobook track stream to a playback target.",
     ),
     HookInfo(
         name="tts",
         method="POST",
-        path="/tts",
+        path="/api/speech/tts",
         description="Synthesize speech audio for satellite playback.",
     ),
     HookInfo(
         name="stt",
         method="POST",
-        path="/stt",
+        path="/api/speech/stt",
         description="Transcribe uploaded audio into text.",
     ),
     HookInfo(
         name="pending_alerts",
         method="GET",
-        path="/alerts/pending",
-        description="Fetch due timers, alarms, and reminders for a source.",
-    ),
-    HookInfo(
-        name="system_refresh_cache",
-        method="POST",
-        path="/command",
-        description="Internal maintenance action that refreshes Oracle's Home Assistant cache.",
+        path="/api/satellite/alerts/claim",
+        description="Claim due durable alerts for an authenticated satellite.",
     ),
 )
-
-
-def health() -> HealthResponse:
-    ha_settings_present = False
-    ollama_settings_present = False
-    try:
-        get_home_assistant_settings()
-        ha_settings_present = True
-    except HTTPException:
-        ha_settings_present = False
-    try:
-        get_ollama_settings()
-        ollama_settings_present = True
-    except HTTPException:
-        ollama_settings_present = False
-
-    return HealthResponse(
-        status="ok",
-        service="oracle-brain",
-        home_assistant_configured=ha_settings_present,
-        ollama_configured=ollama_settings_present,
-    )
 
 
 def canonical_health(
@@ -208,23 +172,19 @@ def health_config(request: Request) -> Response:
         if isinstance(composition, CanonicalBrainApplicationComposition)
         else None
     )
-    report_sections = (
-        []
-        if canonical is not None
-        else [("Brain config check:", build_brain_config_report())]
-    )
+    if canonical is None:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    report_sections: list[tuple[str, list[dict[str, object]]]] = []
     response_format = choose_config_report_format(request.query_params, request.headers.get("accept"))
     if response_format == "text":
         rendered = render_config_report_text(report_sections)
-        if canonical is not None:
-            rendered = _render_applied_configuration(canonical)
+        rendered = _render_applied_configuration(canonical)
         return PlainTextResponse(rendered)
     payload = build_config_report_payload(
         service="oracle-brain",
         report_sections=report_sections,
     )
-    if canonical is not None:
-        payload["configuration"] = canonical.applied_configuration_payload()
+    payload["configuration"] = canonical.applied_configuration_payload()
     return JSONResponse(payload)
 
 
@@ -275,7 +235,7 @@ def _canonical_composition_from_request(request: Request) -> CanonicalBrainAppli
 def health_http(request: Request) -> HealthResponse:
     canonical = _canonical_composition_from_request(request)
     if canonical is None:
-        return health()
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
     return canonical_health(canonical)
 
 

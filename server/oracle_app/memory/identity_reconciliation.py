@@ -44,7 +44,7 @@ def reconcile_identities(
     rewritten.
     """
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     observed_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
     configured_users = dict(getattr(household, "users", {}) or {})
     configured_sources = dict(getattr(household, "sources", {}) or {})

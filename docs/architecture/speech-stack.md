@@ -8,8 +8,8 @@ The brain provides STT and TTS services, while satellites handle local capture a
 
 STT and TTS are exposed as brain API services.
 
-- STT is provided through `/stt`
-- TTS is provided through `/tts`
+- STT is provided through `/api/speech/stt`
+- TTS is provided through `/api/speech/tts`
 
 Provider implementations are selected by canonical configuration. Their
 current status is deliberately distinct:
@@ -65,9 +65,9 @@ At a high level, the satellite speech flow is:
 
 1. capture PCM audio locally
 2. convert PCM to WAV
-3. send audio to `/stt`
-4. send text to `/command`
-5. request reply audio from `/tts`
+3. send audio to `/api/speech/stt`
+4. send text to `/api/conversation/command`
+5. request reply audio from `/api/speech/tts`
 6. play WAV reply locally
 
 ## Timing Instrumentation

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from .effective import EffectiveConfig
 from .models import BrainConfiguration, LoggingConfiguration
 from .runtime_models import (
-    AlertStorageConfiguration,
     BrainRuntimeConfiguration,
     FastWhisperProvider,
     FallbackRouterConfiguration,
@@ -59,7 +58,6 @@ class BrainRuntimeSettings:
     runtime: BrainRuntimeConfiguration
     logging: LoggingConfiguration
     memory_storage: MemoryStorageConfiguration
-    alert_storage: AlertStorageConfiguration
     stt: SelectedSttConfiguration
     tts: SelectedTtsConfiguration
     inference: SelectedInferenceConfiguration
@@ -105,7 +103,6 @@ class BrainRuntimeSettings:
             runtime=role.runtime,
             logging=role.logging,
             memory_storage=role.storage.memory,
-            alert_storage=role.storage.alerts,
             stt=SelectedSttConfiguration(
                 enabled=role.speech.stt.enabled,
                 provider_id=stt_provider_id,

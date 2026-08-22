@@ -2,7 +2,7 @@
 
 This document records the current dispatch structure on the brain.
 
-Dispatch happens after routing in the `/command` flow.
+Dispatch happens after routing in the `/api/conversation/command` flow.
 
 At a high level, dispatch has two stages:
 

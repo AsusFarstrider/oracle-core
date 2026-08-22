@@ -25,9 +25,11 @@ Current top-level structure:
 - `replies.py`: reply shaping helpers
 - `health.py`: health endpoint helpers
 - `tracing.py`: request-tracing helpers
-- `config.py`: runtime config resolution
+- `config.py`: fail-closed boundary for the few not-yet-simplified internal
+  call sites plus reconstructible cache loading; never configuration authority
 - `config_reporting.py`: config reporting helpers
-- `config_validation.py`: startup config validation helpers
+- `configuration/`: executable schema, generation, projection, activation, and
+  immutable runtime composition
 - `constants.py`: shared constants
 - `system_intents.py`: system-intent classification helpers
 - `routing_helpers.py`: shared routing helper functions

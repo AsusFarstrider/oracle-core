@@ -17,15 +17,15 @@ The current API surface is grouped into a small set of endpoint families.
 ### Health and Config/Reporting
 
 - `GET /health`
-- `GET /health/config`
-- `GET /health/audiobook`
-- `GET /health/calendar`
-- `GET /health/home-assistant`
-- `GET /health/music`
-- `GET /health/news`
-- `GET /health/ollama`
-- `GET /health/tts`
-- `GET /health/stt`
+- `GET /api/admin/health/config`
+- `GET /api/admin/health/audiobook`
+- `GET /api/admin/health/calendar`
+- `GET /api/admin/health/home-assistant`
+- `GET /api/admin/health/music`
+- `GET /api/admin/health/news`
+- `GET /api/admin/health/ollama`
+- `GET /api/admin/health/tts`
+- `GET /api/admin/health/stt`
 - `GET /api/admin/hooks`
 
 ### Canonical Conversation
@@ -39,13 +39,7 @@ The current API surface is grouped into a small set of endpoint families.
 
 `POST /api/conversation/command` returns the finite public
 `ConversationResult`; it never exposes raw route or dispatch envelopes. The
-old `/api/voice/*` and selected root routes remain temporary Slice 9 consumer
-compatibility surfaces.
-
-### Session and Transitional Alert Inspection
-
-- `GET /api/voice/session`
-- `GET /alerts/pending`
+old `/api/voice/*` and root compatibility routes are not registered.
 
 ### Admin Diagnostics
 

@@ -90,7 +90,7 @@ class Stage5Slice6MemoryTests(unittest.TestCase):
         finally:
             conn.close()
 
-        ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        ensure_schema(self.db_path)
 
         self.assertNotIn("memory_snapshots", table_names(self.db_path))
         self.assertIn("memory_current_projections", table_names(self.db_path))
@@ -109,7 +109,7 @@ class Stage5Slice6MemoryTests(unittest.TestCase):
             ).fetchone()[0], 1)
 
     def test_identity_reconciliation_seeds_users_rewrites_known_alias_and_retires_unknown(self) -> None:
-        ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        ensure_schema(self.db_path)
         with transaction(self.db_path) as conn:
             conn.execute(
                 "INSERT INTO memory_sources VALUES (?,?,?,?,?,?,?)",
@@ -166,7 +166,7 @@ class Stage5Slice6MemoryTests(unittest.TestCase):
             ))
 
     def test_schema_finishes_partial_projection_rehearsal_by_merging_latest_row(self) -> None:
-        ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        ensure_schema(self.db_path)
         with transaction(self.db_path) as conn:
             conn.execute(
                 """INSERT INTO memory_current_projections VALUES
@@ -187,7 +187,7 @@ class Stage5Slice6MemoryTests(unittest.TestCase):
                     NULL,'new-provider','domain','available',NULL,'{}')"""
             )
 
-        ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        ensure_schema(self.db_path)
 
         self.assertNotIn("memory_snapshots", table_names(self.db_path))
         with transaction(self.db_path) as conn:
@@ -197,7 +197,7 @@ class Stage5Slice6MemoryTests(unittest.TestCase):
         self.assertEqual(tuple(row), ("new-provider", "available"))
 
     def test_retention_dry_run_reports_exact_boundaries_dependencies_and_unknowns(self) -> None:
-        ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        ensure_schema(self.db_path)
         ensure_storage(self.db_path)
         old = (NOW - timedelta(days=91)).isoformat()
         edge = (NOW - timedelta(days=90)).isoformat()
@@ -257,7 +257,7 @@ class Stage5Slice6MemoryTests(unittest.TestCase):
         self.assertTrue(report.blocked)
 
     def test_retention_apply_is_atomic_and_emits_no_event_when_nothing_changes(self) -> None:
-        ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        ensure_schema(self.db_path)
         ensure_storage(self.db_path)
         report = run_retention(
             POLICY, db_path=self.db_path, now=NOW, dry_run=False,
@@ -269,7 +269,7 @@ class Stage5Slice6MemoryTests(unittest.TestCase):
             ).fetchone()[0], 0)
 
     def test_retention_apply_deletes_candidate_and_emits_one_aggregate_event(self) -> None:
-        ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        ensure_schema(self.db_path)
         old = (NOW - timedelta(days=91)).isoformat()
         with transaction(self.db_path) as conn:
             conn.execute(
@@ -291,7 +291,7 @@ class Stage5Slice6MemoryTests(unittest.TestCase):
             ).fetchone()[0], 1)
 
     def test_retention_apply_fails_closed_without_partial_deletion(self) -> None:
-        ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        ensure_schema(self.db_path)
         old = (NOW - timedelta(days=91)).isoformat()
         future = (NOW + timedelta(seconds=1)).isoformat()
         with transaction(self.db_path) as conn:

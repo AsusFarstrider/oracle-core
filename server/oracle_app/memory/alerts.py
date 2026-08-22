@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
@@ -60,7 +59,7 @@ def create_alert_record(
     db_path: Path | None = None,
 ) -> tuple[AlertRecord, bool]:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     clean_kind = _kind(kind)
     clean_source = _required(source_id, "source_id")
     clean_message = str(message or "").strip()
@@ -146,7 +145,7 @@ def create_alert_records(
     if not sources:
         raise ValueError("At least one source_id is required.")
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     clean_kind = _kind(kind)
     clean_message = str(message or "").strip()
     if not clean_message and clean_kind != "sleep_timer":
@@ -221,7 +220,7 @@ def list_alert_records(
     db_path: Path | None = None,
 ) -> list[AlertRecord]:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     clauses: list[str] = []
     args: list[Any] = []
     if source_id is not None:
@@ -267,7 +266,7 @@ def claim_due_alerts(
     if isinstance(limit, bool) or not 1 <= int(limit) <= 100:
         raise ValueError("limit must be between 1 and 100")
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     clean_source = _required(source_id, "source_id")
     clock = _timestamp(now, "now")
     lease_expires = clock + timedelta(seconds=int(lease_seconds))
@@ -382,7 +381,7 @@ def acknowledge_alert(
     db_path: Path | None = None,
 ) -> AlertRecord:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     clean_id = _required(alert_id, "alert_id")
     clean_source = _required(source_id, "source_id")
     clean_lease = _required(lease_id, "lease_id")
@@ -438,7 +437,7 @@ def cancel_alert_records(
     db_path: Path | None = None,
 ) -> int:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     clean_source = _required(source_id, "source_id")
     clock = _timestamp(now or _utc_now(), "now")
     with transaction(path) as conn:
@@ -464,166 +463,15 @@ def cancel_alert_records(
 
 def clear_alert_records(*, db_path: Path | None = None) -> None:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         conn.execute("DELETE FROM memory_alert_transitions")
         conn.execute("DELETE FROM memory_alerts")
 
 
-def import_legacy_alerts(
-    payload: object,
-    *,
-    db_path: Path | None = None,
-    now: datetime | None = None,
-) -> dict[str, int]:
-    if not isinstance(payload, list):
-        raise ValueError("Legacy alert payload must be a list.")
-    path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
-    imported = 0
-    duplicates = 0
-    rejected = 0
-    clock = now or _utc_now()
-    with transaction(path) as conn:
-        for item in payload:
-            if not isinstance(item, dict):
-                rejected += 1
-                continue
-            try:
-                source_id = _required(item.get("source"), "source")
-                _require_active_source(conn, source_id)
-                alert_id = _required(item.get("alert_id"), "alert_id")
-                kind = _kind(item.get("kind"))
-                due_at = _timestamp(item.get("due_at"), "due_at")
-                created_at = _timestamp(item.get("created_at"), "created_at")
-                message = str(item.get("message") or "").strip()
-                if not message and kind != "sleep_timer":
-                    raise ValueError("message is required")
-                expires_at = (
-                    _timestamp(item.get("expires_at"), "expires_at")
-                    if item.get("expires_at") not in (None, "")
-                    else None
-                )
-                if expires_at is not None and expires_at <= created_at:
-                    raise ValueError("expires_at must be after created_at")
-                metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-                idempotency_key = str(metadata.get("idempotency_key") or "").strip() or None
-                if kind == "notification":
-                    _required(metadata.get("notification_id"), "notification_id")
-                    _required(metadata.get("event_id"), "event_id")
-                    if expires_at is None:
-                        raise ValueError("Notification alert requires expires_at")
-            except (KeyError, TypeError, ValueError, sqlite3.Error):
-                rejected += 1
-                continue
-            existing = conn.execute(
-                "SELECT 1 FROM memory_alerts WHERE alert_id=?",
-                (alert_id,),
-            ).fetchone()
-            if existing is None and idempotency_key:
-                existing = conn.execute(
-                    "SELECT 1 FROM memory_alerts WHERE idempotency_key=? AND source_id=?",
-                    (idempotency_key, source_id),
-                ).fetchone()
-            if existing is not None:
-                duplicates += 1
-                continue
-            conn.execute(
-                """INSERT INTO memory_alerts (
-                       alert_id, created_at, updated_at, kind, source_id, session_id,
-                       due_at, expires_at, message, metadata_json, status, idempotency_key
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
-                (
-                    alert_id,
-                    created_at.isoformat(),
-                    created_at.isoformat(),
-                    kind,
-                    source_id,
-                    str(item.get("session_id") or "").strip() or None,
-                    due_at.isoformat(),
-                    None if expires_at is None else expires_at.isoformat(),
-                    message,
-                    json.dumps(metadata, sort_keys=True, separators=(",", ":")),
-                    idempotency_key,
-                ),
-            )
-            _transition_row(
-                conn,
-                alert_id=alert_id,
-                source_id=source_id,
-                from_status=None,
-                to_status="pending",
-                reason="legacy_import",
-                at=clock,
-            )
-            if kind == "notification":
-                _import_notification_receipt(
-                    conn,
-                    source_id=source_id,
-                    metadata=metadata,
-                    expires_at=expires_at,
-                    delivered=bool(item.get("delivered")),
-                    at=clock,
-                )
-            if bool(item.get("delivered")):
-                _set_status(
-                    conn,
-                    alert_id,
-                    expected="pending",
-                    status="completed",
-                    source_id=source_id,
-                    at=clock,
-                    reason="legacy_delivered",
-                )
-            imported += 1
-    return {"imported": imported, "duplicates": duplicates, "rejected": rejected}
-
-
-def _import_notification_receipt(
-    conn: sqlite3.Connection,
-    *,
-    source_id: str,
-    metadata: dict[str, Any],
-    expires_at: datetime | None,
-    delivered: bool,
-    at: datetime,
-) -> None:
-    if expires_at is None:
-        raise ValueError("Notification alert requires expires_at")
-    notification_type = _required(metadata.get("notification_id"), "notification_id")
-    occurrence_id = _required(metadata.get("event_id"), "event_id")
-    identity = "\x1f".join(
-        (notification_type, occurrence_id, "satellite_announcement", source_id)
-    )
-    receipt_id = f"delivery-{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:24]}"
-    status = "accepted" if delivered else "pending"
-    terminal_at = at.isoformat() if delivered else None
-    conn.execute(
-        """INSERT OR IGNORE INTO memory_notification_deliveries (
-               receipt_id, created_at, updated_at, notification_type,
-               occurrence_id, channel, destination_id, provider, status,
-               attempt_count, max_attempts, retry_seconds, expires_at,
-               accepted_at, completed_at, failure_policy, repeat_policy
-           ) VALUES (?, ?, ?, ?, ?, 'satellite_announcement', ?, 'oracle_brain',
-                     ?, 0, 1, 30, ?, ?, ?, 'best_effort', 'every_occurrence')""",
-        (
-            receipt_id,
-            at.isoformat(),
-            at.isoformat(),
-            notification_type,
-            occurrence_id,
-            source_id,
-            status,
-            expires_at.isoformat(),
-            terminal_at,
-            terminal_at,
-        ),
-    )
-
-
 def active_alert_source_ids(*, db_path: Path | None = None) -> set[str]:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         rows = conn.execute(
             "SELECT DISTINCT source_id FROM memory_alerts WHERE status IN ('pending', 'leased')"

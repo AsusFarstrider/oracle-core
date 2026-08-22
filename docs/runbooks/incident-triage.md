@@ -10,9 +10,9 @@ Use this runbook when Oracle is up but misbehaving, partially degraded, or faili
 
 Run the stages in this order and stop on the first clear error before moving deeper:
 
-1. startup config findings
-2. runtime `/health/config`
-3. brain `/command` trace
+1. installed activation status and drift
+2. runtime configuration identity
+3. brain `/api/conversation/command` trace
 4. satellite trace
 5. control-service trace
 6. dependency health
@@ -22,7 +22,7 @@ Run the stages in this order and stop on the first clear error before moving dee
 
 Current config-report endpoints:
 
-- brain: `GET /health/config`
+- brain: `GET /api/admin/health/config`
 - Pi satellite: `GET /health/config` on the satellite config-report port
 - control service: `GET /health/config`
 
@@ -34,16 +34,14 @@ Format support:
 
 What to look for:
 
-- `has_errors=true`
-- `has_warnings=true`
-- deprecated env names
-- unknown `ORACLE_*` env names
-- invalid bind, model, or URL config
+- exact applied configuration/secret generation identity
+- installed status health and managed-drift findings
+- provider/model asset identity and service-account readability
 - audio-input open failures on Pi satellites
 
 ## Brain Trace Stage
 
-If `/command` behavior is wrong, inspect the brain request trace for:
+If `/api/conversation/command` behavior is wrong, inspect the brain request trace for:
 
 - `command_received`
 - `route_chosen`
@@ -98,14 +96,14 @@ What to look for:
 
 Brain dependency probes:
 
-- `/health/home-assistant`
-- `/health/music`
-- `/health/audiobook`
-- `/health/calendar`
-- `/health/news`
-- `/health/ollama`
-- `/health/tts`
-- `/health/stt`
+- `/api/admin/health/home-assistant`
+- `/api/admin/health/music`
+- `/api/admin/health/audiobook`
+- `/api/admin/health/calendar`
+- `/api/admin/health/news`
+- `/api/admin/health/ollama`
+- `/api/admin/health/tts`
+- `/api/admin/health/stt`
 
 Use these after config and request-path checks, not before.
 
@@ -139,7 +137,7 @@ Use these after config and request-path checks, not before.
 
 ## Signal To Domain Mapping
 
-- bad or warning-heavy `/health/config`:
+- wrong identity or unhealthy `/api/admin/health/config`:
   config surface
 - bad route with sane dispatch:
   routing surface
@@ -154,5 +152,7 @@ Use these after config and request-path checks, not before.
 
 ## Notes
 
-- `/health/config` is diagnostic and sanitized. It should not contain secret values.
-- `scripts/check-brain-config.py` remains the current repo-local doctor entrypoint for aggregated operator checks from the brain workspace.
+- configuration-health output is diagnostic and sanitized; it never contains
+  secret values.
+- the selected activation's `oracle-admin.py status` is the host-level doctor;
+  the private repository is not an operational fallback.

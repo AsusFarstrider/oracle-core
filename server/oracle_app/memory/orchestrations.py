@@ -42,7 +42,7 @@ def create_orchestration_run(
     db_path: Path | None = None,
 ) -> dict[str, Any]:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     now = utc_now_iso()
     with transaction(path) as conn:
         conn.execute(
@@ -108,7 +108,7 @@ def upsert_orchestration_step(
     db_path: Path | None = None,
 ) -> dict[str, Any]:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     now = utc_now_iso()
     with transaction(path) as conn:
         conn.execute(
@@ -176,7 +176,7 @@ def complete_orchestration_run(
     db_path: Path | None = None,
 ) -> dict[str, Any] | None:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         updates = [
             "updated_at = ?",
@@ -219,7 +219,7 @@ def update_orchestration_run(
     db_path: Path | None = None,
 ) -> dict[str, Any] | None:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         updates = ["updated_at = ?", "status = ?", "summary = ?", "payload_json = ?"]
         values: list[Any] = [
@@ -241,14 +241,14 @@ def update_orchestration_run(
 
 def delete_orchestration_run(run_id: str, *, db_path: Path | None = None) -> None:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         conn.execute("DELETE FROM memory_orchestration_runs WHERE run_id = ?", (run_id,))
 
 
 def get_orchestration_run(run_id: str, *, db_path: Path | None = None) -> dict[str, Any] | None:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         row = conn.execute(
             "SELECT * FROM memory_orchestration_runs WHERE run_id = ?",
@@ -277,7 +277,7 @@ def get_orchestration_step(
     db_path: Path | None = None,
 ) -> dict[str, Any] | None:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         row = conn.execute(
             """
@@ -301,7 +301,7 @@ def list_orchestration_runs(
     db_path: Path | None = None,
 ) -> list[dict[str, Any]]:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     bounded_limit = min(100, max(1, int(limit or 25)))
     sql = "SELECT run_id FROM memory_orchestration_runs"
     args: list[Any] = []
@@ -339,7 +339,7 @@ def list_orchestration_runs(
 
 def reconcile_interrupted_orchestration_runs(*, db_path: Path | None = None) -> int:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     now = utc_now_iso()
     with transaction(path) as conn:
         rows = conn.execute(
