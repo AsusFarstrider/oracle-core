@@ -1,0 +1,28 @@
+[Unit]
+Description=Oracle Brain standard installation
+After=network.target
+
+[Service]
+Type=simple
+User=oracle
+Group=oracle
+SupplementaryGroups=oracle-admin
+RuntimeDirectory=oracle
+RuntimeDirectoryMode=0750
+WorkingDirectory=/srv/oracle/selection/active/application/server
+Environment=ORACLE_STANDARD_INSTALLATION=1
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONPYCACHEPREFIX=/srv/oracle/cache/pycache
+Environment=XDG_CACHE_HOME=/srv/oracle/cache/xdg
+Environment=HF_HOME=/srv/oracle/cache/huggingface
+Environment=TMPDIR=/srv/oracle/tmp
+ExecStart=/usr/bin/env /srv/oracle/selection/active/environment/bin/python -m uvicorn app_standard:app --host 127.0.0.1 --port 8011 --timeout-graceful-shutdown 3
+ExecStopPost=/bin/sh -c 'if [ -x /srv/oracle/selection/previous-known-good/environment/bin/python ] && [ -r /srv/oracle/selection/previous-known-good/application/scripts/oracle-standard-lifecycle.py ]; then exec /srv/oracle/selection/previous-known-good/environment/bin/python /srv/oracle/selection/previous-known-good/application/scripts/oracle-standard-lifecycle.py recover-after-exit; else exec /srv/oracle/selection/active/environment/bin/python /srv/oracle/selection/active/application/scripts/oracle-standard-lifecycle.py recover-after-exit; fi'
+KillSignal=SIGTERM
+TimeoutStopSec=8
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

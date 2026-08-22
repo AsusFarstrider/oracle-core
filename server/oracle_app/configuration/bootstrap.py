@@ -1,0 +1,347 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import grp
+import os
+from pathlib import Path
+import stat
+import threading
+from typing import Mapping
+
+from ..installation import InstallationLayout, load_selected_activation
+from ..installation_control import create_standard_host_local_control_server
+from ..installation_runtime import STANDARD_RUNTIME_DIRECTORY, schedule_graceful_process_restart
+from .effective import EffectiveConfig, load_effective_config
+from .generations import GenerationStore
+from .host_local import HostLocalConfigurationServer
+from .service import AuthoringMode, ConfigurationService
+from .runtime_cutover import runtime_cutover_required
+
+
+CONFIGURATION_BOOTSTRAP_ENV_NAMES = frozenset(
+    {
+        "ORACLE_CONFIG_AUTHORING_MODE",
+        "ORACLE_CONFIG_BUNDLE_ROOT",
+        "ORACLE_CONFIG_SOCKET_PATH",
+        "ORACLE_CONFIG_STORE_ROOT",
+    }
+)
+STANDARD_INSTALLATION_ENV = "ORACLE_STANDARD_INSTALLATION"
+
+
+class ConfigurationBootstrapError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class BrainConfigurationStartup:
+    mode: str
+    service_settings: ConfigurationBootstrapSettings | None
+    effective_config: EffectiveConfig | None
+    installation_layout: InstallationLayout | None = None
+
+
+def resolve_brain_configuration_startup(
+    environment: Mapping[str, str] | None = None,
+    *,
+    standard_layout: InstallationLayout | None = None,
+) -> BrainConfigurationStartup:
+    values = os.environ if environment is None else environment
+    if values.get(STANDARD_INSTALLATION_ENV) == "1":
+        layout = standard_layout or InstallationLayout()
+        return BrainConfigurationStartup(
+            "canonical",
+            None,
+            load_standard_installation_effective_config(layout),
+            layout,
+        )
+    settings = ConfigurationBootstrapSettings.from_environment(values)
+    if settings is None:
+        raise ConfigurationBootstrapError(
+            "Brain startup requires complete canonical configuration bootstrap settings."
+        )
+
+    store = GenerationStore(settings.store_root)
+    store.validate_initialized()
+    if not runtime_cutover_required(store):
+        raise ConfigurationBootstrapError(
+            "Canonical runtime has not been armed for this configuration store."
+        )
+    return BrainConfigurationStartup("canonical", settings, load_effective_config(store))
+
+
+def load_standard_installation_effective_config(
+    layout: InstallationLayout = InstallationLayout(),
+) -> EffectiveConfig:
+    """Load the configuration chosen by one complete standard activation.
+
+    The configuration store pointer supplies transaction revision and satellite
+    projection metadata, but it cannot select a different activation from the
+    complete installation record.
+    """
+
+    installed = load_selected_activation(layout)
+    activation_id = installed.record.get("configuration_activation_identity")
+    if not isinstance(activation_id, str):
+        raise ConfigurationBootstrapError(
+            "Complete installation activation lacks a configuration activation identity."
+        )
+    store = GenerationStore(layout.configuration, secret_root=layout.secrets)
+    store.validate_initialized()
+    if not runtime_cutover_required(store):
+        raise ConfigurationBootstrapError(
+            "Canonical runtime has not been armed for this configuration store."
+        )
+    return load_effective_config(
+        store,
+        required_activation_generation_id=activation_id,
+    )
+
+
+@dataclass(frozen=True)
+class ConfigurationBootstrapSettings:
+    bundle_root: Path
+    store_root: Path
+    socket_path: Path
+    authoring_mode: AuthoringMode
+
+    @classmethod
+    def from_environment(
+        cls,
+        environment: Mapping[str, str] | None = None,
+    ) -> ConfigurationBootstrapSettings | None:
+        values = os.environ if environment is None else environment
+        supplied = {name: values.get(name) for name in CONFIGURATION_BOOTSTRAP_ENV_NAMES}
+        present = {name for name, value in supplied.items() if value is not None}
+        if not present:
+            return None
+        if present != CONFIGURATION_BOOTSTRAP_ENV_NAMES:
+            missing = sorted(CONFIGURATION_BOOTSTRAP_ENV_NAMES - present)
+            raise ConfigurationBootstrapError(
+                "Canonical configuration bootstrap is incomplete; missing " + ", ".join(missing) + "."
+            )
+        if any(not str(value).strip() for value in supplied.values()):
+            raise ConfigurationBootstrapError("Canonical configuration bootstrap values cannot be empty.")
+
+        mode = str(supplied["ORACLE_CONFIG_AUTHORING_MODE"]).strip()
+        if mode not in {"managed_writable", "external_read_only"}:
+            raise ConfigurationBootstrapError("Canonical configuration authoring mode is unsupported.")
+        try:
+            bundle_root = Path(str(supplied["ORACLE_CONFIG_BUNDLE_ROOT"])).resolve(strict=True)
+            store_root = Path(str(supplied["ORACLE_CONFIG_STORE_ROOT"])).resolve(strict=True)
+        except OSError as exc:
+            raise ConfigurationBootstrapError("Canonical configuration bootstrap path does not exist.") from exc
+        if not bundle_root.is_dir() or not store_root.is_dir():
+            raise ConfigurationBootstrapError("Canonical configuration bundle and store roots must be directories.")
+        socket_path = Path(str(supplied["ORACLE_CONFIG_SOCKET_PATH"])).expanduser()
+        if not socket_path.is_absolute():
+            raise ConfigurationBootstrapError("Canonical configuration socket path must be absolute.")
+        if bundle_root == store_root or bundle_root.is_relative_to(store_root) or store_root.is_relative_to(bundle_root):
+            raise ConfigurationBootstrapError(
+                "Canonical configuration bundle and installed store roots must be disjoint."
+            )
+        try:
+            socket_parent = socket_path.parent.resolve(strict=False)
+        except (OSError, RuntimeError) as exc:
+            raise ConfigurationBootstrapError("Canonical configuration socket parent cannot be resolved.") from exc
+        effective_socket_path = socket_parent / socket_path.name
+        if effective_socket_path.is_relative_to(bundle_root):
+            raise ConfigurationBootstrapError("Canonical configuration socket must be outside the authored bundle root.")
+        return cls(
+            bundle_root=bundle_root,
+            store_root=store_root,
+            socket_path=effective_socket_path,
+            authoring_mode=mode,  # type: ignore[arg-type]
+        )
+
+
+class BrainConfigurationHostLocalRuntime:
+    def __init__(self, settings: ConfigurationBootstrapSettings | None) -> None:
+        self.settings = settings
+        self._server: HostLocalConfigurationServer | None = None
+        self._thread: threading.Thread | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return self.settings is not None
+
+    def start(self) -> BrainConfigurationHostLocalRuntime:
+        if self.settings is None or self._server is not None:
+            return self
+        store = GenerationStore(self.settings.store_root)
+        store.validate_initialized()
+        service = ConfigurationService(
+            store,
+            authoring_mode=self.settings.authoring_mode,
+            authoring_root=self.settings.bundle_root,
+        )
+        if self.settings.authoring_mode == "managed_writable":
+            service.recover_authoring_transactions(actor="service")
+        service.recover_secret_transactions(self.settings.bundle_root, actor="service")
+        server = HostLocalConfigurationServer(self.settings.socket_path, service)
+        thread = threading.Thread(
+            target=server.serve_forever,
+            name="oracle-configuration-host-local",
+            daemon=True,
+        )
+        try:
+            thread.start()
+        except BaseException:
+            server.server_close()
+            raise
+        self._server = server
+        self._thread = thread
+        return self
+
+    def stop(self) -> None:
+        server = self._server
+        thread = self._thread
+        self._server = None
+        self._thread = None
+        if server is None:
+            return
+        try:
+            server.shutdown()
+        finally:
+            server.server_close()
+            if thread is not None:
+                thread.join(timeout=5.0)
+
+
+class StandardBrainConfigurationHostLocalRuntime:
+    def __init__(
+        self,
+        layout: InstallationLayout,
+        *,
+        runtime_directory: Path = STANDARD_RUNTIME_DIRECTORY,
+    ) -> None:
+        self.layout = layout
+        self.runtime_directory = Path(runtime_directory)
+        self._server: HostLocalConfigurationServer | None = None
+        self._thread: threading.Thread | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return True
+
+    def start(self) -> StandardBrainConfigurationHostLocalRuntime:
+        if self._server is not None:
+            return self
+        store = GenerationStore(
+            self.layout.configuration,
+            secret_root=self.layout.secrets,
+        )
+        store.validate_initialized()
+        service = ConfigurationService(store, authoring_mode="external_read_only")
+        service.recover_selection_transactions()
+        service.recover_secret_transactions(self.layout.secrets, actor="service")
+        try:
+            operator_gid = grp.getgrnam("oracle-admin").gr_gid
+        except KeyError as exc:
+            raise ConfigurationBootstrapError(
+                "Standard Oracle operator group is unavailable."
+            ) from exc
+        _prepare_standard_runtime_directory(
+            self.runtime_directory,
+            operator_group_gid=operator_gid,
+        )
+        server = create_standard_host_local_control_server(
+            self.layout,
+            service,
+            socket_path=self.runtime_directory / "control.sock",
+            operator_group_gid=operator_gid,
+            restart_request=schedule_graceful_process_restart,
+        )
+        thread = threading.Thread(
+            target=server.serve_forever,
+            name="oracle-standard-control",
+            daemon=True,
+        )
+        try:
+            thread.start()
+        except BaseException:
+            server.server_close()
+            raise
+        self._server = server
+        self._thread = thread
+        return self
+
+    def stop(self) -> None:
+        server = self._server
+        thread = self._thread
+        self._server = None
+        self._thread = None
+        if server is None:
+            return
+        try:
+            server.shutdown()
+        finally:
+            server.server_close()
+            if thread is not None:
+                thread.join(timeout=5.0)
+
+
+def _prepare_standard_runtime_directory(
+    runtime_directory: Path,
+    *,
+    operator_group_gid: int,
+) -> None:
+    """Publish the service-owned runtime directory to its operator group."""
+    path = Path(runtime_directory)
+    try:
+        initial = path.lstat()
+    except FileNotFoundError as exc:
+        raise ConfigurationBootstrapError(
+            "Standard Oracle runtime directory is unavailable."
+        ) from exc
+    if stat.S_ISLNK(initial.st_mode) or not stat.S_ISDIR(initial.st_mode):
+        raise ConfigurationBootstrapError(
+            "Standard Oracle runtime directory must be a real directory."
+        )
+    if initial.st_uid != os.geteuid():
+        raise ConfigurationBootstrapError(
+            "Standard Oracle runtime directory is not owned by the service identity."
+        )
+    permitted_groups = {os.getegid(), *os.getgroups()}
+    if operator_group_gid not in permitted_groups:
+        raise ConfigurationBootstrapError(
+            "Oracle service identity lacks the configured operator-group membership."
+        )
+    try:
+        if initial.st_gid != operator_group_gid:
+            os.chown(path, -1, operator_group_gid, follow_symlinks=False)
+        path.chmod(0o2750, follow_symlinks=False)
+    except OSError as exc:
+        raise ConfigurationBootstrapError(
+            "Standard Oracle runtime-directory access could not be established."
+        ) from exc
+    published = path.lstat()
+    if (
+        not stat.S_ISDIR(published.st_mode)
+        or published.st_uid != os.geteuid()
+        or published.st_gid != operator_group_gid
+        or stat.S_IMODE(published.st_mode) != 0o2750
+    ):
+        raise ConfigurationBootstrapError(
+            "Standard Oracle runtime-directory access did not match the operator boundary."
+        )
+
+
+def start_brain_configuration_host_local_runtime(
+    environment: Mapping[str, str] | None = None,
+    *,
+    startup: BrainConfigurationStartup | None = None,
+) -> BrainConfigurationHostLocalRuntime | StandardBrainConfigurationHostLocalRuntime:
+    if startup is not None and environment is not None:
+        raise ConfigurationBootstrapError(
+            "Host-local configuration startup accepts either resolved startup or environment, not both."
+        )
+    if startup is not None and startup.installation_layout is not None:
+        runtime = StandardBrainConfigurationHostLocalRuntime(startup.installation_layout)
+    else:
+        runtime = BrainConfigurationHostLocalRuntime(
+            startup.service_settings
+            if startup is not None
+            else ConfigurationBootstrapSettings.from_environment(environment)
+        )
+    return runtime.start()

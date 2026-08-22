@@ -1,0 +1,20 @@
+enabled: false
+providers:
+  apprise:
+    type: apprise
+    base_url: http://apprise.example.invalid:8000
+    timeout_seconds: 8
+types:
+  - id: example_notice
+    enabled: false
+    message: An example household condition needs attention.
+    audience: []
+    suppressed_by: []
+    delivery_ttl_seconds: 90
+    audio_policy: pause_resume
+recipient_groups:
+  - id: example_household
+    enabled: false
+    provider: apprise
+    configuration_key: oracle
+    routing_tag: example_household

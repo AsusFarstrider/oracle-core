@@ -1,0 +1,9 @@
+operator_access:
+  mode: host_local_only
+  browser_mutation: false
+  host_local_cli: true
+public_health:
+  enabled: false
+satellite_authentication:
+  enrollment_mode: per_satellite
+  directional_credentials_required: true

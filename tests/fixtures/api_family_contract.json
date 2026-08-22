@@ -1,0 +1,91 @@
+{
+  "format_version": 1,
+  "families": {
+    "conversation": {
+      "prefix": "/api/conversation",
+      "routes": [
+        {"method": "POST", "path": "/api/conversation/command", "semantic_owner": "conversation_command"},
+        {"method": "POST", "path": "/api/conversation/route", "semantic_owner": "conversation_route"},
+        {"method": "GET", "path": "/api/conversation/session", "semantic_owner": "conversation_session"},
+        {"method": "GET", "path": "/api/conversation/command-events", "semantic_owner": "conversation_events"}
+      ]
+    },
+    "speech": {
+      "prefix": "/api/speech",
+      "routes": [
+        {"method": "POST", "path": "/api/speech/stt", "semantic_owner": "speech_to_text"},
+        {"method": "POST", "path": "/api/speech/tts", "semantic_owner": "text_to_speech"}
+      ]
+    },
+    "ui": {"prefix": "/api/ui"},
+    "admin": {"prefix": "/api/admin"},
+    "satellite": {
+      "prefix": "/api/satellite",
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/api/satellite/config",
+          "semantic_owner": "satellite_configuration"
+        },
+        {"method": "POST", "path": "/api/satellite/alerts/claim", "semantic_owner": "satellite_alert_delivery"},
+        {"method": "POST", "path": "/api/satellite/alerts/{alert_id}/acknowledge", "semantic_owner": "satellite_alert_delivery"},
+        {"method": "POST", "path": "/api/satellite/deferred-resume", "semantic_owner": "satellite_playback"},
+        {"method": "GET", "path": "/api/satellite/media/audiobooks/{playback_id}/tracks/{track_index}", "semantic_owner": "satellite_media"}
+      ]
+    },
+    "integrations": {"prefix": "/api/integrations"}
+  },
+  "conversation_result": {
+    "required_fields": [
+      "reply_text",
+      "session_id",
+      "source_id",
+      "status",
+      "failure_code",
+      "trace_id",
+      "effects"
+    ],
+    "statuses": [
+      "executed",
+      "pending_confirmation",
+      "pending_clarification",
+      "failed",
+      "ignored"
+    ],
+    "effect_fields": [
+      "follow_up",
+      "satellite_playback",
+      "deferred_satellite_playback",
+      "ui_presentation"
+    ],
+    "reply_text_optional_statuses": ["ignored"]
+  },
+  "migration": {
+    "permanent_root_routes": [
+      {"method": "GET", "path": "/health", "semantic_owner": "minimal_brain_liveness"}
+    ],
+    "retired_without_replacement": [
+      {"method": "POST", "path": "/api/voice/ingest/text", "reason": "duplicate_command_ingress"}
+    ],
+    "obsolete_prefixes": ["/api/voice"],
+    "obsolete_root_routes": [
+      "/command",
+      "/route",
+      "/session",
+      "/command-events",
+      "/alerts/pending",
+      "/stt",
+      "/tts",
+      "/health/config",
+      "/health/home-assistant",
+      "/health/audiobook",
+      "/health/calendar",
+      "/health/librenms",
+      "/health/ollama",
+      "/health/music",
+      "/health/news",
+      "/health/stt",
+      "/health/tts"
+    ]
+  }
+}

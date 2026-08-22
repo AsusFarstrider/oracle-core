@@ -1,0 +1,15 @@
+enabled: false
+definitions:
+  - id: example_routine
+    display_name: Example Routine
+    description: A disabled example showing the bounded routine envelope.
+    enabled: false
+    user_id: null
+    source_ids: []
+    triggers:
+      ui: false
+      voice: false
+      source_phrases: []
+      global_phrases: []
+    inputs: {}
+    steps: []

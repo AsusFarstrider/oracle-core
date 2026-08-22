@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Oracle Satellite</title>
+    <link rel="stylesheet" href="/ui/assets/fonts/oracle-fonts.css?v=1">
+    <link rel="stylesheet" href="/ui/satellite/assets/app.css?v=10">
+  </head>
+  <body>
+    <div class="sat-shell">
+      <header class="sat-header">
+        <div class="sat-header__identity">
+          <p id="sat-room" class="sat-room">Satellite</p>
+          <h1 id="sat-title">Oracle</h1>
+        </div>
+        <div id="header-player" class="header-player" aria-live="polite"></div>
+        <div id="voice-chip" class="voice-chip voice-chip--ready">Ready</div>
+      </header>
+
+      <main id="page-root" class="page-root" aria-live="polite"></main>
+
+      <footer class="bottom-rail">
+        <button id="ptt-button" class="talk-card talk-card--ready" type="button" aria-live="polite">
+          <span class="material-symbols-outlined talk-card__icon">mic</span>
+          <span class="talk-card__copy">
+            <span class="talk-card__eyebrow">Oracle</span>
+            <span id="ptt-label" class="talk-card__label">Tap to talk</span>
+          </span>
+        </button>
+
+        <nav id="bottom-nav" class="bottom-nav" aria-label="Satellite pages"></nav>
+      </footer>
+    </div>
+
+    <script type="module" src="/ui/satellite/assets/app.js?v=27"></script>
+  </body>
+</html>

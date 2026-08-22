@@ -1,0 +1,51 @@
+{
+  "configuration_files": [
+    "access.yaml",
+    "brain.yaml",
+    "bundle.yaml",
+    "domains/audiobooks.yaml",
+    "domains/calendar.yaml",
+    "domains/home-assistant.yaml",
+    "domains/information.yaml",
+    "domains/music.yaml",
+    "domains/network/adapters.yaml",
+    "domains/network/inventory.yaml",
+    "domains/network/policy.yaml",
+    "domains/notifications.yaml",
+    "domains/routines.yaml",
+    "domains/weather.yaml",
+    "household.yaml",
+    "satellites.yaml"
+  ],
+  "configuration_source_root": "examples/config",
+  "core_pin_shape": {
+    "core_commit": "40 lowercase hexadecimal Git commit ID",
+    "core_git_tree": "40 lowercase hexadecimal Git tree ID"
+  },
+  "defaults": {
+    "ingress_posture": "host-local",
+    "installation_profiles": [
+      "minimal-brain"
+    ]
+  },
+  "format_version": 1,
+  "placeholders": [
+    "bundle identifier",
+    "household identifier and display name",
+    "initial resident and room identities"
+  ],
+  "secret_boundary": {
+    "artifact_contains_secret_values": false,
+    "authoritative_companion": "secrets.env",
+    "companion_is_separately_supplied": true,
+    "minimal_required_logical_secrets": []
+  },
+  "template_id": "oracle-minimal-household-v1",
+  "validation_rules": [
+    "all payload files are explicitly declared",
+    "canonical configuration loads without secret values",
+    "minimal-brain is the only selected installation profile",
+    "host-local is the default ingress posture",
+    "optional integrations remain canonically disabled"
+  ]
+}

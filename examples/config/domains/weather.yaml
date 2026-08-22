@@ -1,0 +1,24 @@
+enabled: false
+current:
+  enabled: false
+  provider: null
+forecast:
+  enabled: false
+  provider: null
+history:
+  enabled: false
+  provider: null
+remote:
+  enabled: false
+  provider: null
+providers:
+  weewx:
+    type: weewx
+    current_url: http://weather.example.invalid/current.json
+    history_url: http://weather.example.invalid/history.json
+    timeout_seconds: 8
+    stale_after_seconds: 900
+  nws:
+    type: nws
+    user_agent: Oracle example deployment
+    timeout_seconds: 8

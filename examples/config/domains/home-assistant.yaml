@@ -1,0 +1,11 @@
+enabled: false
+provider: null
+providers:
+  home_assistant:
+    type: home_assistant
+    base_url: http://home-assistant.example.invalid:8123
+    credential_secret: HOME_ASSISTANT_TOKEN
+    event_ingress_secret: HOME_ASSISTANT_EVENT_TOKEN
+    timeout_seconds: 8
+mappings: {}
+automations: []

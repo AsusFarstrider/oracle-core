@@ -1,0 +1,26 @@
+{
+  "format_version": 1,
+  "branch_coverage_required": true,
+  "surfaces": {
+    "brain": {
+      "roots": [
+        "server"
+      ],
+      "exclusions": [],
+      "ratchet": {
+        "line_basis_points": 7282,
+        "branch_basis_points": 5465
+      }
+    },
+    "satellite": {
+      "roots": [
+        "satellite"
+      ],
+      "exclusions": [],
+      "ratchet": {
+        "line_basis_points": 5942,
+        "branch_basis_points": 4353
+      }
+    }
+  }
+}

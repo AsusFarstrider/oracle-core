@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Oracle System Mode - Logs</title>
+    <link rel="stylesheet" href="/ui/assets/fonts/oracle-fonts.css?v=1">
+    <link rel="stylesheet" href="./system.css?v=4">
+    <link rel="stylesheet" href="./app.css?v=8">
+  </head>
+  <body data-page="logs">
+    <div class="system-shell system-shell-tools">
+      <aside class="system-rail system-rail-tools">
+        <div class="system-rail__brand">
+          <div>
+            <p class="system-kicker">System Oracle</p>
+            <h1>Oracle</h1>
+            <p class="system-subcopy">Operator tools</p>
+          </div>
+        </div>
+
+        <nav class="system-rail__nav" aria-label="System pages">
+          <a class="system-link" href="./">
+            <span class="material-symbols-outlined">dashboard</span>
+            <span>Overview</span>
+          </a>
+          <a class="system-link" href="./">
+            <span class="material-symbols-outlined">analytics</span>
+            <span>Activity</span>
+          </a>
+          <a class="system-link" href="./">
+            <span class="material-symbols-outlined">settings_input_component</span>
+            <span>Control</span>
+          </a>
+          <a class="system-link" href="./">
+            <span class="material-symbols-outlined">account_tree</span>
+            <span>Orchestration</span>
+          </a>
+          <a class="system-link" href="./trace.html">
+            <span class="material-symbols-outlined">conversion_path</span>
+            <span>Trace</span>
+          </a>
+          <a class="system-link is-active" href="./logs.html">
+            <span class="material-symbols-outlined">list_alt</span>
+            <span>Logs</span>
+          </a>
+        </nav>
+
+        <div class="system-rail__footer">
+          <a class="system-switch" href="/ui/">
+            <span class="material-symbols-outlined">home</span>
+            <span>Switch to House Mode</span>
+          </a>
+        </div>
+      </aside>
+
+      <div class="system-canvas">
+        <header class="system-topbar">
+          <div>
+            <p class="system-kicker">Operator tool</p>
+            <h2>Logs</h2>
+          </div>
+          <div class="system-topbar__meta">
+            <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to light theme">
+              <span id="theme-toggle-icon" class="material-symbols-outlined">light_mode</span>
+            </button>
+          </div>
+        </header>
+
+        <main class="single-column single-column-tools">
+          <section class="panel panel-operator-dark">
+            <div class="panel-head">
+              <div>
+                <h2>Log tail</h2>
+                <p id="logs-status" class="status">Loading log targets.</p>
+              </div>
+            </div>
+
+            <div class="row row-triple">
+              <label>
+                <span>Log Source</span>
+                <select id="logs-target"></select>
+              </label>
+              <label>
+                <span>Lines</span>
+                <input id="logs-lines" type="number" min="20" max="400" step="20" value="120">
+              </label>
+              <div class="actions actions-bottom">
+                <button id="logs-refresh" type="button">Refresh</button>
+              </div>
+            </div>
+
+            <div id="logs-target-detail" class="notice-box"></div>
+            <pre id="logs-output" class="code-block code-block-tall">Loading logs...</pre>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div id="oracle-launcher" class="oracle-launcher">
+      <button
+        id="oracle-launcher-toggle"
+        class="oracle-launcher__toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="oracle-launcher-panel"
+      >
+        <span class="material-symbols-outlined">auto_awesome</span>
+        <span class="oracle-launcher__toggle-label">Ask Oracle</span>
+      </button>
+
+      <section id="oracle-launcher-panel" class="oracle-launcher__panel" aria-label="Oracle interaction panel">
+        <div class="oracle-launcher__head">
+          <div>
+            <p class="system-kicker">Oracle</p>
+            <h4>Speak or type</h4>
+          </div>
+          <button id="oracle-launcher-close" class="admin-button--secondary oracle-launcher__close" type="button" aria-label="Close Oracle panel">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <p id="oracle-launcher-status" class="oracle-launcher__status">Use Oracle directly from the log tail.</p>
+        <div id="oracle-launcher-reply" class="oracle-launcher__reply is-hidden"></div>
+        <form id="oracle-launcher-form" class="oracle-launcher__form">
+          <input id="oracle-launcher-input" class="oracle-launcher__input" type="text" placeholder="What just changed?" autocomplete="off">
+          <div class="oracle-launcher__actions">
+            <button id="oracle-launcher-mic" class="admin-button--secondary" type="button">
+              <span class="material-symbols-outlined">mic</span>
+              <span>Mic</span>
+            </button>
+            <button id="oracle-launcher-send" class="admin-button" type="submit">
+              <span class="material-symbols-outlined">arrow_upward</span>
+              <span>Send</span>
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <script src="./app.js?v=10" type="module"></script>
+  </body>
+</html>

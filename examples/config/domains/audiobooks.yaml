@@ -1,0 +1,11 @@
+enabled: false
+provider: null
+providers:
+  audiobookshelf:
+    type: audiobookshelf
+    base_url: http://audiobooks.example.invalid
+    library_id: example_library
+    timeout_seconds: 10
+playback:
+  source_ids: []
+  default_sleep_timer_minutes: null

@@ -1,0 +1,7 @@
+{
+  "description": "Fixed full-production Brain software, provider assets, host access, and lifecycle contract",
+  "installation_profiles": [
+    "full-production-brain"
+  ],
+  "template_id": "oracle-full-production-brain-v1"
+}

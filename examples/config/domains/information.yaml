@@ -1,0 +1,34 @@
+facts:
+  enabled: false
+  provider: static
+  providers:
+    static:
+      type: static
+      items:
+        - id: example_fact
+          status: answered
+          queries:
+            - What is Oracle?
+          answer:
+            text: Oracle is a local-first household assistant.
+          evidence:
+            - title: Oracle
+              snippet: Oracle is a local-first household assistant.
+              source_name: Local example
+news:
+  enabled: false
+  provider: rss
+  providers:
+    rss:
+      type: rss
+      timeout_seconds: 8
+  sources:
+    - id: example_news
+      display_name: Example News
+      aliases: []
+      provider: rss
+      feed_url: https://example.invalid/news.xml
+suggestions:
+  enabled: false
+  provider: null
+  providers: {}

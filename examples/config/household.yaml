@@ -1,0 +1,23 @@
+household:
+  id: example_home
+  display_name: Example Home
+  timezone: Etc/UTC
+  locale: en-US
+users:
+  - id: resident_one
+    enabled: true
+    display_name: Resident One
+    aliases: []
+    capabilities: {}
+defaults:
+  user_id: resident_one
+rooms:
+  - id: living_room
+    enabled: true
+    display_name: Living Room
+    aliases:
+      - lounge
+sources: []
+modes: []
+ui:
+  escape_hatches: {}

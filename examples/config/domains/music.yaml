@@ -1,0 +1,14 @@
+enabled: false
+provider: null
+providers:
+  plex:
+    type: plex
+    base_url: http://plex.example.invalid:32400
+    credential_secret: PLEX_TOKEN
+    timeout_seconds: 8
+    music_section_id: 1
+matching:
+  maximum_candidates: 10
+  clarification_enabled: true
+playback:
+  source_ids: []

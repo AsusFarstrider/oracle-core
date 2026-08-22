@@ -1,0 +1,16 @@
+enabled: false
+provider: null
+providers:
+  nextcloud:
+    type: nextcloud
+    feeds:
+      - id: household
+        kind: events
+        ics_url: https://calendar.example.invalid/household.ics
+    timeout_seconds: 8
+policy:
+  read_enabled: true
+  write_enabled: false
+  confirmation_required: true
+  fresh_seconds: 60
+  stale_if_error_seconds: 600
