@@ -107,7 +107,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
                 db_path=self.db_path,
             )
 
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         with transaction(self.db_path) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_events").fetchone()[0], 0)
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_current_projections").fetchone()[0], 0)
@@ -136,7 +136,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
                 api.satellite_activity(request, fake_request)
 
         self.assertEqual(raised.exception.status_code, 422)
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         with transaction(self.db_path) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_events").fetchone()[0], 0)
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_current_projections").fetchone()[0], 0)
@@ -218,7 +218,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
                 api.satellite_activity(request, fake_request)
 
         self.assertEqual(raised.exception.status_code, 422)
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         with transaction(self.db_path) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_events").fetchone()[0], 0)
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_current_projections").fetchone()[0], 0)
@@ -298,7 +298,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
         )
 
     def test_query_satellite_status_snapshots_handles_malformed_payload_json(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         with transaction(self.db_path) as conn:
             conn.execute(
                 """

@@ -6,9 +6,6 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from .calendar import load_calendar_events
-
-
 @dataclass(frozen=True)
 class DateCalculationQuery:
     kind: str
@@ -415,13 +412,21 @@ def _normalize_event_summary(summary: str) -> str:
     return " ".join(normalized.split())
 
 
-def _resolve_holiday_date(target_text: str, *, kind: str, today: date) -> tuple[date, str] | None:
+def _resolve_holiday_date(
+    target_text: str,
+    *,
+    kind: str,
+    today: date,
+    calendar_execution=None,
+) -> tuple[date, str] | None:
     base_text, requested_year = _extract_target_year(target_text, today=today)
     normalized_target = _normalize_event_summary(base_text)
     if not normalized_target:
         return None
 
-    events = load_calendar_events(scope="holiday")
+    if calendar_execution is None:
+        return None
+    events = calendar_execution.load_events(scope="holiday").value
     candidates: list[tuple[int, date, str]] = []
     target_tokens = tuple(token for token in normalized_target.split() if token)
     for event in events:
@@ -454,11 +459,22 @@ def _resolve_holiday_date(target_text: str, *, kind: str, today: date) -> tuple[
     return resolved_date, summary
 
 
-def _resolve_date_target(target_text: str, *, kind: str, today: date) -> tuple[date, str]:
+def _resolve_date_target(
+    target_text: str,
+    *,
+    kind: str,
+    today: date,
+    calendar_execution=None,
+) -> tuple[date, str]:
     explicit = _resolve_explicit_date(target_text, kind=kind, today=today)
     if explicit is not None:
         return explicit
-    holiday = _resolve_holiday_date(target_text, kind=kind, today=today)
+    holiday = _resolve_holiday_date(
+        target_text,
+        kind=kind,
+        today=today,
+        calendar_execution=calendar_execution,
+    )
     if holiday is not None:
         return holiday
     raise ValueError("I couldn't resolve that date.")
@@ -472,8 +488,18 @@ def _format_delta_days(delta_days: int) -> str:
     return f"{delta_days} days"
 
 
-def _build_date_calculation_response(query: DateCalculationQuery, *, today: date) -> tuple[str, dict]:
-    target_date, label = _resolve_date_target(query.target_text, kind=query.kind, today=today)
+def _build_date_calculation_response(
+    query: DateCalculationQuery,
+    *,
+    today: date,
+    calendar_execution=None,
+) -> tuple[str, dict]:
+    target_date, label = _resolve_date_target(
+        query.target_text,
+        kind=query.kind,
+        today=today,
+        calendar_execution=calendar_execution,
+    )
 
     if query.kind == "weekday":
         speech = f"{label} is on a {target_date.strftime('%A')}."
@@ -510,11 +536,20 @@ def _build_date_calculation_response(query: DateCalculationQuery, *, today: date
     }
 
 
-def build_calculation_response(text: str, *, today: date | None = None) -> tuple[str, dict]:
+def build_calculation_response(
+    text: str,
+    *,
+    today: date | None = None,
+    calendar_execution=None,
+) -> tuple[str, dict]:
     date_query = parse_date_calculation_query(text)
     if date_query is not None:
         resolved_today = today or datetime.now().astimezone().date()
-        return _build_date_calculation_response(date_query, today=resolved_today)
+        return _build_date_calculation_response(
+            date_query,
+            today=resolved_today,
+            calendar_execution=calendar_execution,
+        )
     conversion = parse_conversion_query(text)
     if conversion is not None:
         value, from_unit, to_unit = conversion

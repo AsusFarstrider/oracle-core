@@ -207,8 +207,20 @@ def build_dispatch_registry(
             canonical_authority=canonical_configuration,
         )
     )
-    registry.register(FactsHandler(facts_execution, canonical_authority=canonical_configuration))
-    registry.register(SystemHandler(household_settings))
+    registry.register(
+        FactsHandler(
+            facts_execution,
+            inference=inference_client,
+            canonical_authority=canonical_configuration,
+        )
+    )
+    registry.register(
+        SystemHandler(
+            household_settings,
+            calendar_execution,
+            home_assistant_settings,
+        )
+    )
     registry.register(FallbackRouterHandler(inference_client))
     registry.register(
         HomeAssistantHandler(
@@ -239,15 +251,12 @@ def build_dispatch_registry(
     return registry
 
 
-DISPATCH_REGISTRY = build_dispatch_registry()
-
-
 def execute_dispatch(
     dispatch: DispatchPlan,
     *,
-    registry: HandlerRegistry | None = None,
+    registry: HandlerRegistry,
 ) -> DispatchPlan:
     validate_target_payload(dispatch)
-    executed = (registry or DISPATCH_REGISTRY).execute(dispatch)
+    executed = registry.execute(dispatch)
     target_outcome(executed)
     return executed

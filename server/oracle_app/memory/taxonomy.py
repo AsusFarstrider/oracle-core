@@ -10,7 +10,6 @@ EVENT_TAXONOMY: dict[str, tuple[str, ...]] = {
     ),
     "system.config": (
         "config_warning",
-        "deprecated_config_source",
         "missing_required_config",
     ),
     "routing": (

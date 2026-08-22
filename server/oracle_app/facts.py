@@ -7,6 +7,7 @@ from oracle_app.command_events import append_command_interim_event
 from oracle_app.facts_cache import load_cached_facts_result, store_facts_result_in_cache
 from oracle_app.facts_summarizer import summarize_facts_result
 from oracle_app.facts_wikipedia_policy import WikipediaQuestionPolicy
+from oracle_app.inference import InferenceClient
 from oracle_app.provider_bridges.facts_static import StaticFactsBridge
 from oracle_app.provider_bridges.facts_wikipedia import WikipediaFactsBridge
 from oracle_app.schemas import (
@@ -86,6 +87,7 @@ def maybe_summarize_facts_result(
     settings: dict[str, Any],
     source: str | None = None,
     session_id: str | None = None,
+    inference: InferenceClient,
 ) -> str | None:
     if not bool(settings.get("summarizer_enabled", False)):
         return None
@@ -100,7 +102,7 @@ def maybe_summarize_facts_result(
             message="One second while I look that up.",
         )
     try:
-        return summarize_facts_result(result)
+        return summarize_facts_result(result, inference=inference)
     except Exception as exc:
         logger.warning(
             "facts_summarizer_failed status=%s provider=%s error=%s",

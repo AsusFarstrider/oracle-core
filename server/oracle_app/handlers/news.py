@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from oracle_app.information_runtime import CanonicalNewsExecution
-from oracle_app.news import execute_news_query, parse_news_query
+from oracle_app.news import parse_news_query
 from oracle_app.schemas import DispatchPlan
 
 
@@ -43,8 +43,6 @@ class NewsHandler:
                 self.canonical_execution.execute(query)
                 if self.canonical_execution is not None
                 else _disabled_news_result(query)
-                if self.canonical_authority
-                else execute_news_query(query)
             )
         except Exception as exc:
             dispatch.status = "failed"

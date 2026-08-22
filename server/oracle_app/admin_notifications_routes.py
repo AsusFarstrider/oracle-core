@@ -111,7 +111,7 @@ def admin_notifications_overview_http(request: Request) -> dict[str, Any]:
     )
     if isinstance(composition, CanonicalBrainApplicationComposition):
         return _canonical_overview(composition.runtime.notifications)
-    return admin_notifications_overview()
+    raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
 
 
 def _canonical_overview(settings: NotificationRuntimeSettings | None) -> dict[str, Any]:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 
 from .config import (
     get_music_settings,
@@ -365,7 +365,7 @@ def register_admin_network_routes(app: FastAPI) -> None:
 def admin_network_status_http(request: Request) -> dict[str, object]:
     canonical, execution = _canonical_network_context(request)
     if not canonical:
-        return admin_network_status()
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
     if execution is None:
         return {"ok": False, "network": {"status": "unconfigured"}}
     return admin_network_status_canonical(execution)
@@ -388,7 +388,7 @@ def admin_network_status_canonical(execution) -> dict[str, object]:
 def admin_network_control_actions_http(request: Request) -> dict[str, object]:
     canonical, execution = _canonical_network_context(request)
     if not canonical:
-        return admin_network_control_actions()
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
     if execution is None:
         return {"ok": True, "diagnostics": {"actions": [], "counts": {"total": 0}}}
     return {
@@ -405,7 +405,7 @@ def admin_network_control_dry_run_http(
 ) -> dict[str, object]:
     canonical, execution = _canonical_network_context(request)
     if not canonical:
-        return admin_network_control_dry_run(payload)
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
     if execution is None:
         return {"ok": False, "control": {"allowed": False, "error_class": "network_control_not_configured"}}
     control = _with_network_control_availability(execution.control_dry_run(dict(payload or {})))
@@ -419,7 +419,7 @@ def admin_network_control_confirm_http(
 ) -> dict[str, object]:
     canonical, execution = _canonical_network_context(request)
     if not canonical:
-        return admin_network_control_confirm(payload)
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
     if execution is None:
         return {"ok": False, "control": {"allowed": False, "error_class": "network_control_not_configured"}}
     return admin_network_control_confirm_canonical(execution, payload)

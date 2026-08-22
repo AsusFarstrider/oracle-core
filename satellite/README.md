@@ -516,7 +516,8 @@ that pattern instead of keeping a separate private runtime source fork.
 - avoid overly low wake threshold
 
 - Command executes but wrong room/device selected:
-- refresh Home Assistant cache on Oracle (`scripts/sync-home-assistant.py`)
+- ask Oracle to refresh its Home Assistant device and room cache; the canonical
+  Brain performs the refresh with its installed Home Assistant configuration
 - confirm Oracle brain is on a build that strips wake-word residue server-side
 
 - Replies like `Confirmed.` or `Done.` after junk audio:

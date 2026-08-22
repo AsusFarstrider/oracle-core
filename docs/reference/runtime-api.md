@@ -1,374 +1,102 @@
 # Oracle Runtime API Reference
 
-This document is a reference-only summary of the runtime interfaces used between the Oracle brain, satellites, and the satellite control plane.
+This is the current canonical interface summary. The executable OpenAPI surface
+and `tests/fixtures/api_family_contract.json` remain the exact route authority.
+See [runtime.md](../contracts/runtime.md) for the normative client/runtime
+responsibility boundary.
 
-For the runtime boundary contract, see [runtime.md](../contracts/runtime.md).
+## Brain Families
 
-## Brain Interfaces
+Only `GET /health` is a permanent root route. All other Brain interfaces live
+under one purpose-owned family:
 
-### `POST /command`
+- `/api/conversation`: route, command, session, and interim command events;
+- `/api/speech`: STT and TTS modality conversion;
+- `/api/ui`: curated browser and household UI data/actions;
+- `/api/admin`: health, hooks, diagnostics, configuration identity, caches,
+  network, orchestration, and Suggestions operator surfaces;
+- `/api/satellite`: projection lifecycle, wake capture, alert delivery,
+  deferred playback, local playback, and media proxy mechanics;
+- `/api/integrations`: authenticated provider callbacks.
 
-Purpose:
+The retired root command/STT/TTS/alert/media routes and `/api/voice/*` are not
+registered.
 
-- primary brain entrypoint for interpreted user requests
+## Conversation
 
-Request shape:
+`POST /api/conversation/command` accepts text plus the client session/source
+claim fields defined by `CommandRequest`. Ingress authentication and projection
+identity, not a claimed name alone, establish the effective source.
 
-```json
-{
-  "text": "turn on the kitchen lights",
-  "source": "kitchen-satellite",
-  "session_id": "demo-001"
-}
-```
-
-Required request fields:
-
-- `text`
-
-Optional but commonly expected request fields:
-
-- `source`
-- `session_id`
-
-Response shape:
+It returns only the finite `ConversationResult`:
 
 ```json
 {
-  "route": {
-    "target": "home_assistant",
-    "confidence": 0.82,
-    "reason": "Matched home automation keyword: turn on",
-    "normalized_text": "turn on the kitchen lights"
-  },
-  "dispatch": {
-    "target": "home_assistant",
-    "hook": "home_assistant.execute",
-    "payload": {
-      "text": "turn on the kitchen lights",
-      "source": "kitchen-satellite",
-      "session_id": "demo-001"
-    },
-    "status": "executed",
-    "result": {}
-  },
-  "reply_text": "Turned on the lights."
+  "reply_text": "Turned on the lights.",
+  "session_id": "demo-001",
+  "source_id": "kitchen-satellite",
+  "status": "executed",
+  "failure_code": null,
+  "trace_id": "example-trace",
+  "effects": {
+    "follow_up": null,
+    "satellite_playback": null,
+    "deferred_satellite_playback": null,
+    "ui_presentation": null
+  }
 }
 ```
 
-Required top-level fields:
+The public result never exposes the internal route or dispatch envelopes.
+Status is one of `executed`, `pending_confirmation`,
+`pending_clarification`, `failed`, or `ignored`.
 
-- `route`
-- `dispatch`
-- `reply_text`
+## Speech
 
-Required `route` fields:
+- `POST /api/speech/stt` accepts multipart field `audio` and returns normalized
+  transcript text plus provider identity.
+- `POST /api/speech/tts` accepts Brain-authored text and returns audio bytes.
 
-- `target`
-- `confidence`
-- `reason`
-- `normalized_text`
+Speech conversion owns no routing, session, reply, or playback policy.
 
-Required `dispatch` fields:
+## Durable Alert Delivery
 
-- `target`
-- `hook`
-- `payload`
-- `status`
+`POST /api/satellite/alerts/claim` leases due alerts to the authenticated
+satellite source. `POST /api/satellite/alerts/{alert_id}/acknowledge` records
+`acknowledged` or `completed` against the active lease. Duplicate acknowledgement
+of the same lease is idempotent; source mismatch, lease mismatch, and expiry
+fail closed.
 
-Optional `dispatch` fields:
+## Satellite Media
 
-- `result`
+`GET /api/satellite/media/audiobooks/{playback_id}/tracks/{track_index}` proxies
+an already prepared long-form track to a playback target. Canonical audiobook
+execution owns provider access and maps provider failures at this HTTP boundary.
 
-Allowed `dispatch.status` values:
+## Configuration And Identity
 
-- `planned`
-- `pending_integration`
-- `pending_confirmation`
-- `pending_clarification`
-- `executed`
-- `failed`
+- `GET /api/satellite/projection/{satellite_id}` returns only that authenticated
+  satellite's selected projection.
+- `POST /api/satellite/enrollment/{satellite_id}` uses the separate selected
+  enrollment credential for first installation.
+- `POST /api/satellite/wake-captures/{satellite_id}` accepts authenticated,
+  bounded metadata plus a mono PCM WAV and stores it beneath the
+  deployment-owned archive root.
 
-Notes:
-
-- `reply_text` is the normal spoken source of truth
-- pending outcomes still return canonical `reply_text`
-- failure outcomes still return canonical `reply_text` unless the intended result is silence
-- intentional silent ignore may return empty `reply_text`
-
-### `POST /stt`
-
-Purpose:
-
-- transcribe uploaded audio into normalized text input for the brain
-
-Request detail:
-
-- multipart upload field name: `audio`
-
-Response shape:
-
-```json
-{
-  "text": "turn on the lights in the mancave",
-  "provider": "fast-whisper"
-}
-```
-
-Required response fields:
-
-- `text`
-- `provider`
-
-### `POST /tts`
-
-Purpose:
-
-- synthesize brain-authored spoken reply text into playable audio
-
-Request shape:
-
-```json
-{
-  "text": "Hello, I am Oracle."
-}
-```
-
-Response detail:
-
-- raw audio bytes
-- media type set in the response
-- provider may be exposed in response headers
-
-### `POST /api/satellite/alerts/claim`
-
-Purpose:
-
-- lease due alerts to an authenticated managed satellite without completing them
-
-Request detail:
-
-- Bearer projection credential
-- JSON `source_id`, `lease_seconds`, and `limit`; credential identity is authoritative
-
-Response shape:
-
-```json
-{
-  "alerts": [
-    {
-      "alert_id": "abc123",
-      "lease_id": "lease-abc123",
-      "lease_expires_at": "2026-03-17T21:00:30Z",
-      "kind": "timer",
-      "message": "Your pasta timer is done.",
-      "due_at": "2026-03-17T21:00:00Z",
-      "source_id": "kitchen-satellite",
-      "session_id": "kitchen-session",
-      "metadata": {}
-    }
-  ]
-}
-```
-
-Required top-level field:
-
-- `alerts`
-
-Required alert fields:
-
-- `alert_id`
-- `kind`
-- `message`
-- `due_at`
-
-Optional alert fields:
-
-- `session_id`
-- `metadata`
-
-### `POST /api/satellite/alerts/{alert_id}/acknowledge`
-
-The authenticated source supplies the active `lease_id` and an
-`acknowledged` or `completed` status. Duplicate acknowledgement with the same
-lease is idempotent. A source mismatch, different lease, or expired lease is
-rejected. The former `GET /alerts/pending` surface remains only for bounded
-Slice 9 client migration.
+Canonical request identity serializes as `source_id`; lifecycle operations use
+`satellite_id`. Payload claims never override authenticated source authority.
 
 ## Satellite Control Plane
 
-Purpose:
+The local control service exposes unauthenticated `GET /health`; all other
+surfaces require its Bearer API key.
 
-- minimal authenticated local control surface for physically attached playback systems
+- `GET /playback-authority` reports normalized local playback ownership and
+  resumability state.
+- `POST /control` accepts an idempotent `command_id`, a finite action, and
+  action-specific `args`.
 
-### Auth
-
-Control-plane auth boundary:
-
-- `GET /health` is unauthenticated
-- all other control-plane endpoints require `Authorization: Bearer <api-key>`
-
-### `GET /health`
-
-Purpose:
-
-- liveness plus adapter-level local health summary
-
-Response shape:
-
-```json
-{
-  "ok": true,
-  "service": "oracle-satellite-control",
-  "adapter": {}
-}
-```
-
-Required fields:
-
-- `ok`
-- `service`
-- `adapter`
-
-### `GET /playback-authority`
-
-Purpose:
-
-- expose the satellite-local playback authority model used for routing, interruption, and recovery
-
-Response shape:
-
-- `ok`
-- `sessions`
-- `active_sessions`
-- `output_owner`
-- optional normalized session metadata such as `backend_type`, `media_kind`, `state`, `title`, `artist_or_author`, `queue_count`, and resumability fields
-
-### `POST /control`
-
-Purpose:
-
-- execute an explicit local playback control command authored by the brain
-
-Request shape:
-
-```json
-{
-  "command_id": "abc123",
-  "action": "pause",
-  "args": {}
-}
-```
-
-Required request fields:
-
-- `command_id`
-- `action`
-
-Optional request field:
-
-- `args`
-
-Response shape:
-
-```json
-{
-  "ok": true,
-  "command_id": "abc123",
-  "state": "accepted"
-}
-```
-
-Required response fields:
-
-- `ok`
-- `command_id`
-- `state`
-
-Optional response fields:
-
-- `detail`
-- action-specific payload fields
-
-Current explicit actions:
-
-- `pause`
-- `resume`
-- `stop`
-- `next`
-- `previous`
-- `volume_up`
-- `volume_down`
-- `set_volume`
-- `play_media`
-- `play_longform_audio`
-- `pause_longform_audio`
-- `resume_longform_audio`
-- `stop_longform_audio`
-- `seek_longform_audio`
-- `get_longform_state`
-- `stop_reply_audio`
-
-## V2 Configuration And Identity Surfaces
-
-The canonical runtime API direction adds authenticated operator configuration
-service operations and satellite projection delivery/acknowledgement surfaces.
-Exact endpoints are fixed with the executable Stage 3 API schema.
-
-Projection delivery uses authenticated satellite pull. A satellite requests
-only the desired pair for its own `satellite_id`; the Brain does not discover or
-store a satellite configuration-listener URL as canonical configuration. The
-legacy port `8022` listener remains a bounded compatibility/diagnostic surface
-until the pull/install/acknowledgement path meets its removal gate.
-
-### `GET /api/satellite/projection/{satellite_id}`
-
-The caller supplies its directional `brain_client` value as
-`Authorization: Bearer <credential>`. The path selects one lifecycle identity;
-the credential must prove that same selected satellite. Success returns the
-`oracle-satellite-projection-pull-v1` canonical JSON envelope with
-`Cache-Control: no-store`. Missing, malformed, unknown, disabled, unselected,
-and incorrect authentication all use the same generic `401` response. An
-unavailable or inconsistent canonical store returns a generic `503` response.
-Neither response exposes secret values or internal failure detail.
-
-This LAN-only endpoint is separate from browser UI
-`GET /api/satellites/config`. A successful response does not record delivery,
-acknowledgement, application, or enrollment.
-
-### `POST /api/satellite/enrollment/{satellite_id}`
-
-Fresh installation supplies its selected per-satellite enrollment value as
-`Authorization: Bearer <credential>` to the installation's single
-`brain_bootstrap_url`. Success returns the same
-`oracle-satellite-projection-pull-v1` envelope and `Cache-Control: no-store`
-boundary as ordinary pull. Authentication is distinct: the enrollment value
-cannot authenticate ordinary refresh, and the projected operational value
-cannot authenticate enrollment. The route records no enrollment state, consumes
-no credential, and does not alter configuration selection. Missing, malformed,
-unknown, disabled, unselected, or incorrect authentication is one generic
-enrollment `401`; canonical-store failure is the same generic `503` used by
-ordinary projection delivery.
-
-### `POST /api/satellite/wake-captures/{satellite_id}`
-
-The canonical wake-capture helper supplies the selected satellite's
-`brain_client` value as `Authorization: Bearer <credential>` and one multipart
-request containing `metadata` JSON plus one `audio` WAV. The Brain proves the
-same selected satellite, requires the sidecar `source_id` to match its projected
-source, validates bounded metadata and mono PCM WAV structure, and ignores the
-client filename. Success means the WAV and completion sidecar are durable under
-the deployment-owned archive root and returns a content-derived `capture_id`
-with `Cache-Control: no-store`. Identical retry is successful. Invalid input is
-a generic `400`; authentication failure is a generic `401`; unavailable or
-ambiguous archive/store state is a generic `503`.
-
-The endpoint accepts no remote path, transport selector, chunk, session,
-delivery state, or separate upload credential. It is LAN-only and must not be
-routed through the public browser gateway.
-
-Canonical request identity serializes as `source_id`; lifecycle operations use
-`satellite_id`. Satellite UI configuration returns both. Existing `source` and
-UI `client_id` fields remain bounded compatibility aliases for current clients
-and do not establish trust. Configuration reports expose selected/applied
-generation IDs and no raw secret values.
+Current actions are pause/resume/stop, next/previous, volume operations,
+music playback, long-form playback/control/state, and reply-audio stop. The
+control service owns finite local adapter mechanics; Brain/domain policy remains
+outside it.

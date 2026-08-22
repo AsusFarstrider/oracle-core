@@ -9,7 +9,7 @@ Timers, alarms, and reminders are part of the brain alert subsystem rather than 
 The current subsystem is split across:
 
 - `server/oracle_app/system_intents.py` for classifying timer, alarm, and reminder requests into the `alerts` system action
-- `server/oracle_app/alerts.py` for alert-domain parsing and compatibility helpers
+- `server/oracle_app/alerts.py` for alert-domain parsing and lifecycle helpers
 - `server/oracle_app/memory/alerts.py` for transactional records, leases, transitions, and retention inputs
 - authenticated `POST /api/satellite/alerts/claim` and
   `POST /api/satellite/alerts/{alert_id}/acknowledge` delivery surfaces
@@ -108,5 +108,4 @@ belong to `brain.yaml:storage.memory`, satellite claim/cue/playback behavior bel
 to satellite configuration and projections, and notification delivery or
 suppression policy belongs to `domains/notifications.yaml`. A dedicated role
 would require later evidence of substantial operator-owned alert policy and
-schema review. The obsolete `storage.alerts` JSON setting remains accepted only
-through the coordinated Slice 10 configuration/data cutover.
+schema review. The obsolete `storage.alerts` JSON setting is rejected.

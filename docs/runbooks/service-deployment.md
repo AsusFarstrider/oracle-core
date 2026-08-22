@@ -1,16 +1,16 @@
 # Standard Debian Brain Service
 
-> **Validated Stage 4 baseline:** the complete-selector entrypoint,
+> **Validated installation baseline:** the complete-selector entrypoint,
 > administration transport, restart handshake, bounded recovery helper, and
-> standard installer lifecycle passed clean-host acceptance on Debian 13/amd64
-> with the provider-free `minimal-brain` profile. Other platforms and optional
-> profiles remain experimental or unverified pending their own evidence.
+> standard installer lifecycle passed clean-host acceptance on Debian 13/amd64.
+> The provider-free `minimal-brain` and locked full-production profile have
+> separate exact requirements and verification evidence.
 
 ## Purpose
 
 This runbook describes the standard Debian Brain service posture. A private
-development installation may continue using its existing checkout and service
-arrangement; it is not modified by this standard-installation guide.
+repository may remain source authority, but a checkout-based production service
+is not a supported second runtime architecture.
 
 For the exact artifact bootstrap, staging, assembly, service installation,
 activation, update, recovery, rollback, and verification commands, use the
@@ -97,14 +97,13 @@ The implementation files are:
 - `scripts/oracle-brain-standard.service`.
 
 Standard mode also binds every built-in writable runtime default away from the
-selected immutable application revision. Memory, alerts, restart checkpoints,
-and retained Suggestions records use `/srv/oracle/data`; Home Assistant,
+selected immutable application revision. Memory (including alerts), restart
+checkpoints, and retained Suggestions records use `/srv/oracle/data`; Home Assistant,
 facts, TTS, Python, and library caches use `/srv/oracle/cache`; temporary work
 uses `/srv/oracle/tmp`. The fixed service environment redirects Python bytecode,
 XDG/Hugging Face caches, and host temporary APIs to those lifecycle surfaces.
-Source-tree development defaults remain unchanged. Standard startup
-fails when the canonical Memory or alert path contradicts the supported managed
-data location instead of silently writing elsewhere.
+Standard startup fails when the canonical Memory path contradicts the supported
+managed data location instead of silently writing elsewhere.
 
 ## Operations
 

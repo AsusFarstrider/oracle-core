@@ -115,14 +115,13 @@ capable satellite to itself. The canonical audiobook handler now keeps user and
 pending-clarification context keyed to request source while directing playback,
 provider-session state, interruptions, and playback-scoped timers to the
 resolved target. Explicit UI targets start directly; an authenticated satellite
-defaulting to itself retains deferred audible start. The legacy handler
-registry retains its combined source behavior.
+defaulting to itself retains deferred audible start. There is no second
+process-global handler registry.
 
 Canonical provider and command execution uses one immutable
 `CanonicalAudiobookExecution`. It resolves the selected shared provider and the
 exact owning user's credential, constructs target-specific stream URLs, and
-uses the admitted target's typed Brain-to-control edge. The explicit legacy
-composition continues to use the historical getters. Canonical UI/media and
+uses the admitted target's typed Brain-to-control edge. Canonical UI/media and
 health routes use the same dependency for cover fetches, active-track streams,
 and one authenticated ping per configured user account. The combined Audio UI
 remains a shared music/audiobook adoption boundary; migrating only its

@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from oracle_app import audiobook_state, state
 from oracle_app.audiobook_runtime.canonical import CanonicalAudiobookExecution
 from oracle_app.config import get_satellite_music_backend_hint
-from oracle_app.inference import InferenceClient, legacy_inference_client
+from oracle_app.inference import InferenceClient
 from oracle_app.music_runtime.policy import (
     apply_ultra_generic_single_word_music_guard as apply_ultra_generic_single_word_music_guard_runtime,
     build_best_guess_candidates as build_music_best_guess_candidates,
@@ -610,10 +610,10 @@ def _lookup_music_info_with_ollama(
     inference: InferenceClient | None = None,
 ) -> str | None:
     prompt = str(question or "").strip()
-    if not prompt:
+    if not prompt or inference is None:
         return None
     try:
-        result = (inference or legacy_inference_client()).generate(
+        result = inference.generate(
             prompt,
             system=MUSIC_INFO_ANSWER_SYSTEM_PROMPT,
             format="json",

@@ -114,15 +114,15 @@ Primary coverage:
 
 ### Config / Health Tests
 
-- `tests/test_config.py`
-- `tests/test_config_validation.py`
+- `tests/test_configuration_required_models.py`
+- `tests/test_configuration_bootstrap.py`
 - `tests/test_health_config.py`
 
 Primary coverage:
 
-- configuration loading
-- configuration validation
-- health-surface configuration reporting
+- canonical generation loading and startup
+- executable configuration-model validation
+- exact applied-configuration health reporting
 
 ### Smoke / Regression Tests
 
@@ -135,7 +135,7 @@ Primary coverage:
 Primary coverage:
 
 - ignored-command response shape
-- `/command` trace logging on the brain path
+- `/api/conversation/command` trace logging on the brain path
 - grouped end-to-end smoke coverage for key routing, dispatch, and reply flows
 - regression-oriented utterance and failure surfaces
 

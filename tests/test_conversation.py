@@ -5,7 +5,7 @@ import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
@@ -109,12 +109,10 @@ class ConversationTests(unittest.TestCase):
         self.assertIsNone(get_conversation(source, session_id))
         self.assertIsNone(get_home_assistant_conversation_id(source, session_id))
 
-    @patch("oracle_app.handlers.home_assistant.get_home_assistant_settings")
     @patch("oracle_app.handlers.home_assistant.request.urlopen")
-    def test_home_assistant_conversation_id_is_scoped_by_session(self, mock_urlopen, mock_settings) -> None:
+    def test_home_assistant_conversation_id_is_scoped_by_session(self, mock_urlopen) -> None:
         set_home_assistant_conversation_id("source-a", "session-a", "ha-a")
         set_home_assistant_conversation_id("source-b", "session-b", "ha-b")
-        mock_settings.return_value = ("http://ha.local", "token")
         captured_bodies: list[dict[str, object]] = []
 
         def fake_urlopen(req, timeout=0):
@@ -135,7 +133,7 @@ class ConversationTests(unittest.TestCase):
             status="planned",
         )
 
-        result = execute_home_assistant(dispatch)
+        result = execute_home_assistant(dispatch, home_assistant_settings=_home_assistant_settings())
 
         self.assertEqual(result.status, "executed")
         self.assertEqual(captured_bodies[0]["conversation_id"], "ha-b")
@@ -150,10 +148,8 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(get_home_assistant_conversation_id("source-a", "shared"), "ha-a")
         self.assertEqual(get_home_assistant_conversation_id("source-b", "shared"), "ha-b")
 
-    @patch("oracle_app.handlers.home_assistant.get_home_assistant_settings")
     @patch("oracle_app.handlers.home_assistant.request.urlopen")
-    def test_home_assistant_without_session_does_not_persist_conversation_id(self, mock_urlopen, mock_settings) -> None:
-        mock_settings.return_value = ("http://ha.local", "token")
+    def test_home_assistant_without_session_does_not_persist_conversation_id(self, mock_urlopen) -> None:
         captured_request: dict[str, object] = {}
 
         def fake_urlopen(req, timeout=0):
@@ -173,19 +169,17 @@ class ConversationTests(unittest.TestCase):
             status="planned",
         )
 
-        result = execute_home_assistant(dispatch)
+        result = execute_home_assistant(dispatch, home_assistant_settings=_home_assistant_settings())
 
         self.assertEqual(result.status, "executed")
         self.assertNotIn("conversation_id", captured_request["body"])
         self.assertIsNone(get_home_assistant_conversation_id(None, None))
 
-    @patch("oracle_app.handlers.home_assistant.get_home_assistant_settings")
     @patch("oracle_app.handlers.home_assistant.request.urlopen")
-    def test_home_assistant_reuses_and_updates_conversation_id(self, mock_urlopen, mock_settings) -> None:
+    def test_home_assistant_reuses_and_updates_conversation_id(self, mock_urlopen) -> None:
         source = "test_satellite_bravo"
         session_id = "session-2"
         set_home_assistant_conversation_id(source, session_id, "ha-prev")
-        mock_settings.return_value = ("http://ha.local", "token")
         captured_request: dict[str, object] = {}
 
         def fake_urlopen(req, timeout=0):
@@ -209,11 +203,20 @@ class ConversationTests(unittest.TestCase):
             status="planned",
         )
 
-        result = execute_home_assistant(dispatch)
+        result = execute_home_assistant(dispatch, home_assistant_settings=_home_assistant_settings())
 
         self.assertEqual(result.status, "executed")
         self.assertEqual(captured_request["body"]["conversation_id"], "ha-prev")
         self.assertEqual(get_home_assistant_conversation_id(source, session_id), "ha-next")
+
+
+def _home_assistant_settings():
+    return SimpleNamespace(
+        enabled=True,
+        base_url="http://ha.local",
+        credential="token",
+        timeout_seconds=5,
+    )
 
 
 if __name__ == "__main__":

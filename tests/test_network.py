@@ -18,7 +18,7 @@ from oracle_app.admin_network_routes import (
     admin_network_control_dry_run,
     admin_network_status,
 )
-from oracle_app.dispatch import build_dispatch_plan, execute_dispatch
+from oracle_app.dispatch import build_dispatch_plan, build_dispatch_registry, execute_dispatch
 from oracle_app.network import (
     build_ui_network_health_snapshot,
     clear_network_status_cache,
@@ -5712,7 +5712,7 @@ class NetworkDomainTests(unittest.TestCase):
             household_settings=_NEUTRAL_RUNTIME.household,
         )
         dispatch = build_dispatch_plan(CommandRequest(text="is the internet down?"), route)
-        result = execute_dispatch(dispatch)
+        result = execute_dispatch(dispatch, registry=build_dispatch_registry())
         reply = build_reply_text(result)
 
         self.assertEqual(route.target, "network")

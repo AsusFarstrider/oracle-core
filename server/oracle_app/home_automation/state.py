@@ -19,7 +19,7 @@ def observe_canonical_state(
 ) -> bool:
     """Persist the newest canonical subject state; reject strictly older evidence."""
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     projection_id = f"home_automation:{subject}"
     normalized_observed_at = (
         observed_at if observed_at.tzinfo is not None else observed_at.replace(tzinfo=UTC)
@@ -73,7 +73,7 @@ def list_canonical_states(
 ) -> dict[str, dict[str, Any]]:
     """Return the latest canonical home-automation state by subject."""
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         rows = conn.execute(
             """

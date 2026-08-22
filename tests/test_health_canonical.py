@@ -34,17 +34,11 @@ class CanonicalCoreHealthTests(unittest.TestCase):
                 brain=SimpleNamespace(inference=SimpleNamespace(enabled=False)),
             )
         )
-        with (
-            patch("oracle_app.health_routes.get_home_assistant_settings") as legacy_home,
-            patch("oracle_app.health_routes.get_ollama_settings") as legacy_ollama,
-        ):
-            response = canonical_health(composition)
+        response = canonical_health(composition)
 
         self.assertEqual(response.status, "ok")
         self.assertTrue(response.home_assistant_configured)
         self.assertFalse(response.ollama_configured)
-        legacy_home.assert_not_called()
-        legacy_ollama.assert_not_called()
 
     def test_disabled_canonical_providers_are_intentionally_unavailable(self) -> None:
         disabled_inference = SimpleNamespace(
@@ -54,15 +48,15 @@ class CanonicalCoreHealthTests(unittest.TestCase):
             timeout_seconds=5,
         )
         responses = (
-            check_audiobook_health(None, canonical_authority=True),
-            check_calendar_health(canonical_execution=None, canonical_authority=True),
-            check_home_assistant_health(None, canonical_authority=True),
-            check_librenms_health(canonical_execution=None, canonical_authority=True),
-            check_music_health(music_execution=None, canonical_authority=True),
-            check_news_health(canonical_execution=None, canonical_authority=True),
-            check_ollama_health(inference=disabled_inference, canonical_authority=True),
-            check_stt_health(provider=None, canonical_authority=True),
-            check_tts_health(provider=None, canonical_authority=True),
+            check_audiobook_health(None),
+            check_calendar_health(canonical_execution=None),
+            check_home_assistant_health(None),
+            check_librenms_health(canonical_execution=None),
+            check_music_health(music_execution=None),
+            check_news_health(canonical_execution=None),
+            check_ollama_health(inference=disabled_inference),
+            check_stt_health(provider=None),
+            check_tts_health(provider=None),
         )
 
         for response in responses:
@@ -113,12 +107,7 @@ class CanonicalCoreHealthTests(unittest.TestCase):
         opened.__enter__ = Mock(return_value=response)
         opened.__exit__ = Mock(return_value=False)
 
-        with (
-            patch("oracle_app.health.get_ollama_settings") as legacy_ollama,
-            patch("oracle_app.health.get_stt_provider") as legacy_stt,
-            patch("oracle_app.health.get_tts_provider") as legacy_tts,
-            patch("oracle_app.health_routes.safe_observe_provider_health"),
-        ):
+        with patch("oracle_app.health_routes.safe_observe_provider_health"):
             ollama = health_ollama_http(request)
             stt = health_stt_http(request)
             tts = health_tts_http(request)
@@ -127,9 +116,6 @@ class CanonicalCoreHealthTests(unittest.TestCase):
         self.assertEqual(stt.provider, "fast-whisper")
         self.assertEqual(tts.provider, "piper")
         core.inference.version.assert_called_once_with()
-        legacy_ollama.assert_not_called()
-        legacy_stt.assert_not_called()
-        legacy_tts.assert_not_called()
 
 
 if __name__ == "__main__":

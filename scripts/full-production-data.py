@@ -45,7 +45,6 @@ def build_plan(
     household_artifact: Path,
     secret_companion: Path,
     source_database: Path,
-    source_alerts: Path,
     legacy_tts_cache: Path,
     *,
     observed_at: datetime | None = None,
@@ -62,7 +61,6 @@ def build_plan(
         preview_database = root / "preview.sqlite3"
         preview = migrate_copy(
             source_database,
-            source_alerts,
             root / "household" / "configuration",
             secret_snapshot,
             preview_database,
@@ -78,7 +76,6 @@ def build_plan(
         "secret_companion_identity": "oracle-secret-companion-v1:sha256:" + hashlib.sha256(secret_bytes).hexdigest(),
         "sources": {
             "memory": source_identity(source_database),
-            "alerts": source_identity(source_alerts),
             "tts_cache": tts_cache_impact(legacy_tts_cache),
         },
         "observed_at": clock.isoformat(),
@@ -94,7 +91,6 @@ def apply_plan(
     household_artifact: Path,
     secret_companion: Path,
     source_database: Path,
-    source_alerts: Path,
     legacy_tts_cache: Path,
     *,
     root: Path = Path("/srv/oracle"),
@@ -105,7 +101,6 @@ def apply_plan(
         household_artifact,
         secret_companion,
         source_database,
-        source_alerts,
         legacy_tts_cache,
         observed_at=datetime.fromisoformat(str(plan["observed_at"])),
     )
@@ -120,7 +115,6 @@ def apply_plan(
             extract_verified(household_artifact, Path(extracted) / "household")
             report = migrate_copy(
                 source_database,
-                source_alerts,
                 Path(extracted) / "household" / "configuration",
                 parse_secret_companion(secret_companion.read_bytes()),
                 prepared,
@@ -151,17 +145,16 @@ def main() -> int:
         command.add_argument("--household-artifact", type=Path, required=True)
         command.add_argument("--secret-companion", type=Path, required=True)
         command.add_argument("--source-database", type=Path, required=True)
-        command.add_argument("--source-alerts", type=Path, required=True)
         command.add_argument("--legacy-tts-cache", type=Path, required=True)
         command.add_argument("--plan", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "plan":
-        plan = build_plan(args.household_artifact, args.secret_companion, args.source_database, args.source_alerts, args.legacy_tts_cache)
+        plan = build_plan(args.household_artifact, args.secret_companion, args.source_database, args.legacy_tts_cache)
         args.plan.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         result = plan
     else:
         plan = json.loads(args.plan.read_text(encoding="utf-8"))
-        result = apply_plan(plan, args.household_artifact, args.secret_companion, args.source_database, args.source_alerts, args.legacy_tts_cache)
+        result = apply_plan(plan, args.household_artifact, args.secret_companion, args.source_database, args.legacy_tts_cache)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

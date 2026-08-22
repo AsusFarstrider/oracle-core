@@ -4,7 +4,7 @@ import json
 import logging
 import re
 
-from oracle_app.inference import InferenceClient, legacy_inference_client
+from oracle_app.inference import InferenceClient
 from oracle_app.schemas import FactsProviderResult
 
 
@@ -42,14 +42,12 @@ Do not include markdown, code fences, citations you were not given, or any text 
 def summarize_facts_result(
     result: FactsProviderResult,
     *,
-    inference: InferenceClient | None = None,
+    inference: InferenceClient,
 ) -> str | None:
     if result.status not in {"answered", "evidence_only"}:
         logger.info("facts_summarizer_skipped status=%s reason=unsupported_status", result.status)
         return None
     prompt = build_facts_summary_prompt(result)
-    if inference is None:
-        inference = legacy_inference_client()
     response = inference.generate(prompt, system=FACTS_SUMMARIZER_SYSTEM_PROMPT, format="json")
     summary = parse_facts_summary(str(response.get("response") or ""))
     if summary is None:

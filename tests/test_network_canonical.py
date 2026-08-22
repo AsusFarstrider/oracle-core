@@ -147,16 +147,13 @@ class CanonicalNetworkExecutionTests(unittest.TestCase):
         )
         request = Request({"type": "http", "app": application})
 
-        with patch("oracle_app.admin_network_routes.admin_network_status") as legacy_status, patch(
-            "oracle_app.health.get_librenms_settings"
-        ) as legacy_librenms:
+        with patch("oracle_app.admin_network_routes.admin_network_status") as legacy_status:
             status = admin_network_status_http(request)
             health = health_librenms_http(request)
 
         self.assertEqual(status["network"]["status"], "healthy")
         self.assertTrue(health.available)
         legacy_status.assert_not_called()
-        legacy_librenms.assert_not_called()
 
     @patch("oracle_app.network_runtime.canonical.LibreNmsBridge.get_typed_monitoring_status")
     @patch("oracle_app.network_runtime.canonical.NetworkProbeBridge.get_typed_internet_status")

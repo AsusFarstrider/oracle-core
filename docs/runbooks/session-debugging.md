@@ -1,7 +1,7 @@
 # Session Debugging
 
 This runbook is the operator reference for inspecting the Brain
-`/api/voice/session` surface.
+`/api/conversation/session` surface.
 
 ## What This Runbook Is For
 
@@ -11,24 +11,24 @@ Use this runbook when you need to inspect current session state, pending follow-
 
 Use:
 
-- `GET /api/voice/session?source=...&session_id=...`
+- `GET /api/conversation/session?source=...&session_id=...`
 
 Example:
 
 ```bash
-curl -sS "http://127.0.0.1:8011/api/voice/session?source=satellite-example&session_id=session-123"
+curl -sS "http://127.0.0.1:8011/api/conversation/session?source=satellite-example&session_id=session-123"
 ```
 
 If the session is missing or expired, the endpoint returns `404`.
 
 ## Session Inspection Flow
 
-1. call `GET /api/voice/session`
+1. call `GET /api/conversation/session`
 2. check for `404`
 3. inspect `pending_state`, `active_context`, and `lifecycle`
 4. use `session_meta` and `derived` to interpret precedence, expiry, and anchor state
 
-Stop on missing session: if `/api/voice/session` returns `404`, stop inspecting
+Stop on missing session: if `/api/conversation/session` returns `404`, stop inspecting
 fields and treat the problem as missing, expired, or not-yet-created session
 state first.
 
@@ -161,5 +161,5 @@ Current timeout values:
 Current expiry behavior:
 
 - if pending expires first, `pending_state` is cleared
-- if the full session expires, `GET /api/voice/session` returns `404`
+- if the full session expires, `GET /api/conversation/session` returns `404`
 - if a timed-out session is recreated with the same `source + session_id`, old session context is cleared before the new session becomes active

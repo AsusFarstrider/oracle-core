@@ -1,10 +1,9 @@
 # V2 Configuration Schema Reference
 
-Status: ratified architecture; executable schema implementation in progress.
+Status: implemented canonical schema 2 and projection schema 1.
 Code-owned composed Pydantic v2 models are executable field authority while
-remaining subordinate to the configuration contract. All fixed roles now have
-typed schema-v2 leaves; later authoring transport, migration, projection, and
-runtime-adoption work is described by the installation contracts.
+remaining subordinate to the configuration contract. All fixed roles have
+typed schema leaves and the selected immutable generation is runtime authority.
 Generated JSON Schema is versioned/tested System Mode and tooling output, not a
 separate hand-maintained authority.
 
@@ -132,9 +131,6 @@ storage:
     backend: sqlite
     database_path: data/oracle-memory.sqlite3
     retention: {}
-  alerts:
-    backend: json_file
-    state_path: data/alerts-state.json
 
 speech:
   stt:
@@ -155,7 +151,7 @@ Provider-specific connection fields and secret references are admitted only by
 the registered schema for that shared provider role. Domain policy cannot be
 placed here merely because the Brain executes it.
 
-Schema v1 admits only the Brain implementations Oracle currently owns:
+Configuration schema 2 admits only the Brain implementations Oracle currently owns:
 `whisper_cpp` and `fast_whisper` definitions for STT, `piper` for TTS, and
 `ollama` for shared inference. Provider maps are closed discriminated unions;
 selection must name a present typed definition. Executable/model/database paths
@@ -170,14 +166,13 @@ bootstrap/access concerns and are not admitted here.
 
 `storage.memory` selects the one Memory-owned SQLite store and its bounded
 retention policy, including the default 90-day terminal alert horizon.
-`storage.alerts` remains a transitional accepted JSON-file setting until the
-coordinated Stage 5 configuration/data cutover; runtime alert authority is
-already Memory-owned. The checked-in example uses package-relative paths; deployments may
+`storage.alerts` is not accepted; runtime alert authority is Memory-owned. The
+checked-in example uses package-relative paths; deployments may
 use machine paths at these owning edges, but cannot redirect the configuration
 bundle or installed store through these fields.
 
 For the fixed Stage 4 standard Debian layout, the supported values are
-`data/oracle-memory.sqlite3` and `data/alerts-state.json`. Standard runtime
+`data/oracle-memory.sqlite3`. Standard runtime
 binding materializes those logical paths beneath `/srv/oracle/data`; it never
 resolves them relative to the immutable application revision. Other machine
 paths remain usable by development or custom deployments, but require a later
@@ -400,7 +395,7 @@ lookup seam for this role. It retains every declared typed identity for stable
 historical references, while only enabled users, rooms, and modes participate
 in new name resolution. Canonical IDs, display names, and aliases are indexed
 without producing a parallel registry dictionary. A display-name ambiguity resolves
-to no target rather than adding an activation rule not present in schema v1.
+to no target rather than adding an activation rule not present in schema 2.
 Source lookup returns only configured association context from an enabled
 source; it does not authenticate ingress, authorize a user, or infer a stable
 source from an arbitrary request value.
@@ -494,7 +489,7 @@ IDs, alert polling, interim acknowledgement timing, and local media
 interruption/ducking adapter behavior. It does not own Brain endpoints,
 credentials, provider accounts, or raw shell commands.
 
-Schema v1 accepts only the `oracle_native` playback adapter. Plexamp
+Projection schema 1 accepts only the `oracle_native` playback adapter. Plexamp
 client control is retired; shared Plex provider configuration used by native
 playback remains owned by `domains/music.yaml`.
 

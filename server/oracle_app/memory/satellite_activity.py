@@ -87,7 +87,7 @@ def observe_satellite_activity(
     if clean_status is None:
         clean_status = "available"
 
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     _ensure_satellite_source(clean_source_id, db_path=path)
 
     snapshot_result = None
@@ -155,7 +155,7 @@ def get_satellite_status_snapshot(source_id: str, *, db_path: Path | None = None
 def get_latest_satellite_status(source_id: str, *, db_path: Path | None = None) -> dict[str, Any] | None:
     path = db_path or DB_PATH
     clean_source_id = _clean_required(source_id, "source_id")
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         row = conn.execute(
             "SELECT * FROM memory_current_projections WHERE projection_id = ? AND projection_type = ?",
@@ -171,7 +171,7 @@ def query_satellite_status_snapshots(
 ) -> list[dict[str, Any]]:
     query = query or SatelliteStatusQuery()
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     sql = "SELECT * FROM memory_current_projections WHERE projection_type = ?"
     args: list[Any] = ["satellite_status"]
     source_id = _clean_required(query.source_id, "source_id") if query.source_id else None

@@ -68,15 +68,11 @@ does not select or execute a remediation action.
 
 ## Validation And Configuration Coupling
 
-`server/oracle_app/config_validation.py` validates recovery definitions,
-routine definitions, triggers, inputs, and the global fixed routine step-type
-set in one orchestration validator.
-
-`config/orchestration.json` contains both `recoveries` and `routines`.
-`server/oracle_app/config.py` loads and normalizes that combined surface.
-
-A kernel migration must first permit registered kind validators while
-preserving this combined compatibility loader and all current rejection rules.
+Canonical Pydantic role models validate recovery and routine definitions,
+triggers, inputs, and the fixed routine step-type set before a generation can
+activate. `domains/routines.yaml` is the sole authored role and immutable
+`RoutineRuntimeSettings` is the execution input. The retired combined JSON
+loader and repository config validator are gone.
 
 ## Route And Presentation Coupling
 

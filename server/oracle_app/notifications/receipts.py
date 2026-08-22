@@ -77,7 +77,7 @@ def reserve_notification_delivery(
     if isinstance(retry_seconds, bool) or not isinstance(retry_seconds, int) or retry_seconds < 1:
         raise ValueError("retry_seconds must be a positive integer")
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     receipt_id = _receipt_id(
         values["notification_type"],
         values["occurrence_id"],
@@ -152,7 +152,7 @@ def transition_notification_delivery(
     clean_receipt_id = _clean_required(receipt_id, "receipt_id")
     clean_status = _choice(status, DELIVERY_STATUSES, "status")
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     now = _utc_now_iso()
     with transaction(path) as conn:
         current = conn.execute(
@@ -217,7 +217,7 @@ def get_notification_delivery(
     db_path: Path | None = None,
 ) -> dict[str, Any] | None:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         row = conn.execute(
             "SELECT * FROM memory_notification_deliveries WHERE receipt_id = ?",
@@ -256,7 +256,7 @@ def list_notification_deliveries(
     sql += " ORDER BY created_at DESC, receipt_id DESC LIMIT ? OFFSET ?"
     args.extend((limit, offset))
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         rows = conn.execute(sql, args).fetchall()
     return [_row_to_delivery(row) for row in rows]
@@ -277,7 +277,7 @@ def summarize_notification_deliveries(
         sql += " WHERE " + " AND ".join(clauses)
     sql += " GROUP BY status ORDER BY status"
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         rows = conn.execute(sql, args).fetchall()
     by_status = {str(row["status"]): int(row["count"]) for row in rows}
@@ -296,7 +296,7 @@ def list_due_notification_deliveries(
 ) -> list[dict[str, Any]]:
     clean_now = _clean_timestamp(now, "now")
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         channel_clause = "" if channel is None else " AND channel = ?"
         args: list[Any] = [clean_now, clean_now]
@@ -332,7 +332,7 @@ def list_expired_notification_deliveries(
         args.append(str(channel).strip())
     args.append(max(1, min(int(limit), 500)))
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         rows = conn.execute(
             f"""

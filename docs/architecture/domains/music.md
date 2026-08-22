@@ -105,7 +105,7 @@ clarification and fallback observations keyed to request source while directing
 transport, volume, now-playing reads, interruptions, playback state, and media
 commands to the resolved target. Explicit UI targets start directly; an
 authenticated satellite defaulting to itself retains deferred audible start.
-The legacy handler registry retains its combined source behavior.
+There is no second process-global handler registry.
 
 Stage 3 now binds provider and control execution through one
 `CanonicalMusicExecution` constructed from that applied view. The Plex bridge

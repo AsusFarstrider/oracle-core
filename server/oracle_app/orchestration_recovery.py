@@ -711,7 +711,9 @@ def _find_recovery(orchestration_id: str, *, canonical_execution) -> dict[str, A
 
 def build_ui_internet_snapshot_http(request: Request) -> dict[str, Any]:
     canonical, execution = _canonical_network_context(request)
-    if canonical and execution is None:
+    if not canonical:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    if execution is None:
         return {"ok": False, "status": "unconfigured", "categories": []}
     return build_ui_internet_snapshot(canonical_execution=execution)
 
@@ -722,7 +724,9 @@ def create_recovery_preview_http(
     payload: UiOrchestrationPreviewRequest,
 ) -> dict[str, Any]:
     canonical, execution = _canonical_network_context(request)
-    if canonical and execution is None:
+    if not canonical:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    if execution is None:
         raise HTTPException(status_code=409, detail="Canonical network recovery is not configured.")
     return create_recovery_preview(
         orchestration_id,
@@ -737,7 +741,9 @@ def approve_recovery_preview_http(
     payload: UiOrchestrationApprovalRequest,
 ) -> dict[str, Any]:
     canonical, execution = _canonical_network_context(request)
-    if canonical and execution is None:
+    if not canonical:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    if execution is None:
         raise HTTPException(status_code=409, detail="Canonical network recovery is not configured.")
     return approve_recovery_preview(
         orchestration_id,

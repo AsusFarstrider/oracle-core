@@ -18,8 +18,37 @@ CANONICAL_MODULES = (
     "server/oracle_app/ui_weather.py",
 )
 
+CANONICAL_EXECUTION_MODULES = (
+    "server/oracle_app/health.py",
+    "server/oracle_app/handlers/calendar.py",
+    "server/oracle_app/handlers/facts.py",
+    "server/oracle_app/handlers/home_assistant.py",
+    "server/oracle_app/handlers/news.py",
+    "server/oracle_app/handlers/weather.py",
+    "server/oracle_app/routing.py",
+    "server/oracle_app/wake_arbitration_routes.py",
+)
+
 
 class CanonicalV1IsolationTests(unittest.TestCase):
+    def test_canonical_execution_edges_do_not_import_retired_config_getters(self) -> None:
+        for relative_path in CANONICAL_EXECUTION_MODULES:
+            tree = ast.parse(
+                (REPO_ROOT / relative_path).read_text(encoding="utf-8"),
+                filename=relative_path,
+            )
+            imported_names = {
+                alias.name
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom)
+                and (node.module or "").endswith("config")
+                for alias in node.names
+            }
+            with self.subTest(path=relative_path):
+                self.assertFalse(
+                    {name for name in imported_names if name.startswith("get_")}
+                )
+
     def test_canonical_modules_do_not_import_private_compatibility(self) -> None:
         for relative_path in CANONICAL_MODULES:
             source = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
@@ -49,6 +78,12 @@ class CanonicalV1IsolationTests(unittest.TestCase):
         classes = [node.name for node in tree.body if isinstance(node, ast.ClassDef)]
 
         self.assertEqual(classes, ["CanonicalBrainApplicationComposition"])
+
+    def test_routing_has_no_process_global_capability_registry(self) -> None:
+        source = (REPO_ROOT / "server/oracle_app/routing.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("ROUTE_CAPABILITY_REGISTRY", source)
+        self.assertNotIn("registry or", source)
 
     def test_canonical_modules_do_not_export_private_v1_tables(self) -> None:
         forbidden_exports = {

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 
 from .suggestions.models import SuggestionGenerateRequest, SuggestionReviewRequest
 from .suggestions.service import (
@@ -70,13 +70,11 @@ def register_admin_suggestions_routes(app: FastAPI) -> None:
 
 def admin_openclaw_status_http(request: Request) -> dict[str, object]:
     canonical = _canonical_composition(request)
-    return (
-        admin_openclaw_status()
-        if canonical is None
-        else openclaw_status(
-            canonical_execution=canonical.suggestions_execution,
-            canonical_authority=True,
-        )
+    if canonical is None:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    return openclaw_status(
+        canonical_execution=canonical.suggestions_execution,
+        canonical_authority=True,
     )
 
 
@@ -85,15 +83,13 @@ def admin_generate_suggestions_http(
     payload: SuggestionGenerateRequest,
 ) -> dict[str, object]:
     canonical = _canonical_composition(request)
-    return (
-        admin_generate_suggestions(payload)
-        if canonical is None
-        else generate_suggestion_run(
-            payload,
-            canonical_execution=canonical.suggestions_execution,
-            canonical_composition=canonical,
-            canonical_authority=True,
-        )
+    if canonical is None:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    return generate_suggestion_run(
+        payload,
+        canonical_execution=canonical.suggestions_execution,
+        canonical_composition=canonical,
+        canonical_authority=True,
     )
 
 

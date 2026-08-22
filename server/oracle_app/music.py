@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from .config import get_music_settings
 from .music_runtime.canonical import CanonicalMusicExecution
 from .music_runtime.client import (
     fetch_xml as _fetch_xml_via_client,
@@ -47,24 +46,14 @@ TRANSPORT_COMMANDS = {
 def check_music_health(
     *,
     music_execution: CanonicalMusicExecution | None = None,
-    canonical_authority: bool = False,
 ) -> dict[str, Any]:
-    if canonical_authority:
-        configured = music_execution is not None
-        return {
-            "status": "ok" if configured else "disabled",
-            "service": "oracle-brain",
-            "plex_configured": configured,
-            "configured_satellites": [] if music_execution is None else sorted(music_execution.settings.playback_targets),
-            "detail": "Music routing configured" if configured else "Music is disabled in canonical configuration",
-        }
-    settings = get_music_settings()
+    configured = music_execution is not None
     return {
-        "status": "ok" if settings["plex_configured"] else "failed",
+        "status": "ok" if configured else "disabled",
         "service": "oracle-brain",
-        "plex_configured": bool(settings["plex_configured"]),
-        "configured_satellites": list(settings["satellites"].keys()),
-        "detail": "Music routing configured" if settings["plex_configured"] else "Plex is not configured",
+        "plex_configured": configured,
+        "configured_satellites": [] if music_execution is None else sorted(music_execution.settings.playback_targets),
+        "detail": "Music routing configured" if configured else "Music is disabled in canonical configuration",
     }
 
 

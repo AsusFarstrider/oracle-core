@@ -80,14 +80,10 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
 
         with patch.object(FastWhisperProvider, "begin_warmup", return_value=True) as begin_warmup:
             attempt_stt_provider_warmup(consumers.stt_provider)
-        with (
-            patch("oracle_app.handlers.fallback_router.get_fallback_router_settings") as legacy,
-            patch("oracle_app.inference.warm_model") as warm_model,
-        ):
+        with patch("oracle_app.inference.warm_model") as warm_model:
             attempt_fallback_router_warmup(consumers.inference)
 
         begin_warmup.assert_called_once_with(consumers.stt_provider)
-        legacy.assert_not_called()
         warm_model.assert_called_once_with(
             base_url="http://127.0.0.1:11434",
             model="routing-model",
@@ -144,10 +140,7 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
             status="planned",
         )
 
-        with (
-            patch("oracle_app.handlers.fallback_router.get_fallback_router_settings") as legacy,
-            patch("oracle_app.inference.call_generate") as generate,
-        ):
+        with patch("oracle_app.inference.call_generate") as generate:
             generate.return_value = {
                 "response": '{"domain":"facts","normalized_text":"tell me a joke","user_id":""}'
             }
@@ -155,7 +148,6 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
 
         self.assertEqual(result.status, "executed")
         self.assertEqual(result.result["proposed_domain"], "facts")
-        legacy.assert_not_called()
         self.assertEqual(generate.call_args.kwargs["base_url"], "http://127.0.0.1:11434")
         self.assertEqual(generate.call_args.kwargs["model"], "routing-model")
 
@@ -169,12 +161,10 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
             status="planned",
         )
 
-        with patch("oracle_app.handlers.fallback_router.get_fallback_router_settings") as legacy:
-            result = execute_dispatch(dispatch, registry=registry)
+        result = execute_dispatch(dispatch, registry=registry)
 
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.result["error"], "fallback_router_disabled")
-        legacy.assert_not_called()
 
     def _consumers(self, *, mode: str | None = None) -> BrainCoreRuntimeConsumers:
         effective = self._effective_config(mode=mode)

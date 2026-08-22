@@ -24,7 +24,7 @@ def upsert_user(
     if status not in {"active", "disabled", "retired"}:
         raise ValueError(f"Unknown Oracle Memory user status: {status!r}")
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     now = utc_now_iso()
     resolved_user_id = str(user_id).strip()
     if not resolved_user_id:
@@ -52,7 +52,7 @@ def upsert_user(
 
 def get_user(user_id: str, *, db_path: Path | None = None) -> dict[str, Any] | None:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         row = conn.execute("SELECT * FROM memory_users WHERE user_id = ?", (user_id,)).fetchone()
     return _row_to_user(row) if row else None
@@ -60,7 +60,7 @@ def get_user(user_id: str, *, db_path: Path | None = None) -> dict[str, Any] | N
 
 def list_users(*, db_path: Path | None = None) -> list[dict[str, Any]]:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         rows = conn.execute("SELECT * FROM memory_users ORDER BY created_at, user_id").fetchall()
     return [_row_to_user(row) for row in rows]

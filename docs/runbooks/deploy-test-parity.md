@@ -50,7 +50,7 @@ Stop and classify before escalating any repo-vs-deploy difference into a product
 - brain service status
 - `GET /health`
 - `GET /health/config`
-- targeted live `/command` checks for the task-relevant path
+- targeted live `/api/conversation/command` checks for the task-relevant path
 - dependency health endpoints when the task touches those dependencies
 
 ### Satellite Host

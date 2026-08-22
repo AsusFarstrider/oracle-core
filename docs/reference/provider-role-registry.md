@@ -14,10 +14,10 @@ purpose-specific media proxies, and satellite-local control.
 
 The provider-bridge package is fully reconciled by the ledger. Its formal
 domain translators remain provider bridges. Network observation DTOs/probes are
-classified by their actual role. Canonical service/router/SSH execution now
-lives behind typed network platform adapters; the remaining provider-bridge
-control functions are isolated V1 compatibility scheduled for Slice 11 deletion. OpenClaw
-remains Suggestions advisory transport. No speculative adapter is promoted by
+classified by their actual role. Canonical service/router/SSH execution lives
+behind typed network platform adapters; obsolete provider-bridge control
+executors have been deleted. OpenClaw remains Suggestions advisory transport.
+No speculative adapter is promoted by
 this record: the existing WebSocket module remains recorded only as part of the
 currently selectable/validated OpenClaw adapter surface and is not made active.
 

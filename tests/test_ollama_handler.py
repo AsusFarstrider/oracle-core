@@ -119,9 +119,10 @@ class OllamaBridgeTests(unittest.TestCase):
 
     @patch("oracle_app.handlers.fallback_router.warm_fallback_router_model")
     def test_attempt_fallback_router_warmup_calls_warmup(self, mock_warm) -> None:
-        attempt_fallback_router_warmup()
+        inference = _inference()
+        attempt_fallback_router_warmup(inference)
 
-        mock_warm.assert_called_once_with()
+        mock_warm.assert_called_once_with(inference)
 
     @patch("oracle_app.inference.call_generate")
     def test_fallback_router_handler_returns_domain_proposal(self, mock_call_generate) -> None:

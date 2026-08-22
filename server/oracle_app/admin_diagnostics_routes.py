@@ -267,6 +267,8 @@ def _canonical_music(request: Request):
 
     composition = getattr(getattr(request.scope.get("app"), "state", None), BRAIN_APPLICATION_COMPOSITION_STATE_KEY, None)
     canonical = isinstance(composition, CanonicalBrainApplicationComposition)
+    if not canonical:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
     return (
         composition.music_execution if canonical else None,
         composition.audiobook_execution if canonical else None,

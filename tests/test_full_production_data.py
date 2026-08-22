@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-import json
+from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -16,29 +15,15 @@ CONFIGURATION = ROOT / "examples" / "config"
 CLOCK = datetime(2026, 8, 20, 22, 0, tzinfo=timezone.utc)
 
 
-def test_full_production_copy_migrates_only_canonical_alerts_and_retention() -> None:
+def test_full_production_copy_migrates_canonical_memory_and_retention() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         source = root / "source.sqlite3"
         destination = root / "destination.sqlite3"
-        alerts = root / "alerts.json"
-        ensure_schema(source, copy_provisional_suggestions=False)
-        base = {
-            "kind": "reminder",
-            "created_at": (CLOCK - timedelta(days=1)).isoformat(),
-            "due_at": (CLOCK + timedelta(hours=1)).isoformat(),
-            "message": "Remember.",
-            "metadata": {},
-        }
-        alerts.write_text(json.dumps([
-            {**base, "alert_id": "legitimate", "source": "brain"},
-            {**base, "alert_id": "ephemeral", "source": "ephemeral_http"},
-            {**base, "alert_id": "test", "source": "test-source"},
-        ]), encoding="utf-8")
+        ensure_schema(source)
 
         report = migrate_copy(
             source,
-            alerts,
             CONFIGURATION,
             SecretSnapshot({
                 "HOME_ASSISTANT_EVENT_TOKEN": "example-event-token",
@@ -50,12 +35,10 @@ def test_full_production_copy_migrates_only_canonical_alerts_and_retention() -> 
             apply_retention=True,
         )
 
-        assert report["alerts"]["imported"] == 1
-        assert report["alerts"]["excluded_by_source"] == {"ephemeral_http": 1, "test-source": 1}
         assert report["retention"]["blocked"] is False
         assert report["retention_applied"]["changed_count"] == report["retention"]["changed_count"]
         with sqlite3.connect(destination) as connection:
-            assert connection.execute("SELECT alert_id FROM memory_alerts").fetchall() == [("legitimate",)]
+            assert connection.execute("SELECT alert_id FROM memory_alerts").fetchall() == []
             versions = {row[0] for row in connection.execute("SELECT version FROM memory_schema_migrations")}
         assert {"0008_current_state_and_retention", "0009_durable_alerts"}.issubset(versions)
 

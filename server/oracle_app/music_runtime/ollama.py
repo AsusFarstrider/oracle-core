@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from oracle_app.inference import InferenceClient, legacy_inference_client
+from oracle_app.inference import InferenceClient
 
 from .parsing import MusicIntent, optional_list, optional_str
 
@@ -54,7 +54,7 @@ def parse_ollama_decision(raw_text: str) -> dict[str, str]:
     return {"mode": mode, "reply": reply, "command": command, "reason": reason}
 
 
-def resolve_with_ollama(text: str, *, inference: InferenceClient | None = None) -> MusicIntent | None:
+def resolve_with_ollama(text: str, *, inference: InferenceClient) -> MusicIntent | None:
     system = (
         "You extract structured music intents for Oracle. "
         "Return only JSON with keys: intent, media_type, title, artist, album, playlist, genre, qualifiers, mode. "
@@ -64,7 +64,7 @@ def resolve_with_ollama(text: str, *, inference: InferenceClient | None = None) 
         "Do not invent media that was not requested."
     )
     try:
-        body = _inference(inference).generate(text, system=system, format="json")
+        body = inference.generate(text, system=system, format="json")
     except Exception:
         return None
 
@@ -101,7 +101,7 @@ def choose_music_match_with_ollama(
     intent: MusicIntent,
     candidates: list[dict[str, Any]],
     *,
-    inference: InferenceClient | None = None,
+    inference: InferenceClient,
 ) -> dict[str, Any] | None:
     if not candidates:
         return None
@@ -132,7 +132,7 @@ def choose_music_match_with_ollama(
         }
     )
     try:
-        body = _inference(inference).generate(prompt, system=system, format="json")
+        body = inference.generate(prompt, system=system, format="json")
     except Exception:
         return None
 
@@ -158,7 +158,7 @@ def choose_best_guess_with_ollama(
     request_text: str,
     candidates: list[dict[str, Any]],
     *,
-    inference: InferenceClient | None = None,
+    inference: InferenceClient,
 ) -> dict[str, Any] | None:
     if not candidates:
         return None
@@ -192,7 +192,7 @@ def choose_best_guess_with_ollama(
         }
     )
     try:
-        body = _inference(inference).generate(prompt, system=system, format="json")
+        body = inference.generate(prompt, system=system, format="json")
     except Exception:
         return None
 
@@ -212,9 +212,3 @@ def choose_best_guess_with_ollama(
     if not 0 <= choice_index < len(candidates):
         return None
     return candidates[choice_index]
-
-
-def _inference(inference: InferenceClient | None) -> InferenceClient:
-    if inference is not None:
-        return inference
-    return legacy_inference_client()

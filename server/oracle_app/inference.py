@@ -102,23 +102,3 @@ class InferenceClient:
         req = request.Request(f"{self.base_url}/api/version", method="GET")
         with request.urlopen(req, timeout=float(self.timeout_seconds or 5)) as response:
             return response.status, response.read().decode("utf-8", errors="replace")
-
-
-def legacy_inference_client() -> InferenceClient:
-    """Build the shared client from transitional V1 configuration getters."""
-    from oracle_app.config import get_ollama_request_settings, get_ollama_settings
-
-    base_url, model = get_ollama_settings()
-    request_settings = get_ollama_request_settings()
-    return InferenceClient(
-        InferenceExecutionSettings(
-            enabled=True,
-            base_url=base_url,
-            model=model,
-            timeout_seconds=float(request_settings["timeout_seconds"]),
-            keep_alive=request_settings["keep_alive"],
-            options=dict(request_settings["options"]),
-            fallback_model=model,
-            fallback_timeout_seconds=float(request_settings["timeout_seconds"]),
-        )
-    )

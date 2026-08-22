@@ -123,14 +123,12 @@ def register_admin_orchestration_routes(app: FastAPI) -> None:
 
 def admin_orchestrations_http(request: Request) -> dict[str, object]:
     canonical, routine, network = _canonical_context(request)
-    return (
-        admin_orchestrations(
-            routine_execution=routine,
-            network_execution=network,
-            canonical_authority=True,
-        )
-        if canonical
-        else admin_orchestrations()
+    if not canonical:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    return admin_orchestrations(
+        routine_execution=routine,
+        network_execution=network,
+        canonical_authority=True,
     )
 
 
@@ -139,15 +137,13 @@ def admin_orchestration_detail_http(
     orchestration_id: str,
 ) -> dict[str, object]:
     canonical, routine, network = _canonical_context(request)
-    return (
-        admin_orchestration_detail(
-            orchestration_id,
-            routine_execution=routine,
-            network_execution=network,
-            canonical_authority=True,
-        )
-        if canonical
-        else admin_orchestration_detail(orchestration_id)
+    if not canonical:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    return admin_orchestration_detail(
+        orchestration_id,
+        routine_execution=routine,
+        network_execution=network,
+        canonical_authority=True,
     )
 
 

@@ -704,7 +704,7 @@ class FactsCapability:
         "explain ",
     )
 
-    def __init__(self, enabled: bool | None = None) -> None:
+    def __init__(self, enabled: bool = False) -> None:
         self.enabled = enabled
 
     def evaluate(
@@ -715,13 +715,7 @@ class FactsCapability:
         session_id: str | None = None,
     ) -> CapabilityDecision | None:
         del source, session_id
-        if self.enabled is None:
-            from oracle_app.config import get_facts_settings
-
-            enabled = bool(get_facts_settings().get("enabled", False))
-        else:
-            enabled = self.enabled
-        if not enabled:
+        if not self.enabled:
             return None
         if not normalized_text.startswith(self._QUESTION_PREFIXES):
             return None

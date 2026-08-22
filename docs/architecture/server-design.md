@@ -2,7 +2,8 @@
 
 This document records the current server-side package structure.
 
-`server/app.py` is a thin compatibility entrypoint. It imports the FastAPI app from `server/oracle_app/api.py`.
+`server/app.py` is the thin ASGI entrypoint. It imports the FastAPI app from
+`server/oracle_app/api.py`.
 
 At a high level, the server pipeline is:
 
@@ -25,9 +26,11 @@ Current top-level structure:
 - `replies.py`: reply shaping helpers
 - `health.py`: health endpoint helpers
 - `tracing.py`: request-tracing helpers
-- `config.py`: runtime config resolution
+- `config.py`: fail-closed characterization boundary plus reconstructible Home
+  Assistant cache loading; never runtime configuration authority
 - `config_reporting.py`: config reporting helpers
-- `config_validation.py`: startup config validation helpers
+- `configuration/`: executable schema, generation, projection, activation, and
+  immutable runtime composition
 - `constants.py`: shared constants
 - `system_intents.py`: system-intent classification helpers
 - `routing_helpers.py`: shared routing helper functions

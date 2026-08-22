@@ -2,15 +2,11 @@ from __future__ import annotations
 
 from oracle_app.schemas import DispatchPlan
 from oracle_app.weather_runtime import CanonicalWeatherExecution
-from oracle_app.weather import build_forecast_response, build_weather_response
 from oracle_app.weather_forecast import ForecastOutOfRangeError
-from oracle_app.weather_history import build_historical_weather_response
 from oracle_app.weather_remote import (
     RemoteForecastOutOfRangeError,
     RemoteWeatherError,
     RemoteWeatherLocationError,
-    build_remote_current_weather_response,
-    build_remote_forecast_response,
 )
 
 
@@ -35,8 +31,6 @@ class WeatherHandler:
                     self.canonical_execution.build_current_response(str(dispatch.payload.get("text", "")))
                     if self.canonical_execution is not None
                     else _canonical_weather_unavailable()
-                    if self.canonical_authority
-                    else build_weather_response(str(dispatch.payload.get("text", "")))
                 )
             except Exception as exc:
                 dispatch.status = "failed"
@@ -60,8 +54,6 @@ class WeatherHandler:
                     self.canonical_execution.build_forecast_response(str(dispatch.payload.get("text", "")))
                     if self.canonical_execution is not None
                     else _canonical_weather_unavailable()
-                    if self.canonical_authority
-                    else build_forecast_response(str(dispatch.payload.get("text", "")))
                 )
             except ForecastOutOfRangeError as exc:
                 dispatch.status = "failed"
@@ -92,8 +84,6 @@ class WeatherHandler:
                     self.canonical_execution.build_history_response(str(dispatch.payload.get("text", "")))
                     if self.canonical_execution is not None
                     else _canonical_weather_unavailable()
-                    if self.canonical_authority
-                    else build_historical_weather_response(str(dispatch.payload.get("text", "")))
                 )
             except Exception as exc:
                 dispatch.status = "failed"
@@ -117,8 +107,6 @@ class WeatherHandler:
                     self.canonical_execution.build_remote_current_response(str(dispatch.payload.get("text", "")))
                     if self.canonical_execution is not None
                     else _canonical_weather_unavailable()
-                    if self.canonical_authority
-                    else build_remote_current_weather_response(str(dispatch.payload.get("text", "")))
                 )
             except RemoteWeatherLocationError as exc:
                 dispatch.status = "failed"
@@ -156,8 +144,6 @@ class WeatherHandler:
                     self.canonical_execution.build_remote_forecast_response(str(dispatch.payload.get("text", "")))
                     if self.canonical_execution is not None
                     else _canonical_weather_unavailable()
-                    if self.canonical_authority
-                    else build_remote_forecast_response(str(dispatch.payload.get("text", "")))
                 )
             except RemoteForecastOutOfRangeError as exc:
                 dispatch.status = "failed"

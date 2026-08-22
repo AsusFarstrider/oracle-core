@@ -6,7 +6,6 @@ import socket
 from typing import Any
 from urllib import error
 
-from oracle_app.config import get_fallback_router_settings
 from oracle_app.inference import InferenceClient
 from oracle_app.constants import FALLBACK_ROUTER_SYSTEM_PROMPT
 from oracle_app.runtime_contracts import ContractValidationError, build_failure_result, validate_fallback_router_decision
@@ -63,7 +62,7 @@ class FallbackRouterHandler:
             dispatch.hook,
         )
 
-        if self._inference is not None and not self._inference.enabled:
+        if self._inference is None or not self._inference.enabled:
             dispatch.status = "failed"
             dispatch.result = build_failure_result(
                 action="router_failure",
@@ -73,34 +72,15 @@ class FallbackRouterHandler:
                 detail="Fallback routing is disabled.",
             )
             return dispatch
-        if self._inference is None:
-            settings = get_fallback_router_settings()
-        else:
-            if self._inference.base_url is None or self._inference.fallback_model is None:
-                raise ValueError("Canonical fallback routing lacks inference settings.")
-            settings = None
+        if self._inference.base_url is None or self._inference.fallback_model is None:
+            raise ValueError("Canonical fallback routing lacks inference settings.")
         try:
-            if self._inference is not None:
-                result = self._inference.generate(
-                    str(dispatch.payload.get("prompt") or ""),
-                    system=FALLBACK_ROUTER_SYSTEM_PROMPT,
-                    format="json",
-                    fallback_router=True,
-                )
-            else:
-                from oracle_app.llm_bridge import call_generate
-
-                assert settings is not None
-                result = call_generate(
-                    base_url=str(settings["base_url"]),
-                    model=str(settings["model"]),
-                    prompt=str(dispatch.payload.get("prompt") or ""),
-                    timeout_seconds=int(settings["timeout_seconds"]),
-                    keep_alive=settings["keep_alive"],
-                    options=dict(settings["options"]),
-                    system=FALLBACK_ROUTER_SYSTEM_PROMPT,
-                    format="json",
-                )
+            result = self._inference.generate(
+                str(dispatch.payload.get("prompt") or ""),
+                system=FALLBACK_ROUTER_SYSTEM_PROMPT,
+                format="json",
+                fallback_router=True,
+            )
             decision = parse_fallback_router_decision(str(result.get("response", "")).strip())
             if decision is None:
                 raise ValueError("invalid_router_output")
@@ -198,26 +178,12 @@ class FallbackRouterHandler:
         return dispatch
 
 
-def warm_fallback_router_model(inference: InferenceClient | None = None) -> None:
-    if inference is None:
-        legacy = get_fallback_router_settings()
-        from oracle_app.llm_bridge import warm_model
-
-        warm_model(
-            base_url=str(legacy["base_url"]),
-            model=str(legacy["model"]),
-            timeout_seconds=int(legacy["timeout_seconds"]),
-            keep_alive=legacy["keep_alive"],
-        )
-    else:
-        inference.warm(fallback_router=True)
+def warm_fallback_router_model(inference: InferenceClient) -> None:
+    inference.warm(fallback_router=True)
 
 
-def attempt_fallback_router_warmup(inference: InferenceClient | None = None) -> None:
+def attempt_fallback_router_warmup(inference: InferenceClient) -> None:
     try:
-        if inference is None:
-            warm_fallback_router_model()
-        else:
-            warm_fallback_router_model(inference)
+        warm_fallback_router_model(inference)
     except Exception as exc:
         logger.warning("fallback_router_warmup_failed detail=%s", exc)

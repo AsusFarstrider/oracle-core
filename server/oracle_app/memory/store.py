@@ -10,7 +10,6 @@ from oracle_app.runtime_paths import RUNTIME_PATHS
 
 DATA_DIR = RUNTIME_PATHS.data
 DB_PATH = RUNTIME_PATHS.memory_database
-PROVISIONAL_SUGGESTIONS_DB_PATH = RUNTIME_PATHS.provisional_suggestions_database
 
 
 def connect(db_path: Path | None = None) -> sqlite3.Connection:

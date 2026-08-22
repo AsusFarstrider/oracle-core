@@ -46,21 +46,16 @@ class AudiobookStreamApiTests(unittest.TestCase):
         scope = {
             "type": "http",
             "method": "GET",
-            "path": "/audiobooks/stream/test/0",
+            "path": "/api/satellite/media/audiobooks/test/tracks/0",
             "headers": headers,
             "app": app,
         }
         return Request(scope)
 
-    @patch(
-        "oracle_app.media_routes.fetch_audiobook_stream",
-        side_effect=AssertionError("canonical stream used V1 provider"),
-    )
     @patch("oracle_app.media_routes.get_active_audiobook_playback")
     def test_canonical_stream_uses_composition_execution(
         self,
         mock_get_active_audiobook_playback,
-        _legacy_stream,
     ) -> None:
         playback = {"playback_id": "playback-canonical", "user_id": "reader_one"}
         mock_get_active_audiobook_playback.return_value = playback
@@ -97,12 +92,10 @@ class AudiobookStreamApiTests(unittest.TestCase):
             range_header="bytes=0-",
         )
 
-    @patch("oracle_app.media_routes.fetch_audiobook_stream")
     @patch("oracle_app.media_routes.get_active_audiobook_playback")
     def test_stream_endpoint_forwards_range_requests(
         self,
         mock_get_active_audiobook_playback,
-        mock_fetch_audiobook_stream,
     ) -> None:
         mock_get_active_audiobook_playback.return_value = {"playback_id": "playback-1"}
         upstream = _FakeUpstreamResponse(
@@ -115,12 +108,20 @@ class AudiobookStreamApiTests(unittest.TestCase):
             },
             status=206,
         )
-        mock_fetch_audiobook_stream.return_value = upstream
+        execution = Mock()
+        execution.fetch_stream.return_value = upstream
+        application = FastAPI()
+        application.state.brain_application_composition = CanonicalBrainApplicationComposition(
+            runtime=Mock(), core_consumers=Mock(), route_registry=Mock(),
+            dispatch_registry=Mock(), projection_resolver=Mock(),
+            request_source_resolver=Mock(), playback_target_resolver=Mock(),
+            notification_execution=Mock(), audiobook_execution=execution,
+        )
 
         response = stream_audiobook_track(
             "playback-1",
             0,
-            self._build_request(range_header="bytes=10-12"),
+            self._build_request(range_header="bytes=10-12", app=application),
         )
 
         self.assertEqual(response.status_code, 206)
@@ -128,18 +129,16 @@ class AudiobookStreamApiTests(unittest.TestCase):
         self.assertEqual(response.headers["accept-ranges"], "bytes")
         self.assertEqual(response.headers["content-length"], "3")
         self.assertEqual(response.headers["content-range"], "bytes 10-12/100")
-        mock_fetch_audiobook_stream.assert_called_once_with(
+        execution.fetch_stream.assert_called_once_with(
             {"playback_id": "playback-1"},
             0,
             range_header="bytes=10-12",
         )
 
-    @patch("oracle_app.media_routes.fetch_audiobook_stream")
     @patch("oracle_app.media_routes.get_active_audiobook_playback")
     def test_stream_endpoint_without_range_uses_full_response(
         self,
         mock_get_active_audiobook_playback,
-        mock_fetch_audiobook_stream,
     ) -> None:
         mock_get_active_audiobook_playback.return_value = {"playback_id": "playback-2"}
         upstream = _FakeUpstreamResponse(
@@ -147,14 +146,22 @@ class AudiobookStreamApiTests(unittest.TestCase):
             headers={"Content-Type": "audio/mpeg", "Content-Length": "11"},
             status=200,
         )
-        mock_fetch_audiobook_stream.return_value = upstream
+        execution = Mock()
+        execution.fetch_stream.return_value = upstream
+        application = FastAPI()
+        application.state.brain_application_composition = CanonicalBrainApplicationComposition(
+            runtime=Mock(), core_consumers=Mock(), route_registry=Mock(),
+            dispatch_registry=Mock(), projection_resolver=Mock(),
+            request_source_resolver=Mock(), playback_target_resolver=Mock(),
+            notification_execution=Mock(), audiobook_execution=execution,
+        )
 
-        response = stream_audiobook_track("playback-2", 1, self._build_request())
+        response = stream_audiobook_track("playback-2", 1, self._build_request(app=application))
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.media_type, "audio/mpeg")
         self.assertEqual(response.headers["content-length"], "11")
-        mock_fetch_audiobook_stream.assert_called_once_with(
+        execution.fetch_stream.assert_called_once_with(
             {"playback_id": "playback-2"},
             1,
             range_header=None,

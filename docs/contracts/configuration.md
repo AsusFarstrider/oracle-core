@@ -84,9 +84,8 @@ the configurable 90-day terminal alert horizon; satellite claim,
 cue assets, and local playback behavior enter the satellite projection; and
 notification delivery/suppression policy remains in
 `domains/notifications.yaml`. A future alert role requires evidence of
-substantial operator-owned policy plus schema review. The old
-`storage.alerts` JSON declaration is transitional migration input until the
-coordinated Stage 5 data/configuration cutover removes it.
+substantial operator-owned policy plus schema review. The retired
+`storage.alerts` JSON declaration is rejected.
 
 V2 also has no `domains/playback.yaml`. Shared pause, resume, interruption, and
 authority behavior remains code- and contract-owned. Music and audiobook policy

@@ -179,7 +179,6 @@ class SuggestionDomainTests(unittest.TestCase):
             patch("oracle_app.suggestions.collectors.check_tts_health", return_value=health) as tts,
             patch("oracle_app.suggestions.collectors.check_stt_health", return_value=health) as stt,
             patch("oracle_app.suggestions.collectors.build_ui_network_health_snapshot", return_value=health) as network,
-            patch("oracle_app.suggestions.collectors.get_music_settings") as legacy_music,
             patch("oracle_app.suggestions.collectors._read_brain_logs", return_value={"ok": True}),
         ):
             sections, statuses = collect_sources(
@@ -190,9 +189,15 @@ class SuggestionDomainTests(unittest.TestCase):
 
         self.assertEqual(sections["oracle"]["configured_sources"], ["living_room_voice"])
         self.assertTrue(statuses["oracle"]["ok"])
-        for check in (home, calendar, music_health, audiobook, ollama, news, tts, stt, network):
-            self.assertTrue(check.call_args.kwargs["canonical_authority"])
-        legacy_music.assert_not_called()
+        self.assertIs(home.call_args.args[0], composition.runtime.home_assistant)
+        self.assertIs(calendar.call_args.kwargs["canonical_execution"], composition.calendar_execution)
+        self.assertIs(music_health.call_args.kwargs["music_execution"], composition.music_execution)
+        self.assertIs(audiobook.call_args.args[0], composition.audiobook_execution)
+        self.assertIs(ollama.call_args.kwargs["inference"], composition.core_consumers.inference)
+        self.assertIs(news.call_args.kwargs["canonical_execution"], composition.news_execution)
+        self.assertIsNotNone(tts.call_args.kwargs["provider"])
+        self.assertIsNotNone(stt.call_args.kwargs["provider"])
+        self.assertTrue(network.call_args.kwargs["canonical_authority"])
 
     def test_canonical_librenms_collector_uses_normalized_network_snapshot(self) -> None:
         network = SimpleNamespace(status_snapshot=lambda **_kwargs: {"status": "healthy"})

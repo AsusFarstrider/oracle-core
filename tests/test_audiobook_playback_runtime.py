@@ -48,7 +48,7 @@ class AudiobookPlaybackRuntimeTests(unittest.TestCase):
                     "author": "Author",
                     "duration_seconds": 1000.0,
                     "start_position_seconds": 100.0,
-                    "tracks": [{"url": "http://oracle/audiobooks/stream/playback-1/0"}],
+                    "tracks": [{"url": "http://oracle/api/satellite/media/audiobooks/playback-1/tracks/0"}],
                 },
                 {
                     "playback_id": "playback-1",

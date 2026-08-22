@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from oracle_app.config import get_music_settings, load_home_assistant_cache
+from oracle_app.config import load_home_assistant_cache
 from oracle_app.health import (
     check_audiobook_health,
     check_calendar_health,
@@ -70,35 +70,27 @@ def _collect_oracle(
     checks = {
         "home_assistant": lambda: check_home_assistant_health(
             None if composition is None else composition.runtime.home_assistant,
-            canonical_authority=canonical_authority,
         ),
         "calendar": lambda: check_calendar_health(
             canonical_execution=None if composition is None else composition.calendar_execution,
-            canonical_authority=canonical_authority,
         ),
         "music": lambda: check_music_health(
             music_execution=None if composition is None else composition.music_execution,
-            canonical_authority=canonical_authority,
         ),
         "audiobook": lambda: check_audiobook_health(
             None if composition is None else composition.audiobook_execution,
-            canonical_authority=canonical_authority,
         ),
         "ollama": lambda: check_ollama_health(
             inference=None if composition is None else composition.core_consumers.inference,
-            canonical_authority=canonical_authority,
         ),
         "news": lambda: check_news_health(
             canonical_execution=None if composition is None else composition.news_execution,
-            canonical_authority=canonical_authority,
         ),
         "tts": lambda: check_tts_health(
             provider=None if composition is None else composition.tts_provider(),
-            canonical_authority=canonical_authority,
         ),
         "stt": lambda: check_stt_health(
             provider=None if composition is None else composition.stt_provider(),
-            canonical_authority=canonical_authority,
         ),
     }
     for name, func in checks.items():
@@ -116,12 +108,8 @@ def _collect_oracle(
         network_health = {"status": "failed", "detail": str(exc)}
 
     try:
-        if canonical_authority:
-            music = None if composition is None else composition.music_execution
-            sources = [] if music is None else sorted(music.settings.playback_targets)
-        else:
-            music_settings = get_music_settings()
-            sources = sorted(music_settings.get("satellites", {}).keys())
+        music = None if composition is None else composition.music_execution
+        sources = [] if music is None else sorted(music.settings.playback_targets)
     except Exception:
         sources = []
 

@@ -26,14 +26,6 @@ class RuntimePathBindings:
         return self.data / "oracle-memory.sqlite3"
 
     @property
-    def provisional_suggestions_database(self) -> Path:
-        return self.data / "openclaw_suggestions.sqlite3"
-
-    @property
-    def alerts_state(self) -> Path:
-        return self.data / "alerts-state.json"
-
-    @property
     def home_assistant_cache(self) -> Path:
         return self.cache / "home-assistant-cache.json"
 
@@ -81,16 +73,13 @@ RUNTIME_PATHS = resolve_runtime_paths()
 
 def validate_standard_storage_settings(
     memory_database_path: str,
-    alerts_state_path: str,
 ) -> None:
     """Reject canonical storage settings that contradict the fixed layout."""
     expected = {
         "storage.memory.database_path": "data/oracle-memory.sqlite3",
-        "storage.alerts.state_path": "data/alerts-state.json",
     }
     actual = {
         "storage.memory.database_path": str(memory_database_path),
-        "storage.alerts.state_path": str(alerts_state_path),
     }
     conflicts = [
         f"{name} must be {expected[name]!r}, not {value!r}"

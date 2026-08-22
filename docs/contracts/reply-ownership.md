@@ -33,7 +33,7 @@ The brain owns:
 
 The satellite owns only:
 
-- playback of the provided reply text through `/tts`
+- playback of the provided reply text through `/api/speech/tts`
 - minimal local behavior when the brain response is missing or intentionally silent
 - local reply interruption and follow-up capture mechanics
 

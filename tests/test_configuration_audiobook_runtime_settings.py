@@ -147,7 +147,7 @@ class AudiobookRuntimeSettingsTests(unittest.TestCase):
                 side_effect=AssertionError("canonical health used V1 settings"),
             ),
         ):
-            response = check_audiobook_health(execution, canonical_authority=True)
+            response = check_audiobook_health(execution)
 
         self.assertEqual(response.status, "ok")
         self.assertEqual(response.configured_satellites, ["living_room_voice"])

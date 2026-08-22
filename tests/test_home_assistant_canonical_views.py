@@ -269,8 +269,7 @@ class HomeAssistantSnapshotReferenceTests(unittest.TestCase):
                 HomeAssistantCameraViewReference(mapping_id="camera", snapshot_ref=value)
 
     @patch("oracle_app.health.request.urlopen")
-    @patch("oracle_app.health.get_home_assistant_settings")
-    def test_canonical_health_uses_typed_provider_and_timeout(self, legacy_settings, urlopen) -> None:
+    def test_canonical_health_uses_typed_provider_and_timeout(self, urlopen) -> None:
         class Response:
             status = 200
 
@@ -291,10 +290,9 @@ class HomeAssistantSnapshotReferenceTests(unittest.TestCase):
             timeout_seconds=14,
         )
 
-        result = check_home_assistant_health(settings, canonical_authority=True)
+        result = check_home_assistant_health(settings)
 
         self.assertEqual(result.status, "ok")
-        legacy_settings.assert_not_called()
         self.assertEqual(urlopen.call_args.kwargs["timeout"], 14.0)
 
 

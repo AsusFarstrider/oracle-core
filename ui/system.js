@@ -933,7 +933,6 @@ function activityEventTitle(event) {
     application_startup_complete: "Application startup complete",
     application_shutdown_complete: "Application shutdown complete",
     config_warning: "Configuration warning",
-    deprecated_config_source: "Deprecated configuration source",
     missing_required_config: "Missing required configuration",
     provider_available: "Provider available",
     provider_unavailable: "Provider unavailable",

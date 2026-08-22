@@ -26,7 +26,7 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
         self.db_path = Path(self.tmpdir.name) / "oracle-memory.sqlite3"
 
     def test_schema_creates_session_and_transcript_tables_and_indexes(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
 
         self.assertTrue({"memory_sessions", "memory_transcripts"}.issubset(schema.table_names(self.db_path)))
         conn = sqlite3.connect(self.db_path)
@@ -55,8 +55,8 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
         )
 
     def test_schema_migration_is_idempotent(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
+        schema.ensure_schema(self.db_path)
 
         conn = sqlite3.connect(self.db_path)
         try:
@@ -333,7 +333,7 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
         )
 
     def test_malformed_json_is_returned_as_diagnostic_marker(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         with transaction(self.db_path) as conn:
             conn.execute(
                 """
@@ -359,7 +359,7 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
         self.assertEqual(row["payload"], {"_payload_parse_error": True, "raw_payload_json": '["bad-payload"]'})
 
     def test_transaction_rolls_back_session_and_transcript_rows(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
 
         with self.assertRaises(RuntimeError):
             with transaction(self.db_path) as conn:
@@ -383,7 +383,7 @@ class OracleMemorySessionTranscriptTests(unittest.TestCase):
         self.assertIsNone(transcripts.get_transcript("rolled-back-transcript", db_path=self.db_path))
 
     def test_no_raw_audio_storage_field_exists(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         conn = sqlite3.connect(self.db_path)
         try:
             columns = {

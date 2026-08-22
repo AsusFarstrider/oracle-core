@@ -4,7 +4,7 @@ import sys
 import unittest
 from datetime import date, datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
@@ -111,9 +111,9 @@ class CalculationTests(unittest.TestCase):
         self.assertEqual(details["kind"], "date_since")
         self.assertEqual(details["days"], 5)
 
-    @patch("oracle_app.calculations.load_calendar_events")
-    def test_days_until_holiday_uses_holiday_feed(self, mock_load_calendar_events) -> None:
-        mock_load_calendar_events.return_value = [
+    def test_days_until_holiday_uses_holiday_feed(self) -> None:
+        execution = Mock()
+        execution.load_events.return_value.value = [
             CalendarEvent(
                 uid="holiday-1",
                 summary="Christmas Day",
@@ -127,16 +127,17 @@ class CalculationTests(unittest.TestCase):
         speech, details = build_calculation_response(
             "how many days until christmas",
             today=date(2026, 4, 4),
+            calendar_execution=execution,
         )
 
         self.assertEqual(speech, "There are 265 days until Christmas Day.")
         self.assertEqual(details["kind"], "date_until")
         self.assertEqual(details["date"], "2026-12-25")
-        mock_load_calendar_events.assert_called_once_with(scope="holiday")
+        execution.load_events.assert_called_once_with(scope="holiday")
 
-    @patch("oracle_app.calculations.load_calendar_events")
-    def test_day_of_week_for_holiday_this_year(self, mock_load_calendar_events) -> None:
-        mock_load_calendar_events.return_value = [
+    def test_day_of_week_for_holiday_this_year(self) -> None:
+        execution = Mock()
+        execution.load_events.return_value.value = [
             CalendarEvent(
                 uid="holiday-2",
                 summary="Thanksgiving Day",
@@ -150,6 +151,7 @@ class CalculationTests(unittest.TestCase):
         speech, details = build_calculation_response(
             "what day of the week is thanksgiving this year",
             today=date(2026, 4, 4),
+            calendar_execution=execution,
         )
 
         self.assertEqual(speech, "Thanksgiving Day is on a Thursday.")

@@ -121,14 +121,7 @@ class MusicRuntimeSettingsTests(unittest.TestCase):
         settings = MusicRuntimeSettings.from_effective_config(self._effective_config(enabled=True))
         execution = CanonicalMusicExecution(settings, satellite_control_timeout_seconds=6)
 
-        with patch(
-            "oracle_app.music.get_music_settings",
-            side_effect=AssertionError("canonical health used V1 music settings"),
-        ):
-            payload = check_music_health(
-                music_execution=execution,
-                canonical_authority=True,
-            )
+        payload = check_music_health(music_execution=execution)
 
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["configured_satellites"], ["living_room_voice"])

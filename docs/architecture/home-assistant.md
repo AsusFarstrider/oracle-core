@@ -41,10 +41,13 @@ The handler is responsible for:
 The current integration surfaces include:
 
 - cache file: `data/home-assistant-cache.json`
-- cache refresh script: `scripts/sync-home-assistant.py`
+- typed cache refresh owner: `server/oracle_app/home_assistant_cache.py`
 - camera still snapshot helper: `server/oracle_app/home_assistant_camera.py`
 
-These act as structural support surfaces for Home Assistant vocabulary and execution support.
+The canonical system handler invokes the cache owner with its injected, immutable
+Home Assistant runtime settings. The owner fetches the provider state and
+atomically replaces the reconstructable cache; it does not read configuration
+or secrets independently.
 
 ## Camera Still Snapshots
 

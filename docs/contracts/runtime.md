@@ -82,19 +82,19 @@ If normalization reduces the transcript to nothing useful, the brain may return 
 
 ### Speech To Text Boundary
 
-`/stt` is a transcription surface only.
+`/api/speech/stt` is a transcription surface only.
 
-The brain keeps routing and capability interpretation out of `/stt`.
+The brain keeps routing and capability interpretation out of `/api/speech/stt`.
 
-Satellites and clients may treat `/stt` output as input to the brain command path.
+Satellites and clients may treat its output as input to the canonical conversation path.
 
 ### Text To Speech Boundary
 
-`/tts` is a rendering surface only.
+`/api/speech/tts` is a rendering surface only.
 
 The brain accepts canonical reply text and returns playable audio.
 
-Clients do not use `/tts` as a substitute for missing brain-side reply construction.
+Clients do not use speech rendering as a substitute for missing brain-side reply construction.
 
 ### Alerts Boundary
 
@@ -104,7 +104,7 @@ Due-alert delivery is polling-based.
 
 Satellites render due alerts through one explicit local foreground-audio handoff path.
 
-Spoken alerts may use `/tts`.
+Spoken alerts may use `/api/speech/tts`.
 
 Curated notification announcements use a distinct `notification` alert kind.
 They borrow the speaker with pause-or-stronger interruption and resume prior
@@ -168,7 +168,7 @@ Satellites and thin clients must not assume:
 Allowed fallback behavior:
 
 - minimal spoken fallback when `reply_text` is absent
-- minimal spoken fallback when `/tts` fails after the client already has text
+- minimal spoken fallback when `/api/speech/tts` fails after the client already has text
 - minimal transport-error messaging when playback fails locally
 - silence for intentional ignored-command cases
 

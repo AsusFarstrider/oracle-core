@@ -53,7 +53,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
         status: str,
         payload_json: str = "{}",
     ) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
         with transaction(self.db_path) as conn:
             conn.execute(
                 """
@@ -76,7 +76,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
             )
 
     def test_schema_creates_memory_current_projections(self) -> None:
-        schema.ensure_schema(self.db_path, copy_provisional_suggestions=False)
+        schema.ensure_schema(self.db_path)
 
         self.assertIn("memory_current_projections", schema.table_names(self.db_path))
 
@@ -612,12 +612,26 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
                 mock_observe.assert_called_once_with(provider_key, response)
 
     def test_aggregate_health_does_not_observe_provider_status(self) -> None:
-        with (
-            patch("oracle_app.health_routes.get_home_assistant_settings", return_value=("http://ha.local", "token")),
-            patch("oracle_app.health_routes.get_ollama_settings", return_value=("http://ollama.local", "model")),
-            patch("oracle_app.health_routes.safe_observe_provider_health") as mock_observe,
-        ):
-            response = api.health()
+        composition = type(
+            "Composition",
+            (),
+            {
+                "runtime": type(
+                    "Runtime",
+                    (),
+                    {
+                        "home_assistant": type("HomeAssistant", (), {"enabled": True})(),
+                        "brain": type(
+                            "Brain",
+                            (),
+                            {"inference": type("Inference", (), {"enabled": True})()},
+                        )(),
+                    },
+                )()
+            },
+        )()
+        with patch("oracle_app.health_routes.safe_observe_provider_health") as mock_observe:
+            response = api.canonical_health(composition)
 
         self.assertEqual(response.status, "ok")
         mock_observe.assert_not_called()

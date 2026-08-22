@@ -55,22 +55,14 @@ def parse_news_query(
     return NewsQuery(source=source, original_text=normalized)
 
 
-def check_news_health(*, canonical_execution=None, canonical_authority: bool = False) -> dict[str, Any]:
+def check_news_health(*, canonical_execution=None) -> dict[str, Any]:
     if canonical_execution is not None:
         return canonical_execution.health()
-    if canonical_authority:
-        return {
-            "status": "disabled",
-            "service": "oracle-brain",
-            "configured_sources": [],
-            "detail": "No news feeds configured",
-        }
-    settings = get_news_settings()
     return {
-        "status": "ok" if settings["sources"] else "failed",
+        "status": "disabled",
         "service": "oracle-brain",
-        "configured_sources": sorted(settings["sources"].keys()),
-        "detail": "News feeds configured" if settings["sources"] else "No news feeds configured",
+        "configured_sources": [],
+        "detail": "No news feeds configured",
     }
 
 

@@ -83,3 +83,16 @@ def test_managed_client_families_reference_canonical_contracts() -> None:
     if "mobile-client/src/types.ts" in content:
         assert "ConversationEffects" in content["mobile-client/src/types.ts"]
     assert "_poll_pending_alerts" not in content["satellite/pc_push_to_talk.py"]
+
+
+def test_private_stt_benchmark_uses_installed_canonical_brain_only() -> None:
+    benchmark = _contents().get("scripts/stt_benchmark.py")
+    if benchmark is None:
+        return
+
+    assert "/api/speech/stt" in benchmark
+    assert "/api/admin/health" in benchmark
+    assert "--base-url" in benchmark
+    assert "get_stt_provider" not in benchmark
+    assert "get_stt_settings" not in benchmark
+    assert "uvicorn" not in benchmark

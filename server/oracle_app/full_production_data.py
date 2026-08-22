@@ -5,20 +5,15 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
-import json
 from pathlib import Path
 import sqlite3
 from types import SimpleNamespace
 
 from .configuration import SecretSnapshot, inspect_candidate
-from .memory.alerts import import_legacy_alerts
 from .memory.identity_reconciliation import reconcile_identities
 from .memory.retention import retention_policy_from_configuration
 from .memory.retention_executor import run_retention
 from .memory.schema import ensure_schema
-
-
-EXCLUDED_LEGACY_ALERT_SOURCES = frozenset({"ephemeral_http", "test-source"})
 
 
 class FullProductionDataError(RuntimeError):
@@ -64,7 +59,6 @@ def _sqlite_backup(source: Path, destination: Path) -> None:
 
 def migrate_copy(
     source_database: Path,
-    legacy_alerts: Path,
     configuration_root: Path,
     secret_snapshot: SecretSnapshot,
     destination_database: Path,
@@ -74,7 +68,7 @@ def migrate_copy(
 ) -> dict[str, object]:
     clock = observed_at.astimezone(timezone.utc)
     _sqlite_backup(source_database, destination_database)
-    ensure_schema(destination_database, copy_provisional_suggestions=False)
+    ensure_schema(destination_database)
     inspection = inspect_candidate(configuration_root, secret_snapshot=secret_snapshot)
     if not inspection.report.activation_eligible or inspection.bundle is None:
         raise FullProductionDataError("canonical full-production configuration is not activation eligible")
@@ -92,27 +86,6 @@ def migrate_copy(
         db_path=destination_database,
         now=clock,
     )
-    try:
-        alert_payload = json.loads(legacy_alerts.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise FullProductionDataError("legacy alert inventory is unreadable") from exc
-    if not isinstance(alert_payload, list):
-        raise FullProductionDataError("legacy alert inventory must be a list")
-    excluded = {source: 0 for source in sorted(EXCLUDED_LEGACY_ALERT_SOURCES)}
-    legitimate = []
-    for item in alert_payload:
-        source = str(item.get("source") or "") if isinstance(item, dict) else ""
-        if source in excluded:
-            excluded[source] += 1
-        else:
-            legitimate.append(item)
-    alert_report = import_legacy_alerts(
-        legitimate,
-        db_path=destination_database,
-        now=clock,
-    )
-    if alert_report["rejected"] or alert_report["imported"] + alert_report["duplicates"] != len(legitimate):
-        raise FullProductionDataError("legitimate legacy alerts did not migrate exactly")
     policy = retention_policy_from_configuration(
         bundle.roles["brain.yaml"].storage.memory.retention  # type: ignore[attr-defined]
     )
@@ -138,12 +111,6 @@ def migrate_copy(
             "config_revision": inspection.normalized_candidate_revision,
         },
         "identity_reconciliation": asdict(identities),
-        "alerts": {
-            "source_count": len(alert_payload),
-            "legitimate_count": len(legitimate),
-            "excluded_by_source": excluded,
-            **alert_report,
-        },
         "retention": dry_run.as_dict(),
         "retention_applied": None if applied is None else applied.as_dict(),
         "database": {

@@ -7,13 +7,11 @@ from .brain_application_composition import (
     BRAIN_APPLICATION_COMPOSITION_STATE_KEY,
     CanonicalBrainApplicationComposition,
 )
-from .config import get_home_assistant_settings, get_ollama_settings
 from .config_reporting import (
     build_config_report_payload,
     choose_config_report_format,
     render_config_report_text,
 )
-from .config_validation import build_brain_config_report
 from .health import (
     check_audiobook_health,
     check_calendar_health,
@@ -51,134 +49,100 @@ AVAILABLE_HOOKS = (
     HookInfo(
         name="health_config",
         method="GET",
-        path="/health/config",
-        description="Report sanitized config validation findings for the running Oracle brain.",
+        path="/api/admin/health/config",
+        description="Report the exact applied canonical configuration identity.",
     ),
     HookInfo(
         name="session",
         method="GET",
-        path="/api/voice/session",
+        path="/api/conversation/session",
         description="Inspect a specific brain-owned session by source and effective session ID.",
     ),
     HookInfo(
         name="route",
         method="POST",
-        path="/api/voice/route",
+        path="/api/conversation/route",
         description="Classify text and return the chosen backend target.",
     ),
     HookInfo(
         name="command",
         method="POST",
-        path="/command",
-        description="Primary hook for clients. Routes a request and returns a dispatch plan.",
-    ),
-    HookInfo(
-        name="ingest_text",
-        method="POST",
-        path="/api/voice/ingest/text",
-        description="Command-style submission for text-only clients.",
+        path="/api/conversation/command",
+        description="Route a canonical conversation request and return its finite result.",
     ),
     HookInfo(
         name="health_audiobook",
         method="GET",
-        path="/health/audiobook",
+        path="/api/admin/health/audiobook",
         description="Verify connectivity and authentication for the configured Audiobookshelf server.",
     ),
     HookInfo(
         name="health_calendar",
         method="GET",
-        path="/health/calendar",
+        path="/api/admin/health/calendar",
         description="Verify connectivity and parsing for the configured calendar feed.",
     ),
     HookInfo(
         name="health_home_assistant",
         method="GET",
-        path="/health/home-assistant",
+        path="/api/admin/health/home-assistant",
         description="Verify live connectivity and authentication to Home Assistant.",
     ),
     HookInfo(
         name="health_ollama",
         method="GET",
-        path="/health/ollama",
+        path="/api/admin/health/ollama",
         description="Verify live connectivity to the local Ollama API.",
     ),
     HookInfo(
         name="health_music",
         method="GET",
-        path="/health/music",
+        path="/api/admin/health/music",
         description="Verify Plex and satellite control configuration for music.",
     ),
     HookInfo(
         name="health_news",
         method="GET",
-        path="/health/news",
+        path="/api/admin/health/news",
         description="Verify configuration for live news feeds.",
     ),
     HookInfo(
         name="health_tts",
         method="GET",
-        path="/health/tts",
+        path="/api/admin/health/tts",
         description="Verify TTS provider configuration and local availability.",
     ),
     HookInfo(
         name="health_stt",
         method="GET",
-        path="/health/stt",
+        path="/api/admin/health/stt",
         description="Verify STT provider configuration and local availability.",
     ),
     HookInfo(
         name="audiobook_stream",
         method="GET",
-        path="/audiobooks/stream/{playback_id}/{track_index}",
+        path="/api/satellite/media/audiobooks/{playback_id}/tracks/{track_index}",
         description="Proxy a prepared audiobook track stream to a playback target.",
     ),
     HookInfo(
         name="tts",
         method="POST",
-        path="/tts",
+        path="/api/speech/tts",
         description="Synthesize speech audio for satellite playback.",
     ),
     HookInfo(
         name="stt",
         method="POST",
-        path="/stt",
+        path="/api/speech/stt",
         description="Transcribe uploaded audio into text.",
     ),
     HookInfo(
         name="pending_alerts",
         method="GET",
-        path="/alerts/pending",
-        description="Fetch due timers, alarms, and reminders for a source.",
-    ),
-    HookInfo(
-        name="system_refresh_cache",
-        method="POST",
-        path="/command",
-        description="Internal maintenance action that refreshes Oracle's Home Assistant cache.",
+        path="/api/satellite/alerts/claim",
+        description="Claim due durable alerts for an authenticated satellite.",
     ),
 )
-
-
-def health() -> HealthResponse:
-    ha_settings_present = False
-    ollama_settings_present = False
-    try:
-        get_home_assistant_settings()
-        ha_settings_present = True
-    except HTTPException:
-        ha_settings_present = False
-    try:
-        get_ollama_settings()
-        ollama_settings_present = True
-    except HTTPException:
-        ollama_settings_present = False
-
-    return HealthResponse(
-        status="ok",
-        service="oracle-brain",
-        home_assistant_configured=ha_settings_present,
-        ollama_configured=ollama_settings_present,
-    )
 
 
 def canonical_health(
@@ -208,23 +172,19 @@ def health_config(request: Request) -> Response:
         if isinstance(composition, CanonicalBrainApplicationComposition)
         else None
     )
-    report_sections = (
-        []
-        if canonical is not None
-        else [("Brain config check:", build_brain_config_report())]
-    )
+    if canonical is None:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    report_sections: list[tuple[str, list[dict[str, object]]]] = []
     response_format = choose_config_report_format(request.query_params, request.headers.get("accept"))
     if response_format == "text":
         rendered = render_config_report_text(report_sections)
-        if canonical is not None:
-            rendered = _render_applied_configuration(canonical)
+        rendered = _render_applied_configuration(canonical)
         return PlainTextResponse(rendered)
     payload = build_config_report_payload(
         service="oracle-brain",
         report_sections=report_sections,
     )
-    if canonical is not None:
-        payload["configuration"] = canonical.applied_configuration_payload()
+    payload["configuration"] = canonical.applied_configuration_payload()
     return JSONResponse(payload)
 
 
@@ -263,6 +223,52 @@ def health_home_assistant() -> HomeAssistantHealthResponse:
     return response
 
 
+def health_audiobook() -> AudiobookHealthResponse:
+    response = check_audiobook_health()
+    safe_observe_provider_health("audiobookshelf", response)
+    return response
+
+
+def health_calendar() -> CalendarHealthResponse:
+    response = check_calendar_health()
+    safe_observe_provider_health("calendar", response)
+    return response
+
+
+def health_ollama() -> OllamaHealthResponse:
+    response = check_ollama_health()
+    safe_observe_provider_health("ollama", response)
+    return response
+
+
+def health_music() -> MusicHealthResponse:
+    response = check_music_health()
+    safe_observe_provider_health("music", response)
+    return response
+
+
+def health_news() -> NewsHealthResponse:
+    return check_news_health()
+
+
+def health_librenms() -> LibreNmsHealthResponse:
+    response = check_librenms_health()
+    safe_observe_provider_health("librenms", response)
+    return response
+
+
+def health_tts() -> TtsHealthResponse:
+    response = check_tts_health()
+    safe_observe_provider_health("tts", response)
+    return response
+
+
+def health_stt() -> SttHealthResponse:
+    response = check_stt_health()
+    safe_observe_provider_health("stt", response)
+    return response
+
+
 def _canonical_composition_from_request(request: Request) -> CanonicalBrainApplicationComposition | None:
     composition = getattr(
         getattr(request.scope.get("app"), "state", None),
@@ -275,147 +281,85 @@ def _canonical_composition_from_request(request: Request) -> CanonicalBrainAppli
 def health_http(request: Request) -> HealthResponse:
     canonical = _canonical_composition_from_request(request)
     if canonical is None:
-        return health()
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
     return canonical_health(canonical)
 
 
 def health_home_assistant_http(request: Request) -> HomeAssistantHealthResponse:
     canonical = _canonical_composition_from_request(request)
     if canonical is None:
-        return health_home_assistant()
-    response = check_home_assistant_health(
-        canonical.runtime.home_assistant,
-        canonical_authority=True,
-    )
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    response = check_home_assistant_health(canonical.runtime.home_assistant)
     safe_observe_provider_health("home_assistant", response)
-    return response
-
-
-def health_audiobook() -> AudiobookHealthResponse:
-    response = check_audiobook_health()
-    safe_observe_provider_health("audiobookshelf", response)
     return response
 
 
 def health_audiobook_http(request: Request) -> AudiobookHealthResponse:
     canonical = _canonical_composition_from_request(request)
-    response = (
-        health_audiobook()
-        if canonical is None
-        else check_audiobook_health(
-            canonical.audiobook_execution,
-            canonical_authority=True,
-        )
-    )
-    if canonical is not None:
-        safe_observe_provider_health("audiobookshelf", response)
-    return response
-
-
-def health_calendar() -> CalendarHealthResponse:
-    response = check_calendar_health()
-    safe_observe_provider_health("calendar", response)
+    if canonical is None:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    response = check_audiobook_health(canonical.audiobook_execution)
+    safe_observe_provider_health("audiobookshelf", response)
     return response
 
 
 def health_calendar_http(request: Request) -> CalendarHealthResponse:
     composition = _canonical_composition_from_request(request)
-    response = check_calendar_health(
-        canonical_execution=None if composition is None else composition.calendar_execution,
-        canonical_authority=composition is not None,
-    )
+    if composition is None:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    response = check_calendar_health(canonical_execution=composition.calendar_execution)
     safe_observe_provider_health("calendar", response)
-    return response
-
-
-def health_ollama() -> OllamaHealthResponse:
-    response = check_ollama_health()
-    safe_observe_provider_health("ollama", response)
     return response
 
 
 def health_ollama_http(request: Request) -> OllamaHealthResponse:
     composition = _canonical_composition_from_request(request)
-    response = check_ollama_health(
-        inference=None if composition is None else composition.core_consumers.inference,
-        canonical_authority=composition is not None,
-    )
+    if composition is None:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    response = check_ollama_health(inference=composition.core_consumers.inference)
     safe_observe_provider_health("ollama", response)
-    return response
-
-
-def health_music() -> MusicHealthResponse:
-    response = check_music_health()
-    safe_observe_provider_health("music", response)
     return response
 
 
 def health_music_http(request: Request) -> MusicHealthResponse:
     composition = _canonical_composition_from_request(request)
-    response = check_music_health(
-        music_execution=None if composition is None else composition.music_execution,
-        canonical_authority=composition is not None,
-    )
+    if composition is None:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    response = check_music_health(music_execution=composition.music_execution)
     safe_observe_provider_health("music", response)
     return response
 
 
-def health_news() -> NewsHealthResponse:
-    return check_news_health()
-
-
 def health_news_http(request: Request) -> NewsHealthResponse:
     composition = _canonical_composition_from_request(request)
-    return check_news_health(
-        canonical_execution=None if composition is None else composition.news_execution,
-        canonical_authority=composition is not None,
-    )
-
-
-def health_librenms() -> LibreNmsHealthResponse:
-    response = check_librenms_health()
-    safe_observe_provider_health("librenms", response)
-    return response
+    if composition is None:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    return check_news_health(canonical_execution=composition.news_execution)
 
 
 def health_librenms_http(request: Request) -> LibreNmsHealthResponse:
     composition = _canonical_composition_from_request(request)
-    response = check_librenms_health(
-        canonical_execution=None if composition is None else composition.network_execution,
-        canonical_authority=composition is not None,
-    )
+    if composition is None:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    response = check_librenms_health(canonical_execution=composition.network_execution)
     safe_observe_provider_health("librenms", response)
-    return response
-
-
-def health_tts() -> TtsHealthResponse:
-    response = check_tts_health()
-    safe_observe_provider_health("tts", response)
     return response
 
 
 def health_tts_http(request: Request) -> TtsHealthResponse:
     composition = _canonical_composition_from_request(request)
-    response = check_tts_health(
-        provider=None if composition is None else composition.tts_provider(),
-        canonical_authority=composition is not None,
-    )
+    if composition is None:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    response = check_tts_health(provider=composition.tts_provider())
     safe_observe_provider_health("tts", response)
-    return response
-
-
-def health_stt() -> SttHealthResponse:
-    response = check_stt_health()
-    safe_observe_provider_health("stt", response)
     return response
 
 
 def health_stt_http(request: Request) -> SttHealthResponse:
     composition = _canonical_composition_from_request(request)
-    response = check_stt_health(
-        provider=None if composition is None else composition.stt_provider(),
-        canonical_authority=composition is not None,
-    )
+    if composition is None:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    response = check_stt_health(provider=composition.stt_provider())
     safe_observe_provider_health("stt", response)
     return response
 

@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 
 from .config import get_facts_settings
+from .inference import InferenceClient
 from .schemas import FactsProviderResult
 from .information_runtime import CanonicalFactsExecution
 
@@ -48,6 +49,7 @@ def admin_facts_lookup(
         result,
         summarizer_configured=configured,
         summarize=summarize,
+        inference=None if canonical_execution is None else canonical_execution.inference,
     )
     payload = _redact_sensitive_fields(facts_result_to_dispatch_payload(result, summary=summary))
     return {
@@ -58,17 +60,12 @@ def admin_facts_lookup(
     }
 
 
-def summarize_facts_result(result: FactsProviderResult) -> str | None:
-    from .facts_summarizer import summarize_facts_result as _summarize_facts_result
-
-    return _summarize_facts_result(result)
-
-
 def _run_admin_summarizer(
     result: FactsProviderResult,
     *,
     summarizer_configured: bool,
     summarize: bool | None,
+    inference: InferenceClient | None,
 ) -> tuple[str | None, dict[str, object]]:
     configured = summarizer_configured
     requested = configured if summarize is None else bool(summarize)
@@ -92,7 +89,7 @@ def _run_admin_summarizer(
 
     status["attempted"] = True
     try:
-        summary = summarize_facts_result(result)
+        summary = summarize_facts_result(result, inference=inference)
     except Exception as exc:
         logger.warning(
             "admin_facts_summarizer_failed status=%s provider=%s error=%s",
@@ -108,6 +105,18 @@ def _run_admin_summarizer(
     status["succeeded"] = True
     status["reason"] = "summarized"
     return summary, status
+
+
+def summarize_facts_result(
+    result: FactsProviderResult,
+    *,
+    inference: InferenceClient | None,
+) -> str | None:
+    if inference is None:
+        raise RuntimeError("Canonical inference is required for facts summarization.")
+    from .facts_summarizer import summarize_facts_result as summarize
+
+    return summarize(result, inference=inference)
 
 
 def _redact_sensitive_fields(value: Any) -> Any:
@@ -149,10 +158,11 @@ def admin_facts_lookup_http(
         BRAIN_APPLICATION_COMPOSITION_STATE_KEY,
         None,
     )
-    canonical = isinstance(composition, CanonicalBrainApplicationComposition)
+    if not isinstance(composition, CanonicalBrainApplicationComposition):
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
     return admin_facts_lookup(
         query,
         summarize,
-        canonical_execution=composition.facts_execution if canonical else None,
-        canonical_authority=canonical,
+        canonical_execution=composition.facts_execution,
+        canonical_authority=True,
     )

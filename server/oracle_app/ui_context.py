@@ -20,9 +20,9 @@ def ui_context_start_impl(
     request_source_id: str | None = None,
     target_source_id: str | None = None,
 ) -> dict[str, object]:
-    source = str(request_source_id or payload.source or "").strip()
-    session_id = str(payload.ui_session_id or payload.session_id or "").strip()
-    target = str(target_source_id or payload.target_source_id or payload.source or "").strip()
+    source = str(request_source_id or "").strip()
+    session_id = str(payload.ui_session_id or "").strip()
+    target = str(target_source_id or payload.target_source_id or "").strip()
     client_id = str(payload.client_id or "").strip()
     if not source:
         raise HTTPException(status_code=400, detail="request source is required")
@@ -58,8 +58,6 @@ def ui_context_start_impl(
         "source_id": source,
         "ui_session_id": session_id,
         "target_source_id": target,
-        "source": source,
-        "session_id": session_id,
         "prompt": prompt,
         "refresh": {
             "refresh_pages": ["home"],

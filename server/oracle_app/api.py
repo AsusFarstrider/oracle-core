@@ -106,7 +106,6 @@ from .orchestration_routines import (
 from .orchestration_routine_canonical import CanonicalRoutineExecution
 from .health_routes import (
     canonical_health,
-    health,
     health_audiobook,
     health_calendar,
     health_config,
@@ -244,8 +243,6 @@ from .schemas import (
     UiActionRequest,
     VoiceDeferredResumeRequest,
 )
-from .weather_current import build_weather_response
-from .weather_forecast import fetch_weather_forecast
 
 
 logger = logging.getLogger("oracle-brain.api")
@@ -1235,21 +1232,12 @@ def _build_ui_generated_at() -> str:
 
 def _build_ui_home_weather_payload() -> dict[str, object]:
     composition = brain_application_composition()
-    canonical = isinstance(composition, CanonicalBrainApplicationComposition)
     try:
-        _speech, weather = (
-            composition.weather_execution.build_current_response("")
-            if canonical and composition.weather_execution is not None
-            else _canonical_weather_ui_unavailable()
-            if canonical
-            else build_weather_response("")
-        )
+        if composition.weather_execution is None:
+            _canonical_weather_ui_unavailable()
+        _speech, weather = composition.weather_execution.build_current_response("")
         try:
-            forecast_payload = (
-                composition.weather_execution.fetch_forecast()
-                if canonical and composition.weather_execution is not None
-                else fetch_weather_forecast()
-            )
+            forecast_payload = composition.weather_execution.fetch_forecast()
             forecast_periods = list(forecast_payload.get("periods") or [])
         except Exception:
             forecast_periods = []
@@ -1300,13 +1288,12 @@ def _canonical_weather_ui_unavailable():
 
 def _cached_ui_network_health_snapshot() -> dict[str, object]:
     composition = brain_application_composition()
-    canonical = isinstance(composition, CanonicalBrainApplicationComposition)
     return get_cached_snapshot(
         "ui_network_health",
         ttl_seconds=30,
         builder=lambda: build_ui_network_health_snapshot(
-            canonical_execution=composition.network_execution if canonical else None,
-            canonical_authority=canonical,
+            canonical_execution=composition.network_execution,
+            canonical_authority=True,
         ),
     )
 
@@ -1500,13 +1487,13 @@ def _validate_ui_action_source(source: str | None) -> str:
 
 
 def _ui_context_start_impl(payload: UiContextStartRequest, request: Request | None = None) -> dict[str, object]:
-    target_source_id = str(payload.target_source_id or payload.source or "").strip()
+    target_source_id = str(payload.target_source_id or "").strip()
     if payload.action in {"music_search", "audiobook_search"}:
         target_source_id = _validate_ui_action_source(target_source_id or None)
 
-    request_source_id = str(payload.source or "").strip()
+    request_source_id = ""
     if request is not None:
-        resolved_source = _canonical_http_request_source(payload.source, request)
+        resolved_source = _canonical_http_request_source(None, request)
         if resolved_source is not None:
             request_source_id = resolved_source.request_source_id
         if payload.action == "set_alarm":
@@ -1558,9 +1545,6 @@ def _request_payload_and_household(
     ResolvedRequestSource | None,
 ]:
     composition = brain_application_composition()
-    if not isinstance(composition, CanonicalBrainApplicationComposition):
-        return payload, None, None
-
     established_source = request_source or ResolvedRequestSource(
         request_source_id="ephemeral_internal",
         kind="ephemeral",
@@ -1581,9 +1565,14 @@ def _canonical_http_request_source(
     payload_source: str | None,
     request: Request,
 ) -> ResolvedRequestSource | None:
-    composition = brain_application_composition(request.app)
-    if not isinstance(composition, CanonicalBrainApplicationComposition):
-        return None
+    try:
+        composition = brain_application_composition(request.app)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Canonical application composition is unavailable.",
+            headers={"Cache-Control": "no-store"},
+        ) from exc
     authorization = str(request.headers.get("Authorization") or "")
     scheme, separator, token = authorization.partition(" ")
     credential = token.strip() if separator and scheme.casefold() == "bearer" else None
@@ -1651,20 +1640,13 @@ def route_request(
             reason=IGNORED_TRANSCRIPT_REASON,
             normalized_text="",
         )
-    if household_settings is None:
-        route = choose_route(
-            effective_payload.text,
-            source=effective_payload.source,
-            session_id=effective_payload.session_id,
-        )
-    else:
-        route = choose_route(
-            effective_payload.text,
-            source=effective_payload.source,
-            session_id=effective_payload.session_id,
-            registry=brain_application_composition().route_registry,
-            household_settings=household_settings,
-        )
+    route = choose_route(
+        effective_payload.text,
+        source=effective_payload.source,
+        session_id=effective_payload.session_id,
+        registry=brain_application_composition().route_registry,
+        household_settings=household_settings,
+    )
     if route.target == "home_assistant":
         resolved_text, _room_context = apply_room_context_to_home_text(
             route.normalized_text,
@@ -1701,7 +1683,10 @@ def command_request(
     )
     normalized = normalize_text(payload.text)
     if not normalized:
-        response = build_ignored_command_response(effective_payload)
+        response = build_ignored_command_response(
+            effective_payload,
+            registry=brain_application_composition().dispatch_registry,
+        )
         response.session_id = payload.session_id
         response.effective_session_id = str(session_info["effective_session_id"])
         _log_command_event(
@@ -1827,20 +1812,13 @@ def command_request(
     command_text = user_directive.rewritten_text or normalized
 
     append_turn(effective_payload.source, effective_payload.session_id, "user", payload.text)
-    if household_settings is None:
-        route = choose_route(
-            command_text,
-            source=effective_payload.source,
-            session_id=effective_payload.session_id,
-        )
-    else:
-        route = choose_route(
-            command_text,
-            source=effective_payload.source,
-            session_id=effective_payload.session_id,
-            registry=brain_application_composition().route_registry,
-            household_settings=household_settings,
-        )
+    route = choose_route(
+        command_text,
+        source=effective_payload.source,
+        session_id=effective_payload.session_id,
+        registry=brain_application_composition().route_registry,
+        household_settings=household_settings,
+    )
     initial_route = route
     fallback_dispatch: DispatchPlan | None = None
     fallback_used = initial_route.target == "fallback_router"

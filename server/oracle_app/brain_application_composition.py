@@ -94,7 +94,6 @@ class CanonicalBrainApplicationComposition:
         if startup.installation_layout is not None:
             validate_standard_storage_settings(
                 runtime.brain.memory_storage.database_path,
-                runtime.brain.alert_storage.state_path,
             )
         core_consumers = BrainCoreRuntimeConsumers.from_runtime_settings(runtime.brain)
         if startup.installation_layout is not None:

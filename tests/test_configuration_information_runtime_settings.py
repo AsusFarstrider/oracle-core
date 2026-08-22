@@ -212,9 +212,6 @@ class InformationRuntimeSettingsTests(unittest.TestCase):
             "oracle_app.config.get_facts_settings",
             side_effect=AssertionError("canonical route used V1 facts settings"),
         ), patch(
-            "oracle_app.handlers.facts.get_facts_settings",
-            side_effect=AssertionError("canonical dispatch used V1 facts settings"),
-        ), patch(
             "oracle_app.admin_facts_routes.get_facts_settings",
             side_effect=AssertionError("canonical admin lookup used V1 facts settings"),
         ):
@@ -310,7 +307,6 @@ class InformationRuntimeSettingsTests(unittest.TestCase):
             )
             health = check_news_health(
                 canonical_execution=execution,
-                canonical_authority=True,
             )
 
         self.assertEqual(route.target, "news")

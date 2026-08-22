@@ -36,7 +36,7 @@ from .schemas import RouteResponse
 def build_route_capability_registry(
     household_settings: HouseholdRuntimeSettings | None = None,
     *,
-    facts_enabled: bool | None = None,
+    facts_enabled: bool = False,
     news_settings: NewsRuntimeSettings | None = None,
     canonical_information: bool = False,
     calendar_settings: CalendarRuntimeSettings | None = None,
@@ -78,19 +78,16 @@ def build_route_capability_registry(
     return registry
 
 
-ROUTE_CAPABILITY_REGISTRY = build_route_capability_registry()
-
-
 def choose_route(
     text: str,
     *,
     source: str | None = None,
     session_id: str | None = None,
-    registry: CapabilityRegistry | None = None,
+    registry: CapabilityRegistry,
     household_settings: HouseholdRuntimeSettings | None = None,
 ) -> RouteResponse:
     normalized = normalize_text(text)
-    route = (registry or ROUTE_CAPABILITY_REGISTRY).evaluate(
+    route = registry.evaluate(
         normalized,
         source=source,
         session_id=session_id,

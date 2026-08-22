@@ -8,7 +8,10 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
-from .config import get_source_registry, get_wake_arbitration_settings
+from .brain_application_composition import (
+    BRAIN_APPLICATION_COMPOSITION_STATE_KEY,
+    CanonicalBrainApplicationComposition,
+)
 from .memory.correlation import get_correlation_id
 from .schemas import WakeClaimRequest, WakeClaimResponse
 from .wake_arbitration import WakeArbitrationService, WakeClaim
@@ -21,11 +24,10 @@ _SERVICE: WakeArbitrationService | None = None
 _SERVICE_KEY: tuple[int, str] | None = None
 
 
-def get_wake_arbitration_service(settings: dict[str, Any] | None = None) -> WakeArbitrationService:
+def get_wake_arbitration_service(settings) -> WakeArbitrationService:
     global _SERVICE, _SERVICE_KEY
-    effective_settings = settings or get_wake_arbitration_settings()
-    window_ms = int(effective_settings.get("window_ms", 500))
-    scoring_strategy = str(effective_settings.get("scoring_strategy") or "audio_level_confidence_recent")
+    window_ms = int(settings.window_ms)
+    scoring_strategy = str(settings.scoring_strategy)
     key = (window_ms, scoring_strategy)
     with _SERVICE_LOCK:
         if _SERVICE is None or _SERVICE_KEY != key:
@@ -40,9 +42,16 @@ def wake_claim(payload: WakeClaimRequest, request: Request) -> WakeClaimResponse
     if payload.correlation_id and header_correlation_id and payload.correlation_id != header_correlation_id:
         raise HTTPException(status_code=422, detail="Correlation ID header/body mismatch")
 
-    settings = get_wake_arbitration_settings()
+    composition = getattr(
+        getattr(request.scope.get("app"), "state", None),
+        BRAIN_APPLICATION_COMPOSITION_STATE_KEY,
+        None,
+    )
+    if not isinstance(composition, CanonicalBrainApplicationComposition):
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    settings = composition.runtime.brain.runtime.wake_arbitration
     service = get_wake_arbitration_service(settings)
-    room_id, profile = _resolve_claim_metadata(payload)
+    room_id, profile = _resolve_claim_metadata(payload, composition.runtime.household)
     receipt = service.submit_claim(
         WakeClaim(
             satellite_id=payload.satellite_id,
@@ -84,18 +93,14 @@ def wake_claim(payload: WakeClaimRequest, request: Request) -> WakeClaimResponse
     )
 
 
-def _resolve_claim_metadata(payload: WakeClaimRequest) -> tuple[str | None, str | None]:
+def _resolve_claim_metadata(payload: WakeClaimRequest, household_settings) -> tuple[str | None, str | None]:
     room_id = _clean_optional_text(payload.room_id)
     profile = _clean_optional_text(payload.profile)
     if room_id and profile:
         return room_id, profile
 
-    source_entry = get_source_registry().get(str(payload.satellite_id).strip()) or {}
     if not room_id:
-        room_id = _clean_optional_text(source_entry.get("default_room"))
-    if not profile:
-        ui_entry = source_entry.get("ui") if isinstance(source_entry.get("ui"), dict) else {}
-        profile = _clean_optional_text(ui_entry.get("profile"))
+        room_id = household_settings.configured_associated_room_id(payload.satellite_id)
     return room_id, profile
 
 

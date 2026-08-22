@@ -88,51 +88,16 @@ def parse_calendar_query(text: str, *, timezone_name: str | None = None) -> Cale
     )
 
 
-def check_calendar_health(*, canonical_execution=None, canonical_authority: bool = False) -> dict[str, Any]:
+def check_calendar_health(*, canonical_execution=None) -> dict[str, Any]:
     if canonical_execution is not None:
         return canonical_execution.health()
-    if canonical_authority:
-        return {
-            "status": "disabled",
-            "service": "oracle-brain",
-            "calendar_configured": False,
-            "timezone": "UTC",
-            "detail": "Calendar feed is not configured",
-        }
-    settings = get_calendar_settings()
-    if not settings["calendar_configured"]:
-        return {
-            "status": "failed",
-            "service": "oracle-brain",
-            "calendar_configured": False,
-            "timezone": settings["timezone"],
-            "detail": "Calendar feed is not configured",
-        }
-    try:
-        event_count = len(
-            _load_events_for_scope(
-                settings,
-                scope="personal",
-                require_config=True,
-                force_refresh=True,
-                allow_stale=False,
-            ).value
-        )
-        return {
-            "status": "ok",
-            "service": "oracle-brain",
-            "calendar_configured": True,
-            "timezone": settings["timezone"],
-            "detail": f"Calendar feed reachable with {event_count} events parsed",
-        }
-    except Exception as exc:
-        return {
-            "status": "failed",
-            "service": "oracle-brain",
-            "calendar_configured": True,
-            "timezone": settings["timezone"],
-            "detail": str(exc),
-        }
+    return {
+        "status": "disabled",
+        "service": "oracle-brain",
+        "calendar_configured": False,
+        "timezone": "UTC",
+        "detail": "Calendar feed is not configured",
+    }
 
 
 def execute_calendar_query(query: CalendarQuery) -> dict[str, Any]:

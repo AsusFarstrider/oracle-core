@@ -140,7 +140,7 @@ def upsert_source(
     if status not in {"active", "disabled", "retired"}:
         raise ValueError(f"Unknown Oracle Memory source status: {status!r}")
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     now = utc_now_iso()
     payload_json = json.dumps(payload or {}, sort_keys=True)
     with transaction(path) as conn:
@@ -166,7 +166,7 @@ def upsert_source(
 
 def get_source(source_id: str, *, db_path: Path | None = None) -> dict[str, Any] | None:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         row = conn.execute("SELECT * FROM memory_sources WHERE source_id = ?", (source_id,)).fetchone()
     return _row_to_source(row) if row else None
@@ -174,7 +174,7 @@ def get_source(source_id: str, *, db_path: Path | None = None) -> dict[str, Any]
 
 def list_sources(*, db_path: Path | None = None) -> list[dict[str, Any]]:
     path = db_path or DB_PATH
-    ensure_schema(path, copy_provisional_suggestions=False)
+    ensure_schema(path)
     with transaction(path) as conn:
         rows = conn.execute("SELECT * FROM memory_sources ORDER BY created_at, source_id").fetchall()
     return [_row_to_source(row) for row in rows]

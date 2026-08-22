@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from .store import DB_PATH, PROVISIONAL_SUGGESTIONS_DB_PATH, transaction
+from .store import DB_PATH, transaction
 
 
 SCHEMA_VERSION = "0009_durable_alerts"
@@ -396,14 +396,8 @@ _NOTIFICATION_DELIVERY_COLUMNS = {
 }
 
 
-SUGGESTION_TABLES = ("suggestion_runs", "suggestions", "suggestion_reviews")
-
-
 def ensure_schema(
     db_path: Path | None = None,
-    *,
-    copy_provisional_suggestions: bool = True,
-    provisional_db_path: Path | None = None,
 ) -> None:
     path = db_path or DB_PATH
     _prepare_breaking_migration(path)
@@ -416,10 +410,6 @@ def ensure_schema(
             "INSERT OR IGNORE INTO memory_schema_migrations(version) VALUES (?)",
             [(version,) for version in SCHEMA_VERSIONS],
         )
-    if copy_provisional_suggestions:
-        source_path = provisional_db_path or PROVISIONAL_SUGGESTIONS_DB_PATH
-        _copy_provisional_suggestion_tables(path, source_path)
-        _remove_obsolete_suggestion_sidecars(path, source_path)
 
 
 def _prepare_breaking_migration(path: Path) -> None:
@@ -595,74 +585,3 @@ def _ensure_notification_delivery_schema(conn: sqlite3.Connection) -> None:
         conn.execute(
             f"ALTER TABLE memory_notification_deliveries ADD COLUMN {name} {declaration}"
         )
-
-
-def _copy_provisional_suggestion_tables(target_path: Path, source_path: Path) -> None:
-    if not source_path.exists() or source_path.resolve() == target_path.resolve():
-        return
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    target = sqlite3.connect(target_path)
-    try:
-        existing = {
-            str(row[0])
-            for row in target.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
-        }
-        target.execute("ATTACH DATABASE ? AS provisional", (str(source_path),))
-        try:
-            source_tables = {
-                str(row[0])
-                for row in target.execute(
-                    "SELECT name FROM provisional.sqlite_master WHERE type = 'table'"
-                ).fetchall()
-            }
-            for table in SUGGESTION_TABLES:
-                if table not in source_tables:
-                    continue
-                if table not in existing:
-                    create_sql = target.execute(
-                        "SELECT sql FROM provisional.sqlite_master WHERE type = 'table' AND name = ?",
-                        (table,),
-                    ).fetchone()
-                    if not create_sql or not create_sql[0]:
-                        continue
-                    target.execute(create_sql[0])
-                target_columns = {
-                    str(row[1]) for row in target.execute(f"PRAGMA main.table_info({_quote_identifier(table)})")
-                }
-                source_columns = {
-                    str(row[1]) for row in target.execute(f"PRAGMA provisional.table_info({_quote_identifier(table)})")
-                }
-                columns = sorted(target_columns & source_columns)
-                if not columns:
-                    continue
-                quoted = _quote_identifier(table)
-                column_sql = ", ".join(_quote_identifier(column) for column in columns)
-                target.execute(
-                    f"INSERT OR IGNORE INTO {quoted} ({column_sql}) "
-                    f"SELECT {column_sql} FROM provisional.{quoted}"
-                )
-            target.commit()
-        finally:
-            target.execute("DETACH DATABASE provisional")
-    finally:
-        target.close()
-
-
-def _quote_identifier(identifier: str) -> str:
-    return '"' + identifier.replace('"', '""') + '"'
-
-
-def _remove_obsolete_suggestion_sidecars(target_path: Path, source_path: Path) -> None:
-    if source_path.resolve() == target_path.resolve() or not target_path.exists():
-        return
-    target_tables = table_names(target_path)
-    if not set(SUGGESTION_TABLES).issubset(target_tables):
-        return
-    for suffix in ("-wal", "-shm"):
-        sidecar = Path(str(source_path) + suffix)
-        try:
-            sidecar.unlink(missing_ok=True)
-        except OSError:
-            # A live provisional writer means the adapter is not obsolete yet.
-            # Startup remains fail-open and a later reconciliation may retry.
-            pass

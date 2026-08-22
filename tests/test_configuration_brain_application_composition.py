@@ -180,8 +180,6 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                         "synthesize",
                         return_value=TtsResult(b"audio", "audio/wav", "disabled-test"),
                     ),
-                    patch("oracle_app.handlers.fallback_router.get_fallback_router_settings") as legacy_inference,
-                    patch("oracle_app.health_routes.build_brain_config_report") as legacy_report,
                 ):
                     response = api.synthesize_speech(TtsRequest(text="Hello"))
                     result = api._execute_application_dispatch(dispatch)
@@ -195,7 +193,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                             {
                                 "type": "http",
                                 "method": "POST",
-                                "path": "/api/voice/command",
+                                "path": "/api/conversation/command",
                                 "query_string": b"",
                                 "headers": [],
                                 "app": api.app,
@@ -213,7 +211,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                                 {
                                     "type": "http",
                                     "method": "POST",
-                                    "path": "/api/voice/command",
+                                    "path": "/api/conversation/command",
                                     "query_string": b"",
                                     "headers": [(b"authorization", b"Bearer wrong-token")],
                                     "app": api.app,
@@ -231,7 +229,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                                 {
                                     "type": "http",
                                     "method": "POST",
-                                    "path": "/api/voice/command",
+                                    "path": "/api/conversation/command",
                                     "query_string": b"",
                                     "headers": [(b"authorization", b"Basic not-supported")],
                                     "app": api.app,
@@ -243,7 +241,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                             {
                                 "type": "http",
                                 "method": "GET",
-                                "path": "/health/config",
+                                "path": "/api/admin/health/config",
                                 "query_string": b"",
                                 "headers": [],
                                 "app": api.app,
@@ -255,7 +253,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                             {
                                 "type": "http",
                                 "method": "GET",
-                                "path": "/health/config",
+                                "path": "/api/admin/health/config",
                                 "query_string": b"format=text",
                                 "headers": [],
                                 "app": api.app,
@@ -312,8 +310,6 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                 self.assertEqual(projection_response.body, b'{"projection":"ok"}')
                 legacy_context_sources.assert_not_called()
                 legacy_context_users.assert_not_called()
-                legacy_inference.assert_not_called()
-                legacy_report.assert_not_called()
             finally:
                 if previous is not None:
                     api.install_brain_application_composition(api.app, previous)
@@ -372,10 +368,6 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                     routine_worker = stack.enter_context(patch("oracle_app.api.routine_scheduler_loop", new_callable=AsyncMock))
                     home_worker = stack.enter_context(patch("oracle_app.api.home_automation_scheduler_loop", new_callable=AsyncMock))
                     delivery_worker = stack.enter_context(patch("oracle_app.api.external_delivery_worker_loop", new_callable=AsyncMock))
-                    stack.enter_context(patch(
-                        "oracle_app.handlers.fallback_router.get_fallback_router_settings",
-                        side_effect=AssertionError("V1 inference getter called"),
-                    ))
                     asyncio.run(run_lifespan())
 
                 composition = api.brain_application_composition()

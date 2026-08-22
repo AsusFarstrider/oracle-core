@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import subprocess
 from datetime import datetime
 
 from oracle_app import state
 from oracle_app.alerts import build_alert_response, format_duration, list_alerts
 from oracle_app.calculations import build_calculation_response
-from oracle_app.constants import CACHE_PATH, SYNC_SCRIPT_PATH
+from oracle_app.constants import CACHE_PATH
+from oracle_app.configuration.home_assistant_runtime_settings import HomeAssistantRuntimeSettings
 from oracle_app.configuration.household_runtime_settings import HouseholdRuntimeSettings
+from oracle_app.calendar_runtime import CanonicalCalendarExecution
+from oracle_app.home_assistant_cache import refresh_home_assistant_cache
 from oracle_app.session_state import clear_session_state, set_user_context
 from oracle_app.schemas import DispatchPlan
 from oracle_app.user_context import get_user_entry, resolve_effective_user
@@ -17,8 +19,15 @@ from .home_assistant import HomeAssistantHandler
 class SystemHandler:
     target = "system"
 
-    def __init__(self, household_settings: HouseholdRuntimeSettings | None = None) -> None:
+    def __init__(
+        self,
+        household_settings: HouseholdRuntimeSettings | None = None,
+        calendar_execution: CanonicalCalendarExecution | None = None,
+        home_assistant_settings: HomeAssistantRuntimeSettings | None = None,
+    ) -> None:
         self.household_settings = household_settings
+        self.calendar_execution = calendar_execution
+        self.home_assistant_settings = home_assistant_settings
 
     def handle(self, dispatch: DispatchPlan, registry: object) -> DispatchPlan:
         action = dispatch.payload.get("action")
@@ -131,7 +140,10 @@ class SystemHandler:
 
         if action == "calculation":
             try:
-                speech, details = build_calculation_response(str(dispatch.payload.get("text", "")))
+                speech, details = build_calculation_response(
+                    str(dispatch.payload.get("text", "")),
+                    calendar_execution=self.calendar_execution,
+                )
             except Exception as exc:
                 dispatch.status = "failed"
                 dispatch.result = {
@@ -218,36 +230,20 @@ class SystemHandler:
             return dispatch
 
         try:
-            completed = subprocess.run(
-                [str(SYNC_SCRIPT_PATH)],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-        except subprocess.TimeoutExpired:
-            dispatch.status = "failed"
-            dispatch.result = {
-                "error": "system_action_timeout",
-                "detail": "Cache refresh timed out",
-            }
-            return dispatch
-
-        if completed.returncode != 0:
+            cache = refresh_home_assistant_cache(self.home_assistant_settings)
+        except Exception as exc:
             dispatch.status = "failed"
             dispatch.result = {
                 "error": "system_action_failed",
-                "returncode": completed.returncode,
-                "stdout": completed.stdout.strip(),
-                "stderr": completed.stderr.strip(),
+                "detail": str(exc),
             }
             return dispatch
 
         dispatch.status = "executed"
         dispatch.result = {
             "action": "refresh_cache",
-            "stdout": completed.stdout.strip(),
-            "stderr": completed.stderr.strip(),
+            "room_count": cache["room_count"],
+            "entity_count": cache["entity_count"],
             "cache_path": str(CACHE_PATH),
         }
         return dispatch

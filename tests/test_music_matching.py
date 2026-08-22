@@ -27,25 +27,28 @@ from oracle_app.music_runtime.ollama import choose_music_match_with_ollama, reso
 from oracle_app.music_runtime.playback import build_music_play_media_args, music_playback_selection
 from oracle_app.music_runtime.policy import audiobook_is_clearly_stronger_than_music
 from oracle_app.music_runtime.selection import music_pending_option, music_selection_with_provider_fields
+from oracle_app.inference import InferenceClient, InferenceExecutionSettings
+
+
+def _inference() -> InferenceClient:
+    return InferenceClient(
+        InferenceExecutionSettings(
+            enabled=True,
+            base_url="http://inference.example.test",
+            model="test-model",
+            timeout_seconds=20,
+            keep_alive=-1,
+            options={"temperature": 0.1},
+            fallback_model="routing-model",
+            fallback_timeout_seconds=8,
+        )
+    )
 
 
 class MusicMatchingTests(unittest.TestCase):
-    @patch(
-        "oracle_app.config.get_ollama_request_settings",
-        return_value={"keep_alive": "5m", "options": {}, "timeout_seconds": 1},
-    )
-    @patch(
-        "oracle_app.config.get_ollama_settings",
-        return_value=("http://inference.example.test", "test-model"),
-    )
     @patch("oracle_app.inference.call_generate", side_effect=TimeoutError("timed out"))
-    def test_music_ollama_timeout_fails_as_no_intent(
-        self,
-        _mock_urlopen,
-        _mock_ollama_settings,
-        _mock_request_settings,
-    ) -> None:
-        self.assertIsNone(resolve_with_ollama("the first one"))
+    def test_music_ollama_timeout_fails_as_no_intent(self, _mock_generate) -> None:
+        self.assertIsNone(resolve_with_ollama("the first one", inference=_inference()))
 
     def test_music_playback_selection_keeps_provider_fields_at_playback_edge(self) -> None:
         selection = music_playback_selection(
@@ -777,20 +780,10 @@ class MusicMatchingTests(unittest.TestCase):
         self.assertIn("all too well Taylor Swift", queries)
 
     @patch("oracle_app.inference.call_generate")
-    @patch("oracle_app.config.get_ollama_request_settings")
-    @patch("oracle_app.config.get_ollama_settings")
     def test_choose_music_match_with_ollama_returns_selected_candidate(
         self,
-        mock_settings,
-        mock_request_settings,
         mock_generate,
     ) -> None:
-        mock_settings.return_value = ("http://127.0.0.1:11434", "phi4-mini:latest")
-        mock_request_settings.return_value = {
-            "timeout_seconds": 20,
-            "keep_alive": "-1",
-            "options": {"temperature": 0.1},
-        }
         mock_generate.return_value = {"response": '{"choice_index":1,"reason":"exact artist match"}'}
 
         intent = MusicIntent(
@@ -810,7 +803,7 @@ class MusicMatchingTests(unittest.TestCase):
             {"type": "track", "title": "Heroes", "artist": "David Bowie", "album": "Heroes"},
         ]
 
-        selected = choose_music_match_with_ollama(intent, candidates)
+        selected = choose_music_match_with_ollama(intent, candidates, inference=_inference())
 
         self.assertIsNotNone(selected)
         self.assertEqual(selected["artist"], "David Bowie")

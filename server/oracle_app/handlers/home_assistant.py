@@ -5,7 +5,6 @@ from typing import Any
 from urllib import request
 
 from oracle_app import state
-from oracle_app.config import get_home_assistant_settings
 from oracle_app.text_normalization import normalize_text
 from oracle_app.configuration.home_assistant_runtime_settings import HomeAssistantRuntimeSettings
 from oracle_app.configuration.household_runtime_settings import HouseholdRuntimeSettings
@@ -178,10 +177,7 @@ def execute_home_assistant(
                 reason=str(confirmation["reason"]),
             )
 
-    if not canonical_authority:
-        base_url, token = get_home_assistant_settings()
-        bridge = HomeAssistantBridge(base_url=base_url, token=token)
-    elif home_assistant_settings is None or not home_assistant_settings.enabled:
+    if home_assistant_settings is None or not home_assistant_settings.enabled:
         dispatch.status = "failed"
         dispatch.result = build_failure_result(
             failure_class="configuration_failure",
@@ -190,12 +186,11 @@ def execute_home_assistant(
             detail="Home Assistant is disabled in the applied configuration.",
         )
         return dispatch
-    else:
-        bridge = HomeAssistantBridge(
-            base_url=home_assistant_settings.base_url or "",
-            token=home_assistant_settings.credential or "",
-            timeout_seconds=home_assistant_settings.timeout_seconds,
-        )
+    bridge = HomeAssistantBridge(
+        base_url=home_assistant_settings.base_url or "",
+        token=home_assistant_settings.credential or "",
+        timeout_seconds=home_assistant_settings.timeout_seconds,
+    )
     try:
         bridge_result = bridge.execute_command(
             str(dispatch.payload.get("text") or ""),

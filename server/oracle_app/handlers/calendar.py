@@ -3,10 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from oracle_app import state
-from oracle_app.calendar import execute_calendar_query, parse_calendar_query
+from oracle_app.calendar import parse_calendar_query
 from oracle_app.calendar_runtime import CanonicalCalendarExecution
-from oracle_app.calendar_write import build_or_continue_event_draft, commit_calendar_event
-from oracle_app.config import get_calendar_settings
+from oracle_app.calendar_write import build_or_continue_event_draft
 from oracle_app.schemas import DispatchPlan
 
 
@@ -31,8 +30,6 @@ class CalendarHandler:
                     self.canonical_execution.commit_event(event_draft)
                     if self.canonical_execution is not None
                     else _calendar_write_unconfigured()
-                    if self.canonical_authority
-                    else commit_calendar_event(event_draft, settings=get_calendar_settings())
                 )
             except Exception as exc:
                 error_name = "calendar_write_failed"
@@ -57,13 +54,10 @@ class CalendarHandler:
         normalized = str(dispatch.payload.get("normalized_text", "")).strip() or text
         source = dispatch.payload.get("source")
         session_id = dispatch.payload.get("session_id")
-        settings = None if self.canonical_authority else get_calendar_settings()
         timezone_name = (
             self.canonical_execution.settings.timezone
             if self.canonical_execution is not None
             else "UTC"
-            if self.canonical_authority
-            else str(settings["timezone"])
         )
 
         pending = state.load_pending_calendar_write_request(source, session_id)
@@ -175,8 +169,6 @@ class CalendarHandler:
                 self.canonical_execution.execute(query)
                 if self.canonical_execution is not None
                 else _calendar_read_unconfigured()
-                if self.canonical_authority
-                else execute_calendar_query(query)
             )
         except Exception as exc:
             dispatch.status = "failed"

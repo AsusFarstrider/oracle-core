@@ -90,9 +90,6 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
             "oracle_app.calendar.get_calendar_settings",
             side_effect=AssertionError("canonical calendar used V1 settings"),
         ), patch(
-            "oracle_app.handlers.calendar.get_calendar_settings",
-            side_effect=AssertionError("canonical calendar handler used V1 settings"),
-        ), patch(
             "oracle_app.provider_bridges.nextcloud_calendar.NextcloudCalendarBridge.fetch_typed_events",
             return_value=[event],
         ) as fetch:
@@ -168,9 +165,6 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
         )
 
         with patch(
-            "oracle_app.handlers.calendar.get_calendar_settings",
-            side_effect=AssertionError("canonical calendar write used V1 settings"),
-        ), patch(
             "oracle_app.provider_bridges.nextcloud_calendar.NextcloudCalendarBridge.commit_typed_event",
             return_value=committed,
         ) as commit:

@@ -47,9 +47,9 @@ audit.
 Read-only/GitOps deployments supply the same complete bundle through
 `external_read_only` authoring mode; Oracle does not create an override layer.
 
-## V1 Compatibility
+## Retired Inputs
 
 The old `config/oracle.example.yaml`, `config/satellites.example.yaml`, JSON
-definition files, environment variables, and CLI surfaces are migration inputs,
-not the canonical target. They retire only after field-complete import,
-equivalence, process cutover, and real-consumer gates pass.
+definition files, environment variables, and retired CLI surfaces were
+migration inputs, not the canonical target. They are rejected by canonical
+startup and are not a supported runtime configuration path.
