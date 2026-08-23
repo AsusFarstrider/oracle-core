@@ -399,7 +399,7 @@ print(json.dumps({"status": "ready"}))
         self.assertFalse(result["mutation_performed"])
         self.assertEqual(list((installation / "selection").iterdir()), [])
 
-    def test_update_assembly_plan_carries_forward_selected_secret_identity(self) -> None:
+    def test_schema_transition_assembly_plan_carries_exact_selection_and_secret(self) -> None:
         installation = self.root / "oracle"
         artifacts = oracle_admin.artifact_preflight(self.core, self.household)
         pair = dict(artifacts["pair"])
@@ -415,6 +415,7 @@ print(json.dumps({"status": "ready"}))
         (installation / "selection").mkdir(parents=True)
         secrets = SecretSnapshot({"API_TOKEN": "private-value"})
         selected = SimpleNamespace(
+            activation=SimpleNamespace(generation_id="activation_" + "6" * 32),
             config=SimpleNamespace(config_revision="oracle-config-v1:sha256:" + "8" * 64),
             secrets=SimpleNamespace(snapshot=secrets),
         )
@@ -423,7 +424,11 @@ print(json.dumps({"status": "ready"}))
             normalized=SimpleNamespace(config_revision=selected.config.config_revision),
         )
         snapshot = SimpleNamespace(authored_revision=pair["configuration"]["authored_revision"])
-        installed = SimpleNamespace(activation_id="oracle-installation-activation-v1:sha256:" + "9" * 64)
+        installed = SimpleNamespace(
+            activation_id="oracle-installation-activation-v1:sha256:" + "9" * 64,
+            record={"configuration_activation_identity": "activation_" + "5" * 32},
+        )
+        capsule_identity = "oracle-schema-transition-capsule-v1:sha256:" + "4" * 64
         generation_store = mock.Mock()
         generation_store.load_selected.return_value = selected
         with (
@@ -447,6 +452,10 @@ print(json.dumps({"status": "ready"}))
             mock.patch.object(oracle_admin, "validate_python_environment"),
             mock.patch.object(oracle_admin, "load_selected_activation", return_value=installed),
             mock.patch(
+                "oracle_app.installation_schema_transition.validate_schema_transition_assembly",
+                return_value={"identity": capsule_identity},
+            ),
+            mock.patch(
                 "oracle_app.configuration.generations.GenerationStore",
                 return_value=generation_store,
             ),
@@ -463,6 +472,14 @@ print(json.dumps({"status": "ready"}))
         self.assertEqual(result["status"], "ready")
         self.assertEqual(result["blockers"], [])
         self.assertEqual(result["plan"]["target"]["secret_companion_identity"], expected_identity)
+        self.assertEqual(
+            result["plan"]["target"]["configuration_activation_identity"],
+            selected.activation.generation_id,
+        )
+        self.assertEqual(
+            result["plan"]["target"]["schema_transition_capsule_identity"],
+            capsule_identity,
+        )
         self.assertNotIn("private-value", json.dumps(result))
 
     def test_initial_publication_drops_to_service_authority_and_restores_elevation(self) -> None:
@@ -812,6 +829,70 @@ print(json.dumps({"status": "ready"}))
             transaction["transaction_id"],
             mock.ANY,
         )
+
+    def test_schema_transition_recovery_is_sealed_only_after_runtime_verification(self) -> None:
+        plan = {
+            "identity": "oracle-update-activation-plan-v1:sha256:" + "1" * 64,
+            "operation": "update",
+        }
+        preflight = {"status": "ready", "plan": plan}
+        transaction = {
+            "transaction_id": "managed_activation_" + "2" * 32,
+            "schema_transition_capsule_identity": (
+                "oracle-schema-transition-capsule-v1:sha256:" + "5" * 64
+            ),
+        }
+        candidate = SimpleNamespace(record={"configuration_activation_identity": "activation_" + "3" * 32})
+        previous = SimpleNamespace(record={"configuration_activation_identity": "activation_" + "4" * 32})
+        pending = {
+            **transaction,
+            "state": "recovered_previous",
+            "previous_activation_id": "previous",
+            "target_activation_id": "candidate",
+            "verification": {"passed": False, "reason": "RuntimeError"},
+        }
+        verification = {
+            "passed": True,
+            "systemd_active": True,
+            "readiness": True,
+            "health": True,
+            "configuration_identity": True,
+            "deterministic_interaction": True,
+            "house_ui": True,
+            "system_ui": True,
+            "satellite_ui": True,
+        }
+        sealed = {**pending, "outcome": "recovered_previous", "recovery_verification": verification}
+        with (
+            mock.patch.object(oracle_admin.os, "geteuid", return_value=0),
+            mock.patch.object(oracle_admin, "build_managed_activation_preflight", return_value=preflight),
+            mock.patch.object(oracle_admin, "_maintenance_lock", return_value=nullcontext()),
+            mock.patch.object(oracle_admin, "_service_authority", return_value=nullcontext()),
+            mock.patch.object(oracle_admin, "prepare_managed_activation", return_value=transaction),
+            mock.patch.object(oracle_admin, "select_managed_activation_target"),
+            mock.patch.object(oracle_admin, "mark_managed_service_started"),
+            mock.patch.object(
+                oracle_admin,
+                "verify_initial_runtime",
+                side_effect=[RuntimeError("candidate unhealthy"), verification],
+            ),
+            mock.patch.object(oracle_admin, "recover_managed_activation", return_value=pending),
+            mock.patch.object(
+                oracle_admin,
+                "finalize_recovered_managed_activation",
+                return_value=sealed,
+            ) as finalize_recovery,
+            mock.patch.object(oracle_admin, "load_selected_activation", side_effect=[candidate, previous]),
+            mock.patch.object(oracle_admin, "_write_operation_evidence", return_value=Path("/evidence")),
+            mock.patch.object(oracle_admin.subprocess, "run"),
+        ):
+            result = oracle_admin.execute_managed_activation(
+                plan["identity"], operation="update", root=self.root / "oracle",
+            )
+
+        self.assertEqual(result["status"], "recovered_failed")
+        self.assertEqual(result["activation_id"], "previous")
+        finalize_recovery.assert_called_once_with(mock.ANY, verification)
 
     def test_existing_interactive_or_privileged_oracle_identity_blocks_reuse(self) -> None:
         identities = {
@@ -1232,6 +1313,16 @@ print(json.dumps({"status": "ready"}))
                 oracle_admin.execute_service_install("plan", root=self.root / "oracle")
             with self.assertRaisesRegex(RuntimeError, "explicitly elevated"):
                 oracle_admin.execute_managed_activation("plan", operation="update", root=self.root / "oracle")
+            with self.assertRaisesRegex(RuntimeError, "elevated maintenance"):
+                oracle_admin.execute_schema_transition_prepare(
+                    self.core,
+                    self.household,
+                    "oracle-python-environment-v1:sha256:" + "1" * 64,
+                    "plan",
+                    root=self.root / "oracle",
+                )
+            with self.assertRaisesRegex(RuntimeError, "elevated maintenance"):
+                oracle_admin.execute_schema_transition_recovery(root=self.root / "oracle")
 
 
 if __name__ == "__main__":

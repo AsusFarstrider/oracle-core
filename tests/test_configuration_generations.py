@@ -37,6 +37,17 @@ class ConfigurationGenerationTests(unittest.TestCase):
             self.assertFalse((store.root / "secret-generations").exists())
             self.assertFalse((store.root / "secret-status").exists())
             self.assertEqual(store.secret_transactions_root, root / "secrets" / "transactions")
+            if os.name != "nt":
+                self.assertEqual(
+                    (store.root / "activations" / activation.generation_id / "metadata.json").stat().st_mode
+                    & 0o777,
+                    0o640,
+                )
+                self.assertEqual(
+                    (store.secret_root / "secret-generations" / secret.generation_id / "secrets.json").stat().st_mode
+                    & 0o777,
+                    0o600,
+                )
 
     def test_installs_immutable_generation_chain_and_atomically_selects_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

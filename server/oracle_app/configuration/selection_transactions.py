@@ -190,9 +190,13 @@ class SelectionTransactionJournal:
     def prepare(self, envelope: SelectionTransactionEnvelope) -> SelectionTransactionEnvelope:
         envelope.validate()
         directory = self._directory(envelope.operation_id)
-        directory.mkdir(mode=0o700)
+        directory.mkdir(mode=self.store.configuration_directory_mode)
         try:
-            _write_new(directory / "journal.json", _json_bytes(envelope.to_dict()), mode=0o600)
+            _write_new(
+                directory / "journal.json",
+                _json_bytes(envelope.to_dict()),
+                mode=self.store.configuration_file_mode,
+            )
             _fsync_directory(directory)
             _fsync_directory(directory.parent)
         except BaseException:

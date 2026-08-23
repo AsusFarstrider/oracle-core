@@ -44,6 +44,29 @@ class RuntimeCutoverMarkerTests(unittest.TestCase):
             self.assertFalse(created)
             self.assertEqual(repeated, marker)
 
+    def test_split_store_marker_is_operator_readable_without_exposing_secrets(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = GenerationStore(root / "configuration", secret_root=root / "secrets")
+            store.initialize("example-home")
+            config, secrets = store.install_candidate(inspect_candidate(EXAMPLE_ROOT))
+            activation = store.create_activation(config.generation_id, secrets.generation_id)
+            store._replace_selected_pointer(  # noqa: SLF001 - exact split-store setup
+                activation.generation_id,
+                operation_id="selection_op_33333333333333333333333333333333",
+                selection_revision=1,
+                satellite_projection_activation_ids={},
+            )
+
+            arm_runtime_cutover(store, store.load_selected(), actor="system_mode")
+
+            self.assertEqual((store.root / RUNTIME_CUTOVER_PATH).stat().st_mode & 0o777, 0o640)
+            self.assertEqual(
+                (store.secret_root / "secret-generations" / secrets.generation_id / "secrets.json").stat().st_mode
+                & 0o777,
+                0o600,
+            )
+
     def test_present_but_corrupt_marker_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             store = self._selected_store(Path(temporary) / "store")

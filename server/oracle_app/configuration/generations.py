@@ -187,8 +187,12 @@ class GenerationStore:
         return self.secret_root != self.root
 
     @property
-    def _configuration_file_mode(self) -> int:
+    def configuration_file_mode(self) -> int:
         return 0o640 if self._split_standard_store else 0o600
+
+    @property
+    def configuration_directory_mode(self) -> int:
+        return 0o2750 if self._split_standard_store else 0o700
 
     def initialize(self, bundle_id: str) -> None:
         if _BUNDLE_ID.fullmatch(bundle_id) is None:
@@ -210,7 +214,7 @@ class GenerationStore:
             if actual != expected:
                 raise StoreLineageConflict("Installed store is bound to a different bundle lineage.")
             return
-        _write_new(binding, _json_bytes(expected), mode=self._configuration_file_mode)
+        _write_new(binding, _json_bytes(expected), mode=self.configuration_file_mode)
         _fsync_directory(self.root)
 
     def validate_initialized(self) -> str:
@@ -274,8 +278,8 @@ class GenerationStore:
             "required_secret_ids": sorted(required_secret_ids),
         }
         try:
-            _write_new(directory / "configuration.json", normalized.canonical_bytes, mode=self._configuration_file_mode)
-            _write_new(directory / "metadata.json", _json_bytes(metadata), mode=self._configuration_file_mode)
+            _write_new(directory / "configuration.json", normalized.canonical_bytes, mode=self.configuration_file_mode)
+            _write_new(directory / "metadata.json", _json_bytes(metadata), mode=self.configuration_file_mode)
             _fsync_directory(directory)
             _fsync_directory(directory.parent)
         except BaseException:
@@ -341,7 +345,7 @@ class GenerationStore:
             "secret_generation_id": secret_generation_id,
         }
         try:
-            _write_new(directory / "metadata.json", _json_bytes(metadata), mode=0o600)
+            _write_new(directory / "metadata.json", _json_bytes(metadata), mode=self.configuration_file_mode)
             _fsync_directory(directory)
             _fsync_directory(directory.parent)
         except BaseException:
@@ -380,7 +384,7 @@ class GenerationStore:
         }
         temporary = self.root / f".selected-{secrets.token_hex(16)}.tmp"
         try:
-            _write_new(temporary, _json_bytes(pointer), mode=self._configuration_file_mode)
+            _write_new(temporary, _json_bytes(pointer), mode=self.configuration_file_mode)
             os.replace(temporary, self.root / "selected.json")
             _fsync_directory(self.root)
         finally:
@@ -395,6 +399,37 @@ class GenerationStore:
             selection_operation_id=operation_id,
             selection_revision=selection_revision,
             satellite_projection_activation_ids=MappingProxyType(dict(projection_map)),
+        )
+
+    def restore_schema_transition_selection(
+        self,
+        activation_generation_id: str,
+        *,
+        expected_current_activation_generation_id: str,
+        previous_selection_revision: int,
+        satellite_projection_activation_ids: Mapping[str, str],
+    ) -> SelectedActivation:
+        """Restore one exact pre-transition selection during stopped-service recovery.
+
+        This deliberately is not a general selection API. The caller must name
+        both sides of the explicit transition, preserve the earlier monotonic
+        revision, and supply the complete captured projection selection.
+        """
+
+        current = self.load_selected()
+        if current.activation.generation_id == activation_generation_id:
+            if dict(current.satellite_projection_activation_ids) != dict(satellite_projection_activation_ids):
+                raise GenerationIntegrityError("Recovered schema-transition projections disagree.")
+            return current
+        if current.activation.generation_id != expected_current_activation_generation_id:
+            raise GenerationIntegrityError("Schema-transition target selection changed before recovery.")
+        if not isinstance(previous_selection_revision, int) or current.selection_revision <= previous_selection_revision:
+            raise GenerationIntegrityError("Schema-transition recovery revision is not newer than its capsule.")
+        return self._replace_selected_pointer(
+            activation_generation_id,
+            operation_id=_new_id("selection_op"),
+            selection_revision=current.selection_revision + 1,
+            satellite_projection_activation_ids=satellite_projection_activation_ids,
         )
 
     def load_selected(self) -> SelectedActivation:

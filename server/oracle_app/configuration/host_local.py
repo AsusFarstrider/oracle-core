@@ -139,8 +139,9 @@ class StandardUnixPeerAuthorizer:
 
 
 class ServicePresenceLock(AbstractContextManager["ServicePresenceLock"]):
-    def __init__(self, store_root: Path) -> None:
+    def __init__(self, store_root: Path, *, file_mode: int = 0o600) -> None:
         self.path = Path(store_root) / ".service.lock"
+        self.file_mode = file_mode
         self._stream = None
 
     def __enter__(self) -> ServicePresenceLock:
@@ -150,7 +151,7 @@ class ServicePresenceLock(AbstractContextManager["ServicePresenceLock"]):
         flags = os.O_RDWR | os.O_CREAT
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
-        descriptor = os.open(self.path, flags, 0o600)
+        descriptor = os.open(self.path, flags, self.file_mode)
         self._stream = os.fdopen(descriptor, "r+b")
         import fcntl
 
@@ -653,7 +654,10 @@ class HostLocalConfigurationServer(socketserver.UnixStreamServer):
             service,
             activation_coordinator=activation_coordinator,
         )
-        self._presence = ServicePresenceLock(service.store.root)
+        self._presence = ServicePresenceLock(
+            service.store.root,
+            file_mode=service.store.configuration_file_mode,
+        )
         self._presence.__enter__()
         try:
             self._prepare_socket_path()

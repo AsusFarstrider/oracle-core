@@ -473,6 +473,87 @@ class ConfigurationHostLocalTests(unittest.TestCase):
             response = json.loads(completed.stderr)
             self.assertEqual(response["error"]["code"], "configuration_service_running")
 
+    def test_offline_cli_uses_explicit_split_secret_store(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            bundle = base / "config"
+            shutil.copytree(EXAMPLE_ROOT, bundle)
+            (bundle / "secrets.env.example").unlink()
+            configuration_store = base / "configuration"
+            secret_store = base / "secrets"
+            store = GenerationStore(configuration_store, secret_root=secret_store)
+            store.initialize("example-home")
+            service = ConfigurationService(store, authoring_mode="external_read_only")
+            self._activate(bundle, service)
+
+            command = [
+                sys.executable,
+                str(REPO_ROOT / "scripts" / "oracle-config.py"),
+                "--offline-store",
+                str(configuration_store),
+                "--offline-secret-store",
+                str(secret_store),
+                "status",
+            ]
+            completed = subprocess.run(command, text=True, capture_output=True, cwd=REPO_ROOT, check=False)
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            result = json.loads(completed.stdout)["result"]
+            self.assertEqual(
+                result["selected_activation_generation_id"],
+                store.load_selected().activation.generation_id,
+            )
+            if os.name != "nt":
+                operator_readable = [
+                    store.root / ".lock",
+                    store.root / ".service.lock",
+                    *(
+                        path
+                        for name in ("activations", "audit", "audit-operations", "reports", "projections")
+                        for path in (store.root / name).rglob("*")
+                        if path.is_file()
+                    ),
+                ]
+                self.assertTrue(operator_readable)
+                self.assertTrue(all(path.stat().st_mode & 0o777 == 0o640 for path in operator_readable))
+                operator_directories = [
+                    path
+                    for name in ("activations", "audit", "audit-operations", "reports", "projections")
+                    for path in (store.root / name).rglob("*")
+                    if path.is_dir()
+                ]
+                self.assertTrue(operator_directories)
+                self.assertTrue(
+                    all(
+                        path.stat().st_mode & 0o050 == 0o050
+                        and path.stat().st_mode & 0o027 == 0
+                        for path in operator_directories
+                    )
+                )
+                secret_payloads = list(store.secret_root.rglob("secrets.json"))
+                self.assertTrue(secret_payloads)
+                self.assertTrue(all(path.stat().st_mode & 0o777 == 0o600 for path in secret_payloads))
+
+    def test_offline_secret_store_is_rejected_with_socket_transport(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "scripts" / "oracle-config.py"),
+                "--socket",
+                "/tmp/oracle-config-test.sock",
+                "--offline-secret-store",
+                "/tmp/oracle-secrets-test",
+                "status",
+            ],
+            text=True,
+            capture_output=True,
+            cwd=REPO_ROOT,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("--offline-secret-store requires --offline-store", completed.stderr)
+
     def test_dispatcher_sanitizes_unexpected_internal_failure(self) -> None:
         with self._environment() as (_bundle, _store, service, _socket_path):
             secret_detail = "internal-sensitive-detail"

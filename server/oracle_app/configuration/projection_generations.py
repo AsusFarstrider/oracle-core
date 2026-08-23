@@ -105,8 +105,8 @@ class SatelliteProjectionGenerationStore:
             "required_secret_ids": sorted(generated.required_secret_ids),
         }
         try:
-            _write_new(directory / "projection.json", generated.canonical_bytes, mode=0o600)
-            _write_new(directory / "metadata.json", self._json_bytes(metadata), mode=0o600)
+            _write_new(directory / "projection.json", generated.canonical_bytes, mode=self.store.configuration_file_mode)
+            _write_new(directory / "metadata.json", self._json_bytes(metadata), mode=self.store.configuration_file_mode)
             _fsync_directory(directory)
             _fsync_directory(directory.parent)
         except BaseException:
@@ -135,8 +135,8 @@ class SatelliteProjectionGenerationStore:
             "logical_secret_ids": sorted(values),
         }
         try:
-            _write_new(directory / "secrets.json", self._json_bytes(values), mode=0o600)
-            _write_new(directory / "metadata.json", self._json_bytes(metadata), mode=0o600)
+            _write_new(directory / "secrets.json", self._json_bytes(values), mode=self.store.configuration_file_mode)
+            _write_new(directory / "metadata.json", self._json_bytes(metadata), mode=self.store.configuration_file_mode)
             _fsync_directory(directory)
             _fsync_directory(directory.parent)
         except BaseException:
@@ -171,7 +171,7 @@ class SatelliteProjectionGenerationStore:
             "source_config_revision": source_config_revision,
         }
         try:
-            _write_new(directory / "metadata.json", self._json_bytes(metadata), mode=0o600)
+            _write_new(directory / "metadata.json", self._json_bytes(metadata), mode=self.store.configuration_file_mode)
             _fsync_directory(directory)
             _fsync_directory(directory.parent)
         except BaseException:
@@ -370,14 +370,14 @@ class SatelliteProjectionGenerationStore:
         if not isinstance(satellite_id, str) or _SATELLITE_ID.fullmatch(satellite_id) is None:
             raise GenerationIntegrityError("Satellite projection identity is invalid.")
         root_created = not self.root.exists()
-        self.root.mkdir(mode=0o700, exist_ok=True)
+        self.root.mkdir(mode=self.store.configuration_directory_mode, exist_ok=True)
         if self.root.is_symlink() or not self.root.resolve(strict=True).is_relative_to(self.store.root):
             raise GenerationIntegrityError("Satellite projection store escapes the installed store.")
         if root_created:
             _fsync_directory(self.store.root)
         satellite_root = self.root / satellite_id
         satellite_created = not satellite_root.exists()
-        satellite_root.mkdir(mode=0o700, exist_ok=True)
+        satellite_root.mkdir(mode=self.store.configuration_directory_mode, exist_ok=True)
         if satellite_root.is_symlink() or not satellite_root.resolve(strict=True).is_relative_to(self.store.root):
             raise GenerationIntegrityError("Satellite projection installation escapes the installed store.")
         if satellite_created:
@@ -387,13 +387,13 @@ class SatelliteProjectionGenerationStore:
     def _create_directory(self, satellite_id: str, collection: str, generation_id: str) -> Path:
         parent = self._satellite_root(satellite_id) / collection
         parent_created = not parent.exists()
-        parent.mkdir(mode=0o700, exist_ok=True)
+        parent.mkdir(mode=self.store.configuration_directory_mode, exist_ok=True)
         if parent.is_symlink() or not parent.resolve(strict=True).is_relative_to(self.store.root):
             raise GenerationIntegrityError("Satellite projection collection escapes the installed store.")
         if parent_created:
             _fsync_directory(parent.parent)
         directory = parent / generation_id
-        directory.mkdir(mode=0o700)
+        directory.mkdir(mode=self.store.configuration_directory_mode)
         return directory
 
     def _generation_directory(

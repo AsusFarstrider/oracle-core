@@ -197,11 +197,12 @@ class SatelliteRuntimeCompatibilityAcceptanceResult:
 
 
 class ExclusiveStoreLock(AbstractContextManager["ExclusiveStoreLock"]):
-    def __init__(self, root: Path, *, timeout_seconds: float = 5.0) -> None:
+    def __init__(self, root: Path, *, timeout_seconds: float = 5.0, file_mode: int = 0o600) -> None:
         if timeout_seconds < 0:
             raise ValueError("Lock timeout cannot be negative.")
         self.path = Path(root) / ".lock"
         self.timeout_seconds = timeout_seconds
+        self.file_mode = file_mode
         self._stream = None
 
     def __enter__(self) -> ExclusiveStoreLock:
@@ -209,7 +210,7 @@ class ExclusiveStoreLock(AbstractContextManager["ExclusiveStoreLock"]):
         flags = os.O_RDWR | os.O_CREAT
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
-        descriptor = os.open(self.path, flags, 0o600)
+        descriptor = os.open(self.path, flags, self.file_mode)
         self._stream = os.fdopen(descriptor, "r+b")
         if os.name == "nt":
             self._stream.seek(0)
@@ -286,8 +287,15 @@ class ConfigurationService:
         self._projection_generations = SatelliteProjectionGenerationStore(store)
         self._runtime_compatibility = SatelliteRuntimeCompatibilityStore(store)
 
+    def _exclusive_store_lock(self) -> ExclusiveStoreLock:
+        return ExclusiveStoreLock(
+            self.store.root,
+            timeout_seconds=self.lock_timeout_seconds,
+            file_mode=self.store.configuration_file_mode,
+        )
+
     def status(self) -> ConfigurationStatus:
-        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+        with self._exclusive_store_lock():
             self._recover_configured_authoring_locked(actor="service")
             selected = self._selected_or_none()
             authored_revision = None
@@ -312,7 +320,7 @@ class ConfigurationService:
         self._validate_actor(actor)
         if acknowledge_one_way is not True:
             raise SafetyAcknowledgementRequired(frozenset({"canonical_runtime_cutover"}), frozenset())
-        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+        with self._exclusive_store_lock():
             self._recover_configured_authoring_locked(actor="service")
             selected = self._selected_or_none()
             if selected is None:
@@ -359,7 +367,7 @@ class ConfigurationService:
     ) -> SatelliteRuntimeCompatibilityAcceptanceResult:
         """Accept finite operational evidence without making it configuration authority."""
         self._validate_actor(actor)
-        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+        with self._exclusive_store_lock():
             self._recover_configured_authoring_locked(actor="service")
             self._runtime_compatibility.load(satellite_id)
             selected = self._selected_or_none()
@@ -381,7 +389,7 @@ class ConfigurationService:
 
     def review_candidate(self, root: Path, *, actor: Actor) -> CandidateReview:
         self._validate_actor(actor)
-        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+        with self._exclusive_store_lock():
             self._recover_configured_authoring_locked(actor="service")
             current = self._selected_or_none()
             inspection = (
@@ -418,7 +426,7 @@ class ConfigurationService:
         self._validate_actor(actor)
         self._validate_acknowledgements(acknowledgements)
         root = self._managed_authoring_root()
-        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+        with self._exclusive_store_lock():
             self._recover_authoring_transactions_locked(root=root, actor=actor)
             self._recover_secret_transactions_locked(root=root, actor=actor)
             current = self.store.load_selected()
@@ -551,7 +559,7 @@ class ConfigurationService:
     ) -> tuple[str, ...]:
         self._validate_actor(actor)
         root = self._managed_authoring_root()
-        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+        with self._exclusive_store_lock():
             self._recover_selection_transactions_locked()
             return self._recover_authoring_transactions_locked(root=root, actor=actor)
 
@@ -567,7 +575,7 @@ class ConfigurationService:
     ) -> ConfigurationTransactionResult:
         self._validate_actor(actor)
         self._validate_acknowledgements(acknowledgements)
-        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+        with self._exclusive_store_lock():
             self._recover_configured_authoring_locked(actor=actor)
             current = self._selected_or_none()
             actual_secret_id = None if current is None else current.secrets.generation_id
@@ -689,7 +697,7 @@ class ConfigurationService:
     ) -> ConfigurationTransactionResult:
         self._validate_actor(actor)
         self._validate_acknowledgements(acknowledgements)
-        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+        with self._exclusive_store_lock():
             self._recover_configured_authoring_locked(actor=actor)
             current = self.store.load_selected()
             self._assert_secret_generation(expected_secret_generation_id, current.secrets.generation_id)
@@ -789,7 +797,7 @@ class ConfigurationService:
         self._validate_secret_mutation(operation, logical_id, value)
         if retirement not in {"immediate", "pending"}:
             raise ValueError("Secret retirement mode is unsupported.")
-        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+        with self._exclusive_store_lock():
             resolved_root = Path(root).resolve(strict=True)
             self._recover_configured_authoring_locked(actor=actor)
             self._recover_secret_transactions_locked(root=resolved_root)
@@ -882,7 +890,7 @@ class ConfigurationService:
 
     def recover_secret_transactions(self, root: Path, *, actor: Actor = "service") -> tuple[str, ...]:
         self._validate_actor(actor)
-        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+        with self._exclusive_store_lock():
             self._recover_selection_transactions_locked()
             return self._recover_secret_transactions_locked(root=Path(root).resolve(strict=True), actor=actor)
 
@@ -894,7 +902,7 @@ class ConfigurationService:
     ) -> tuple[str, ...]:
         """Finalize retirement only after the assembled activation is healthy."""
 
-        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+        with self._exclusive_store_lock():
             current = self.store.load_selected()
             self._assert_secret_generation(selected_secret_generation_id, current.secrets.generation_id)
             self.store.finalize_secret_retirement(
@@ -917,7 +925,7 @@ class ConfigurationService:
 
         self._validate_actor(actor)
         root = Path(companion_root).resolve(strict=True)
-        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+        with self._exclusive_store_lock():
             current = self.store.load_selected()
             if current.secrets.generation_id == previous_secret_generation_id:
                 previous_snapshot = current.secrets.snapshot
@@ -1096,7 +1104,7 @@ class ConfigurationService:
         return self._recover_authoring_transactions_locked(root=self.authoring_root, actor=actor)
 
     def recover_selection_transactions(self) -> tuple[str, ...]:
-        with ExclusiveStoreLock(self.store.root, timeout_seconds=self.lock_timeout_seconds):
+        with self._exclusive_store_lock():
             return self._recover_selection_transactions_locked()
 
     def _commit_selection(
@@ -1353,7 +1361,7 @@ class ConfigurationService:
             "semantic_changes": [self._change_summary(item) for item in changes],
             "required_safety_acknowledgements": sorted(required_acknowledgements),
         }
-        _write_new(path, _json_bytes(payload), mode=0o600)
+        _write_new(path, _json_bytes(payload), mode=self.store.configuration_file_mode)
         _fsync_directory(directory)
 
     def _persist_audit(
@@ -1489,7 +1497,7 @@ class ConfigurationService:
             if existing != payload:
                 raise SelectionRecoveryAmbiguous("Selection operation has conflicting audit records.")
         else:
-            _write_new(path, _json_bytes(payload), mode=0o600)
+            _write_new(path, _json_bytes(payload), mode=self.store.configuration_file_mode)
             _fsync_directory(directory)
         if operation_id is not None:
             index = self._confined_output_directory("audit-operations")
@@ -1499,13 +1507,13 @@ class ConfigurationService:
                 if _read_json(index_path) != identity:
                     raise SelectionRecoveryAmbiguous("Selection operation audit identity is ambiguous.")
             else:
-                _write_new(index_path, _json_bytes(identity), mode=0o600)
+                _write_new(index_path, _json_bytes(identity), mode=self.store.configuration_file_mode)
                 _fsync_directory(index)
         return event_id
 
     def _confined_output_directory(self, name: Literal["reports", "audit", "audit-operations"]) -> Path:
         directory = self.store.root / name
-        directory.mkdir(mode=0o700, exist_ok=True)
+        directory.mkdir(mode=self.store.configuration_directory_mode, exist_ok=True)
         if directory.is_symlink() or not directory.resolve(strict=True).is_relative_to(self.store.root):
             raise GenerationStoreError(f"Configuration {name} directory escapes the installed store.")
         return directory

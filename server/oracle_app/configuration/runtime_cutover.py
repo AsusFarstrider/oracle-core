@@ -108,6 +108,6 @@ def arm_runtime_cutover(
         actor=actor,
         committed_at=committed_at or datetime.now(UTC).isoformat(),
     )
-    _write_new(path, _json_bytes(asdict(marker)), mode=0o600)
+    _write_new(path, _json_bytes(asdict(marker)), mode=store.configuration_file_mode)
     _fsync_directory(Path(store.root))
     return marker, True

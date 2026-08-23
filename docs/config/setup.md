@@ -77,7 +77,9 @@ Routine creation, replacement, rotation, and removal may use the authorized
 host-local Unix-socket control plane. Secret values must not be returned through
 status, plans, audits, diagnostics, errors, or evidence exports. Offline
 maintenance uses the same validation, transaction, generation, activation, and
-recovery implementation when the Brain cannot run.
+recovery implementation when the Brain cannot run. A standard installation
+with separate configuration and secret generation roots supplies both exact
+paths to the offline client; it never copies secrets into configuration storage.
 
 ## Runtime And Optional Providers
 

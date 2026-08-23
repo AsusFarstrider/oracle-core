@@ -115,6 +115,10 @@ def parser() -> argparse.ArgumentParser:
     transport = root.add_mutually_exclusive_group(required=True)
     transport.add_argument("--socket", help="Bootstrap Unix-domain socket path")
     transport.add_argument("--offline-store", help="Installed store path for explicit service-stopped operation")
+    root.add_argument(
+        "--offline-secret-store",
+        help="Separate installed secret-store path for explicit service-stopped operation",
+    )
     root.add_argument("--authoring-root", help="Bootstrap authoring root for offline status, apply, secret, and recovery")
     root.add_argument(
         "--authoring-mode",
@@ -179,14 +183,15 @@ def parser() -> argparse.ArgumentParser:
 
 def _offline_result(args: argparse.Namespace) -> dict[str, object]:
     authoring_root = None if args.authoring_root is None else Path(args.authoring_root)
-    store = GenerationStore(Path(args.offline_store))
+    secret_root = None if args.offline_secret_store is None else Path(args.offline_secret_store)
+    store = GenerationStore(Path(args.offline_store), secret_root=secret_root)
     store.validate_initialized()
     service = ConfigurationService(
         store,
         authoring_mode=args.authoring_mode,
         authoring_root=authoring_root,
     )
-    with ServicePresenceLock(store.root):
+    with ServicePresenceLock(store.root, file_mode=store.configuration_file_mode):
         if args.command == "status":
             result: object = asdict(service.status())
         elif args.command == "review":
@@ -266,7 +271,10 @@ def _offline_result(args: argparse.Namespace) -> dict[str, object]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parser().parse_args(argv)
+    argument_parser = parser()
+    args = argument_parser.parse_args(argv)
+    if args.socket is not None and args.offline_secret_store is not None:
+        argument_parser.error("--offline-secret-store requires --offline-store")
     try:
         response = (
             HostLocalConfigurationClient(Path(args.socket)).request(build_request(args))

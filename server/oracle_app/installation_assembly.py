@@ -207,9 +207,10 @@ def assemble_update_activation(
     """Stage one complete application update against the selected config.
 
     Stage 4 deliberately keeps application/deployment updates separate from
-    configuration authoring.  A repinned household bundle may participate only
+    configuration authoring. A repinned household bundle may participate only
     when canonical validation proves it is an exact effective no-op relative
-    to the currently selected configuration and secret generations.
+    to the selected generations, except for one separately prepared and exact
+    cross-version schema-transition capsule.
     """
 
     active = load_selected_activation(layout)
@@ -241,8 +242,28 @@ def assemble_update_activation(
     store = GenerationStore(layout.configuration, secret_root=layout.secrets)
     store.validate_initialized()
     selected = store.load_selected()
+    from .installation_schema_transition import (
+        schema_transition_pending,
+        validate_schema_transition_assembly,
+    )
+
+    capsule = None
     if active.record.get("configuration_activation_identity") != selected.activation.generation_id:
-        raise InitialAssemblyError("Active installation and canonical configuration selections disagree.")
+        try:
+            capsule = validate_schema_transition_assembly(
+                layout,
+                active,
+                bundle,
+                target_core_commit=request.core_commit,
+                target_core_git_tree=request.core_git_tree,
+                target_python_environment_identity=request.python_environment_identity,
+            )
+        except RuntimeError as exc:
+            raise InitialAssemblyError(str(exc)) from exc
+    elif schema_transition_pending(layout):
+        raise InitialAssemblyError(
+            "A schema-transition capsule cannot participate in a normal no-configuration-change update."
+        )
     inspection = inspect_candidate(bundle, secret_snapshot=selected.secrets.snapshot)
     if not inspection.report.activation_eligible or inspection.normalized is None:
         raise InitialAssemblyError("The staged canonical configuration is not activation eligible.")
@@ -269,4 +290,8 @@ def assemble_update_activation(
     if complete.activation_id == active.activation_id:
         raise InitialAssemblyError("Update activation must differ from the active complete activation.")
     select_activation(layout, "staged", complete)
+    if capsule is not None:
+        from .installation_schema_transition import mark_schema_transition_activation_staged
+
+        mark_schema_transition_activation_staged(layout, str(capsule["identity"]), complete)
     return complete

@@ -191,7 +191,7 @@ class SatelliteRuntimeCompatibilityStore:
         accepted_at: str | None = None,
     ) -> AcceptedSatelliteRuntimeCompatibility:
         path = self._path(satellite_id)
-        self.directory.mkdir(mode=0o700, exist_ok=True)
+        self.directory.mkdir(mode=self.store.configuration_directory_mode, exist_ok=True)
         if self.directory.is_symlink() or not self.directory.resolve(strict=True).is_relative_to(self.store.root):
             raise GenerationIntegrityError("Runtime compatibility state escapes the installed store.")
         timestamp = accepted_at or datetime.now(UTC).isoformat()
@@ -201,7 +201,7 @@ class SatelliteRuntimeCompatibilityStore:
             "accepted_at": timestamp,
             "report": report.model_dump(mode="json"),
         }
-        _atomic_replace(path, canonicalize_json(payload), mode=0o600)
+        _atomic_replace(path, canonicalize_json(payload), mode=self.store.configuration_file_mode)
         return AcceptedSatelliteRuntimeCompatibility(satellite_id, timestamp, report)
 
     def load(self, satellite_id: str) -> AcceptedSatelliteRuntimeCompatibility | None:

@@ -228,6 +228,38 @@ def load_managed_activation_transaction(*args: object, **kwargs: object):
     return implementation(*args, **kwargs)
 
 
+def finalize_recovered_managed_activation(*args: object, **kwargs: object):
+    from oracle_app.installation_systemd import finalize_recovered_managed_activation as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def build_schema_transition_plan(*args: object, **kwargs: object):
+    from oracle_app.installation_schema_transition import build_schema_transition_plan as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def prepare_schema_transition(*args: object, **kwargs: object):
+    from oracle_app.installation_schema_transition import prepare_schema_transition as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def recover_schema_transition_before_managed_activation(*args: object, **kwargs: object):
+    from oracle_app.installation_schema_transition import (
+        recover_schema_transition_before_managed_activation as implementation,
+    )
+
+    return implementation(*args, **kwargs)
+
+
+def finish_schema_transition(*args: object, **kwargs: object):
+    from oracle_app.installation_schema_transition import finish_schema_transition as implementation
+
+    return implementation(*args, **kwargs)
+
+
 def service_definition_identity(*args: object, **kwargs: object):
     from oracle_app.installation_assembly import service_definition_identity as implementation
 
@@ -1270,6 +1302,7 @@ def build_initial_assembly_plan(
             blockers.append({"code": "unsupported_configuration_root", "detail": str(configuration_root)})
         elif deployment.is_dir() and not deployment.is_symlink():
             candidate = deployment / configuration_root
+            selected_configuration = None
             try:
                 if update:
                     from oracle_app.configuration.generations import GenerationStore
@@ -1287,7 +1320,6 @@ def build_initial_assembly_plan(
                         secret_snapshot=secret_snapshot,
                     )
                 else:
-                    selected_configuration = None
                     inspection = (
                         inspect_candidate(candidate)
                         if secret_snapshot is None
@@ -1354,6 +1386,40 @@ def build_initial_assembly_plan(
                     blockers.append(
                         {"code": "active_selection_not_known_good", "detail": active.activation_id}
                     )
+                elif (
+                    selected_configuration is not None
+                    and getattr(active, "record", {}).get("configuration_activation_identity") is not None
+                    and active.record.get("configuration_activation_identity")
+                    != selected_configuration.activation.generation_id
+                ):
+                    try:
+                        from oracle_app.installation_schema_transition import validate_schema_transition_assembly
+
+                        transition_capsule = validate_schema_transition_assembly(
+                            layout,
+                            active,
+                            deployment / configuration_root,
+                            target_core_commit=str(target["core_commit"]),
+                            target_core_git_tree=str(target["core_git_tree"]),
+                            target_python_environment_identity=environment_identity,
+                        )
+                    except (OSError, RuntimeError, ValueError) as exc:
+                        blockers.append({"code": "schema_transition_invalid", "detail": str(exc)})
+                    else:
+                        target["schema_transition_capsule_identity"] = transition_capsule["identity"]
+                        target["configuration_activation_identity"] = (
+                            selected_configuration.activation.generation_id
+                        )
+                else:
+                    from oracle_app.installation_schema_transition import schema_transition_pending
+
+                    if schema_transition_pending(layout):
+                        blockers.append(
+                            {
+                                "code": "unexpected_schema_transition_capsule",
+                                "detail": "normal update selections are already coherent",
+                            }
+                        )
             staged_path = root / "selection" / "staged"
             if staged_path.exists() or staged_path.is_symlink():
                 blockers.append({"code": "staged_selection_not_empty", "detail": "staged"})
@@ -1519,6 +1585,136 @@ def execute_update_assembly(
         lock_path=lock_path,
         update=True,
     )
+
+
+def build_schema_transition_preflight(
+    core_archive: Path,
+    household_archive: Path,
+    environment_identity: str,
+    *,
+    root: Path = STANDARD_ROOT,
+) -> dict[str, object]:
+    blockers: list[dict[str, str]] = []
+    artifacts = artifact_preflight(core_archive, household_archive)
+    pair = artifacts.get("pair")
+    plan = None
+    if not isinstance(pair, dict):
+        blockers.append({"code": "artifact_pair_invalid", "detail": str(artifacts.get("pair_error"))})
+    else:
+        application = root / "revisions" / ("core-" + str(pair["core_commit"]))
+        deployment = root / "deployments" / str(pair["deployment_revision"])
+        environment = root / "environments" / environment_directory_name(environment_identity)
+        try:
+            core_manifest = verify(core_archive)
+            household_manifest = verify(household_archive)
+            if _payload_inventory(application) != core_manifest["inventory"] or _tree_identity(application) != pair["core_git_tree"]:
+                raise RuntimeError("staged application differs from the exact core artifact")
+            if _payload_inventory(deployment) != household_manifest["inventory"]:
+                raise RuntimeError("staged deployment differs from the exact household artifact")
+            profile = require_single_profile(pair.get("installation_profiles", []))
+            validate_python_environment(application, environment, profile=profile.profile_id)
+            plan = build_schema_transition_plan(
+                InstallationLayout(root),
+                deployment / str(pair["configuration"]["root"]),
+                target_core_commit=str(pair["core_commit"]),
+                target_core_git_tree=str(pair["core_git_tree"]),
+                target_python_environment_identity=environment_identity,
+            )
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+            blockers.append({"code": "schema_transition_invalid", "detail": str(exc)})
+    return {
+        "format": OUTPUT_FORMAT,
+        "command": "schema-transition-plan",
+        "status": "blocked" if blockers else "ready",
+        "mutation_performed": False,
+        "artifacts": artifacts,
+        "plan": plan,
+        "blockers": blockers,
+    }
+
+
+def execute_schema_transition_prepare(
+    core_archive: Path,
+    household_archive: Path,
+    environment_identity: str,
+    approved_plan: str,
+    *,
+    root: Path = STANDARD_ROOT,
+    lock_path: Path = MAINTENANCE_LOCK,
+) -> dict[str, object]:
+    if os.geteuid() != 0:
+        raise RuntimeError("schema-transition preparation requires elevated maintenance authority")
+    preflight = build_schema_transition_preflight(core_archive, household_archive, environment_identity, root=root)
+    if preflight["status"] != "ready" or preflight["plan"]["identity"] != approved_plan:
+        raise RuntimeError("schema-transition plan is blocked, stale, or unapproved")
+    with _maintenance_lock(lock_path):
+        locked = build_schema_transition_preflight(core_archive, household_archive, environment_identity, root=root)
+        if locked["status"] != "ready" or locked["plan"]["identity"] != approved_plan:
+            raise RuntimeError("schema-transition assumptions changed before the operation lock was acquired")
+        pair = locked["artifacts"]["pair"]
+        deployment = root / "deployments" / str(pair["deployment_revision"])
+        with _service_authority():
+            capsule = prepare_schema_transition(
+                InstallationLayout(root),
+                deployment / str(pair["configuration"]["root"]),
+                target_core_commit=str(pair["core_commit"]),
+                target_core_git_tree=str(pair["core_git_tree"]),
+                target_python_environment_identity=environment_identity,
+                approved_plan=approved_plan,
+            )
+        result = {
+            "format": OUTPUT_FORMAT,
+            "command": "schema-transition-prepare",
+            "status": "prepared",
+            "mutation_performed": True,
+            "plan_identity": approved_plan,
+            "capsule_identity": capsule["identity"],
+            "previous_installation_activation_id": capsule["previous_installation_activation_id"],
+            "target": capsule["target"],
+        }
+        evidence_path = _write_operation_evidence(root, "schema-transition-preparations", approved_plan, result)
+    return {**result, "evidence_path": str(evidence_path)}
+
+
+def execute_schema_transition_recovery(
+    *,
+    root: Path = STANDARD_ROOT,
+    lock_path: Path = MAINTENANCE_LOCK,
+) -> dict[str, object]:
+    if os.geteuid() != 0:
+        raise RuntimeError("schema-transition recovery requires elevated maintenance authority")
+    with _maintenance_lock(lock_path):
+        layout = InstallationLayout(root)
+        if (layout.control_state / "managed-activation-transaction.json").exists():
+            raise RuntimeError("managed activation recovery must use update-recover")
+        subprocess.run(["systemctl", "stop", "oracle-brain.service"], check=False)
+        with _service_authority():
+            recovered = recover_schema_transition_before_managed_activation(layout)
+        subprocess.run(["systemctl", "start", "oracle-brain.service"], check=True)
+        active = load_selected_activation(layout)
+        verification = verify_initial_runtime(str(active.record["configuration_activation_identity"]))
+        with _service_authority():
+            finish_schema_transition(
+                layout,
+                str(recovered["capsule_identity"]),
+                outcome="recovered_previous",
+            )
+        result = {
+            "format": OUTPUT_FORMAT,
+            "command": "schema-transition-recover",
+            "status": "recovered_previous",
+            "mutation_performed": True,
+            "activation_id": active.activation_id,
+            "configuration_activation_id": recovered["configuration_activation_identity"],
+            "verification": verification,
+        }
+        evidence_path = _write_operation_evidence(
+            root,
+            "schema-transition-recovery-results",
+            str(recovered["capsule_identity"]),
+            result,
+        )
+    return {**result, "evidence_path": str(evidence_path)}
 
 
 @contextmanager
@@ -1987,24 +2183,46 @@ def execute_managed_activation(
             with _service_authority():
                 recovered = recover_managed_activation(layout, reason=type(exc).__name__)
             subprocess.run(["systemctl", "start", "oracle-brain.service"], check=True)
-            previous = load_selected_activation(layout)
+            selected = load_selected_activation(layout)
             recovery_verification = verify_initial_runtime(
-                str(previous.record["configuration_activation_identity"])
+                str(selected.record["configuration_activation_identity"])
             )
-            result = {
-                "format": OUTPUT_FORMAT,
-                "command": operation,
-                "status": "recovered_failed",
-                "mutation_performed": True,
-                "plan_identity": approved_plan,
-                "transaction_id": recovered["transaction_id"],
-                "failed_activation_id": recovered["target_activation_id"],
-                "activation_id": recovered["previous_activation_id"],
-                "failure": type(exc).__name__,
-                "verification": recovered["verification"],
-                "recovery_verification": recovery_verification,
-                "automatic_recovery": True,
-            }
+            if recovered.get("outcome") == "verified":
+                result = {
+                    "format": OUTPUT_FORMAT,
+                    "command": operation,
+                    "status": "verified",
+                    "mutation_performed": True,
+                    "plan_identity": approved_plan,
+                    "transaction_id": recovered["transaction_id"],
+                    "previous_activation_id": recovered["previous_activation_id"],
+                    "activation_id": recovered["target_activation_id"],
+                    "outcome": "verified",
+                    "verification": recovery_verification,
+                    "automatic_recovery": False,
+                    "interrupted_finalization_completed": True,
+                }
+            else:
+                capsule_identity = transaction.get("schema_transition_capsule_identity")
+                if isinstance(capsule_identity, str):
+                    with _service_authority():
+                        recovered = finalize_recovered_managed_activation(
+                            layout, recovery_verification,
+                        )
+                result = {
+                    "format": OUTPUT_FORMAT,
+                    "command": operation,
+                    "status": "recovered_failed",
+                    "mutation_performed": True,
+                    "plan_identity": approved_plan,
+                    "transaction_id": recovered["transaction_id"],
+                    "failed_activation_id": recovered["target_activation_id"],
+                    "activation_id": recovered["previous_activation_id"],
+                    "failure": type(exc).__name__,
+                    "verification": recovered["verification"],
+                    "recovery_verification": recovery_verification,
+                    "automatic_recovery": True,
+                }
         evidence_path = _write_operation_evidence(
             root,
             f"{operation}-results",
@@ -2031,14 +2249,23 @@ def recover_managed_activation_operation(
             outcome = "completed_verified"
             verification = None
         else:
-            subprocess.run(["systemctl", "stop", "oracle-brain.service"], check=False)
-            with _service_authority():
-                result = recover_managed_activation(layout, reason="interrupted_operation_recovery")
+            if transaction["state"] != "recovered_previous":
+                subprocess.run(["systemctl", "stop", "oracle-brain.service"], check=False)
+                with _service_authority():
+                    result = recover_managed_activation(layout, reason="interrupted_operation_recovery")
+            else:
+                result = transaction
             subprocess.run(["systemctl", "start", "oracle-brain.service"], check=True)
             previous = load_selected_activation(layout)
             verification = verify_initial_runtime(
                 str(previous.record["configuration_activation_identity"])
             )
+            capsule_identity = transaction.get("schema_transition_capsule_identity")
+            if isinstance(capsule_identity, str):
+                with _service_authority():
+                    result = finalize_recovered_managed_activation(
+                        layout, verification,
+                    )
             outcome = "recovered_previous"
     return {
         "format": OUTPUT_FORMAT,
@@ -2505,6 +2732,25 @@ def parser() -> argparse.ArgumentParser:
     update_assemble.add_argument("--household-artifact", type=Path, required=True)
     update_assemble.add_argument("--environment-identity", required=True)
     update_assemble.add_argument("--approved-plan", required=True)
+    schema_transition_plan = commands.add_parser(
+        "schema-transition-plan",
+        help="Plan one explicit cross-version configuration and installation transition",
+    )
+    schema_transition_plan.add_argument("--core-artifact", type=Path, required=True)
+    schema_transition_plan.add_argument("--household-artifact", type=Path, required=True)
+    schema_transition_plan.add_argument("--environment-identity", required=True)
+    schema_transition_prepare = commands.add_parser(
+        "schema-transition-prepare",
+        help="Persist one exact approved cross-version recovery capsule",
+    )
+    schema_transition_prepare.add_argument("--core-artifact", type=Path, required=True)
+    schema_transition_prepare.add_argument("--household-artifact", type=Path, required=True)
+    schema_transition_prepare.add_argument("--environment-identity", required=True)
+    schema_transition_prepare.add_argument("--approved-plan", required=True)
+    schema_transition_recover = commands.add_parser(
+        "schema-transition-recover",
+        help="Recover a prepared schema transition before managed activation begins",
+    )
     commands.add_parser("service-plan", help="Plan fixed standard systemd-unit installation without mutation")
     service_install = commands.add_parser("service-install", help="Install the exact approved fixed systemd unit")
     service_install.add_argument("--approved-plan", required=True)
@@ -2526,7 +2772,10 @@ def parser() -> argparse.ArgumentParser:
 
 _BOOTSTRAP_COMMANDS = frozenset({"preflight", "stage-plan", "stage"})
 _ASSEMBLY_COMMANDS = frozenset(
-    {"assemble-plan", "assemble", "update-assemble-plan", "update-assemble"}
+    {
+        "assemble-plan", "assemble", "update-assemble-plan", "update-assemble",
+        "schema-transition-plan", "schema-transition-prepare", "schema-transition-recover",
+    }
 )
 
 
@@ -2689,6 +2938,21 @@ def main(argv: list[str] | None = None) -> int:
                     args.environment_identity,
                     args.approved_plan,
                 )
+            elif args.command == "schema-transition-plan":
+                result = build_schema_transition_preflight(
+                    args.core_artifact,
+                    args.household_artifact,
+                    args.environment_identity,
+                )
+            elif args.command == "schema-transition-prepare":
+                result = execute_schema_transition_prepare(
+                    args.core_artifact,
+                    args.household_artifact,
+                    args.environment_identity,
+                    args.approved_plan,
+                )
+            elif args.command == "schema-transition-recover":
+                result = execute_schema_transition_recovery()
             elif args.command == "service-plan":
                 result = build_service_install_preflight()
             elif args.command == "service-install":
@@ -2721,8 +2985,8 @@ def main(argv: list[str] | None = None) -> int:
             "format": OUTPUT_FORMAT,
             "command": args.command,
             "status": "failed",
-            "mutation_performed": False if args.command not in {"stage", "assemble", "update-assemble", "service-install", "activate", "activate-recover", "update", "update-recover", "rollback"} else None,
-            "mutation_may_have_occurred": args.command in {"stage", "assemble", "update-assemble", "service-install", "activate", "activate-recover", "update", "update-recover", "rollback"},
+            "mutation_performed": False if args.command not in {"stage", "assemble", "update-assemble", "schema-transition-prepare", "schema-transition-recover", "service-install", "activate", "activate-recover", "update", "update-recover", "rollback"} else None,
+            "mutation_may_have_occurred": args.command in {"stage", "assemble", "update-assemble", "schema-transition-prepare", "schema-transition-recover", "service-install", "activate", "activate-recover", "update", "update-recover", "rollback"},
             "error": str(exc),
         }
         print(json.dumps(failure, indent=2, sort_keys=True) if args.json else f"Oracle {args.command}: failed\n{exc}")
@@ -2742,16 +3006,16 @@ def main(argv: list[str] | None = None) -> int:
             else _human_service_install(result)
             if args.command == "service-install"
             else _human_assembly(result)
-            if args.command in {"assemble", "update-assemble"}
+            if args.command in {"assemble", "update-assemble", "schema-transition-prepare", "schema-transition-recover"}
             else _human_assembly_plan(result)
-            if args.command in {"assemble-plan", "update-assemble-plan"}
+            if args.command in {"assemble-plan", "update-assemble-plan", "schema-transition-plan"}
             else _human_simple_plan(result)
             if args.command in {"service-plan", "activate-plan", "update-plan", "rollback-plan"}
             else _human(result)
         )
     )
     return 0 if result["status"] in {
-        "ready", "staged", "installed", "verified", "completed_verified", "recovered_previous",
+        "ready", "prepared", "staged", "installed", "verified", "completed_verified", "recovered_previous",
         "healthy", "created",
     } else 2
 

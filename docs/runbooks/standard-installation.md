@@ -289,9 +289,60 @@ elevated because it validates the currently selected secret generation while
 building the complete activation; membership in `oracle-admin` does not grant
 raw secret traversal.
 
+If `update-assemble-plan` reports `implicit_configuration_change_forbidden`,
+do not bypass the blocker. A normal update must keep installation and
+configuration selectors coherent. For the exceptional case where the running
+older core cannot normalize the new household schema, create one explicit
+cross-version recovery capsule before changing canonical configuration. The
+capsule pins the exact staged core, tree, environment, household deployment,
+known-good installation, complete selected configuration and secret
+generations, and every satellite projection selection:
+
 ```sh
 TARGET_ENVIRONMENT_IDENTITY='oracle-python-environment-v1:sha256:<exact-digest>'
 
+sudo "$ORACLE_PYTHON" -B "$ORACLE_ADMIN" --json schema-transition-plan \
+  --core-artifact "$CORE_ARTIFACT" \
+  --household-artifact "$HOUSEHOLD_ARTIFACT" \
+  --environment-identity "$TARGET_ENVIRONMENT_IDENTITY" \
+  > /tmp/oracle-schema-transition-plan.json
+
+SCHEMA_TRANSITION_PLAN='oracle-schema-transition-plan-v1:sha256:<exact-digest>'
+sudo "$ORACLE_PYTHON" -B "$ORACLE_ADMIN" --json schema-transition-prepare \
+  --core-artifact "$CORE_ARTIFACT" \
+  --household-artifact "$HOUSEHOLD_ARTIFACT" \
+  --environment-identity "$TARGET_ENVIRONMENT_IDENTITY" \
+  --approved-plan "$SCHEMA_TRANSITION_PLAN" \
+  > /tmp/oracle-schema-transition-prepare.json
+```
+
+The plan and preparation are explicitly elevated because the complete
+selection includes separately protected secret-generation identity. Only after
+the approved capsule is durable, stop the service and use the exact newly
+staged application and environment to perform the canonical transaction
+offline against both standard installed stores:
+
+```sh
+sudo systemctl stop oracle-brain.service
+sudo /usr/bin/setpriv --reuid=oracle --regid=oracle \
+  --groups=oracle-admin,<exact-profile-supplementary-groups> -- \
+  "$TARGET_ENVIRONMENT/bin/python" -B \
+  "$TARGET_APPLICATION/scripts/oracle-config.py" \
+  --offline-store /srv/oracle/configuration \
+  --offline-secret-store /srv/oracle/secrets \
+  activate --candidate "$TARGET_DEPLOYMENT/configuration" \
+  --expected-secret-generation "$SELECTED_SECRET_GENERATION"
+```
+
+Use the exact supplementary groups already validated by the selected
+installation profile. Review the candidate online or offline first. The next
+selection change must be exactly one canonical activation to the capsule's
+target revision with the same selected secret generation. Then regenerate
+`update-assemble-plan`; it accepts the temporary selector interval only when
+the capsule, selected configuration, staged artifact pair, and environment all
+match exactly.
+
+```sh
 sudo "$ORACLE_PYTHON" -B "$ORACLE_ADMIN" --json update-assemble-plan \
   --core-artifact "$CORE_ARTIFACT" \
   --household-artifact "$HOUSEHOLD_ARTIFACT" \
@@ -321,10 +372,24 @@ sudo "$ORACLE_PYTHON" -B "$ORACLE_ADMIN" --json update \
 
 The update quiesces Oracle, atomically selects the complete candidate, restarts
 through systemd, and performs the same required verification. If required
-verification fails, the approved plan automatically restores and verifies the
-prior complete known-good activation. Inspect the result: `verified` means the
-candidate became known-good; `recovered_failed` means the prior activation was
-restored and the candidate did not become known-good.
+verification fails during an explicit schema transition, the approved plan
+first restores the captured configuration and every projection selection,
+then restores the prior complete installation selection, restarts it, and
+verifies the recovered runtime before sealing recovery as successful. Inspect
+the result: `verified` means the candidate became known-good;
+`recovered_failed` means the complete prior compatible set was restored and
+verified, and the candidate did not become known-good.
+
+If any operation fails after `schema-transition-prepare` but before a managed
+`update` transaction begins, recover the captured set with:
+
+```sh
+sudo "$ORACLE_PYTHON" -B "$ORACLE_ADMIN" schema-transition-recover
+```
+
+Do not delete or edit the capsule, independently move either selector, use it
+for a configuration no-op, or use it to authorize rollback across a
+configuration boundary. Those remain rejected normal-lifecycle states.
 
 Refresh `ORACLE_PYTHON` and `ORACLE_ADMIN` through `selection/active` after any
 successful update or rollback.
@@ -346,9 +411,13 @@ sudo "$ORACLE_PYTHON" -B "$ORACLE_ADMIN" update-recover
 ```
 
 Recovery reads the durable transaction and either completes the validated
-operation or restores the prior complete activation. It must not guess a new
-combination from separate component histories. After recovery, run `status`,
-inspect `journalctl -u oracle-brain.service`, and repeat the health checks.
+operation or restores the prior complete activation. For an explicit schema
+transition, `update-recover` also restores the capsule's exact configuration,
+secret generation, and complete projection map before the installation, then
+verifies the recovered runtime before writing successful recovery evidence. It
+must not guess a new combination from separate component histories. After
+recovery, run `status`, inspect `journalctl -u oracle-brain.service`, and repeat
+the health checks.
 
 When the installed CLI cannot be trusted or executed, repeat the checksum-
 verified disposable bootstrap procedure with an approved core artifact. The

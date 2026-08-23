@@ -213,11 +213,25 @@ def _managed_activation_plan(
         raise StandardSystemdError(
             "Stage 4 managed activation requires an unchanged validated service-launch contract."
         )
-    if target.record.get("configuration_activation_identity") != active.record.get(
+    from .installation_schema_transition import (
+        schema_transition_pending,
+        validate_managed_schema_transition,
+    )
+
+    configuration_change = target.record.get("configuration_activation_identity") != active.record.get(
         "configuration_activation_identity"
-    ):
+    )
+    transition = None
+    if configuration_change:
+        if operation != "update":
+            raise StandardSystemdError("Rollback cannot cross a canonical configuration activation boundary.")
+        try:
+            transition = validate_managed_schema_transition(layout, active, target)
+        except RuntimeError as exc:
+            raise StandardSystemdError(str(exc)) from exc
+    elif schema_transition_pending(layout):
         raise StandardSystemdError(
-            "Application update or rollback cannot implicitly change canonical configuration."
+            "A schema-transition capsule cannot authorize a normal compatible managed activation."
         )
     if target.record.get("persistent_state_checkpoint") != active.record.get("persistent_state_checkpoint"):
         raise StandardSystemdError("Managed activation persistent-state checkpoints are incompatible.")
@@ -242,8 +256,13 @@ def _managed_activation_plan(
             "verify process state, readiness, health, configuration identity, deterministic interaction, and web surfaces",
             "record the target known-good only after complete verification",
         ],
-        "failure_posture": "restore_and_verify_previous_complete_known_good_activation",
-        "configuration_change": False,
+        "failure_posture": (
+            "restore_captured_configuration_projections_and_previous_complete_known_good_activation_then_verify"
+            if transition is not None
+            else "restore_and_verify_previous_complete_known_good_activation"
+        ),
+        "configuration_change": configuration_change,
+        "schema_transition_capsule_identity": None if transition is None else transition["identity"],
         "persistent_state_migration": False,
     }
     return {
@@ -466,6 +485,7 @@ def _read_managed_transaction(layout: InstallationLayout) -> dict[str, object]:
         "previous_activation_id",
         "target_activation_id",
         "approved_before_activation_id",
+        "schema_transition_capsule_identity",
         "state",
         "verification",
     }
@@ -475,7 +495,10 @@ def _read_managed_transaction(layout: InstallationLayout) -> dict[str, object]:
         or value.get("format") != MANAGED_TRANSACTION_FORMAT
         or value.get("operation") not in {"update", "rollback"}
         or value.get("state")
-        not in {"prepared", "target_selected", "service_started", "verification_passed"}
+        not in {
+            "prepared", "target_selected", "service_started", "verification_passed",
+            "recovered_previous",
+        }
         or not all(
             isinstance(value.get(field), str)
             for field in (
@@ -485,6 +508,10 @@ def _read_managed_transaction(layout: InstallationLayout) -> dict[str, object]:
                 "target_activation_id",
                 "approved_before_activation_id",
             )
+        )
+        or not (
+            value.get("schema_transition_capsule_identity") is None
+            or isinstance(value.get("schema_transition_capsule_identity"), str)
         )
     ):
         raise StandardSystemdError("Managed activation transaction has an invalid shape.")
@@ -560,6 +587,7 @@ def prepare_managed_activation(layout: InstallationLayout, plan: dict[str, objec
         "previous_activation_id": plan["previous_activation_id"],
         "target_activation_id": plan["target_activation_id"],
         "approved_before_activation_id": plan["approved_before_activation_id"],
+        "schema_transition_capsule_identity": plan["schema_transition_capsule_identity"],
         "state": "prepared",
         "verification": None,
     }
@@ -580,6 +608,13 @@ def select_managed_activation_target(layout: InstallationLayout) -> dict[str, ob
     if active.activation_id != transaction["previous_activation_id"]:
         raise StandardSystemdError("Active selection changed after managed activation planning.")
     target = _activation_by_id(layout, str(transaction["target_activation_id"]))
+    capsule_identity = transaction.get("schema_transition_capsule_identity")
+    if isinstance(capsule_identity, str):
+        from .configuration import GenerationStore
+
+        selected = GenerationStore(layout.configuration, secret_root=layout.secrets).load_selected()
+        if target.record.get("configuration_activation_identity") != selected.activation.generation_id:
+            raise StandardSystemdError("Schema-transition configuration changed before target selection.")
     select_activation(layout, "active", target)
     transaction["state"] = "target_selected"
     _write_managed_transaction(layout, transaction)
@@ -635,6 +670,11 @@ def finalize_managed_activation(layout: InstallationLayout) -> dict[str, object]
         approved = _activation_by_id(layout, str(transaction["approved_before_activation_id"]))
         select_activation(layout, "approved", approved)
     select_activation(layout, "previous-known-good", target)
+    capsule_identity = transaction.get("schema_transition_capsule_identity")
+    if isinstance(capsule_identity, str):
+        from .installation_schema_transition import finish_schema_transition
+
+        finish_schema_transition(layout, capsule_identity, outcome="verified")
     return _finish_managed_transaction(layout, transaction, outcome="verified")
 
 
@@ -644,10 +684,65 @@ def recover_managed_activation(layout: InstallationLayout, *, reason: str) -> di
         return finalize_managed_activation(layout)
     previous = _activation_by_id(layout, str(transaction["previous_activation_id"]))
     approved = _activation_by_id(layout, str(transaction["approved_before_activation_id"]))
+    capsule_identity = transaction.get("schema_transition_capsule_identity")
+    if isinstance(capsule_identity, str):
+        from .installation_schema_transition import restore_schema_transition_configuration
+
+        restore_schema_transition_configuration(layout, capsule_identity)
     select_activation(layout, "active", previous)
     select_activation(layout, "previous-known-good", previous)
     select_activation(layout, "approved", approved)
     transaction["verification"] = {"passed": False, "reason": reason}
+    if isinstance(capsule_identity, str):
+        staged = layout.selection / "staged"
+        if staged.is_symlink():
+            if load_selected_activation(layout, "staged").activation_id != transaction["target_activation_id"]:
+                raise StandardSystemdError("Schema-transition staged selection changed before recovery.")
+            _remove_selection(layout, "staged")
+        elif staged.exists():
+            raise StandardSystemdError("Schema-transition staged selection is not a managed symbolic link.")
+        transaction["state"] = "recovered_previous"
+        _write_managed_transaction(layout, transaction)
+        return transaction
+    return _finish_managed_transaction(layout, transaction, outcome="recovered_previous")
+
+
+def finalize_recovered_managed_activation(
+    layout: InstallationLayout,
+    recovery_verification: dict[str, object],
+) -> dict[str, object]:
+    """Seal a schema-transition recovery only after the old runtime is proven."""
+
+    transaction = _read_managed_transaction(layout)
+    capsule_identity = transaction.get("schema_transition_capsule_identity")
+    if transaction["state"] != "recovered_previous" or not isinstance(capsule_identity, str):
+        raise StandardSystemdError("Managed schema-transition recovery is not awaiting verification.")
+    if recovery_verification.get("passed") is not True or set(recovery_verification) != {
+        "passed", "systemd_active", "readiness", "health", "configuration_identity",
+        "deterministic_interaction", "house_ui", "system_ui", "satellite_ui",
+    }:
+        raise StandardSystemdError("Managed recovery verification evidence is incomplete.")
+    previous = _activation_by_id(layout, str(transaction["previous_activation_id"]))
+    if load_selected_activation(layout).activation_id != previous.activation_id:
+        raise StandardSystemdError("Recovered installation selection changed before verification completed.")
+    from .configuration import GenerationStore
+    from .installation_schema_transition import finish_schema_transition, load_schema_transition
+
+    capsule = load_schema_transition(layout)
+    previous_configuration = capsule.get("previous_configuration_selection")
+    selected = GenerationStore(layout.configuration, secret_root=layout.secrets).load_selected()
+    if (
+        capsule.get("identity") != capsule_identity
+        or capsule.get("state") != "configuration_recovered"
+        or not isinstance(previous_configuration, dict)
+        or selected.activation.generation_id
+        != previous_configuration.get("activation_generation_id")
+        or dict(selected.satellite_projection_activation_ids)
+        != dict(previous_configuration.get("satellite_projection_activation_ids", {}))
+    ):
+        raise StandardSystemdError("Recovered configuration or projections changed before verification completed.")
+    finish_schema_transition(layout, capsule_identity, outcome="recovered_previous")
+    transaction["recovery_verification"] = dict(recovery_verification)
     return _finish_managed_transaction(layout, transaction, outcome="recovered_previous")
 
 
