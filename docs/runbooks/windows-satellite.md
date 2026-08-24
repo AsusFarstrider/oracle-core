@@ -24,16 +24,17 @@ For a dedicated wake appliance:
 - keep the host awake while plugged in;
 - allow display timeout without full sleep;
 - disable unrelated notification and background activity where appropriate;
-- start the runtime through the repository-owned task installer and wrapper;
+- start the runtime through the deployment-owned canonical task definition and
+  selected projection;
 - avoid ad hoc launch scripts as the durable entrypoint.
 
 ## Canonical Configuration
 
-Canonical task installers select an immutable local projection and secret
-activation. The task action must not carry Brain URLs, source association,
+Canonical runtime and control tasks select an immutable local projection and
+secret activation. Their actions must not carry Brain URLs, source association,
 device behavior, provider credentials, control credentials, or playback
-commands when canonical mode is active. The selected projection supplies
-behavior and its owned logical secret references.
+commands. The selected projection supplies behavior and its owned logical
+secret references.
 
 During a reviewed cutover, stop existing runtime and control tasks, register
 both canonical task definitions without starting them, inspect the actions and
@@ -49,7 +50,9 @@ Oracle origin.
 
 The tracked kiosk-permission and UI-task installers provide the reusable
 configuration surfaces. Origin, browser URL, satellite identity, and insecure-
-origin exceptions remain explicit household inputs.
+origin exceptions remain explicit household inputs. The browser URL's
+`satellite_id` must exactly match the canonical configured satellite ID;
+retired aliases are intentionally rejected.
 
 ## Audio Model
 
@@ -103,7 +106,8 @@ results in deployment evidence.
 
 Validate at least:
 
-1. scheduled runtime and control task definitions point to tracked wrappers;
+1. scheduled runtime and control task definitions select the expected
+   canonical satellite and projection;
 2. the selected projection and secret activation load without errors;
 3. the local configuration health surface reports the intended readiness;
 4. the declared wake model loads when wake is enabled;
