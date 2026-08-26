@@ -115,6 +115,7 @@ class ClientApiNamespaceRouteTests(unittest.TestCase):
             ("/api/ui/weather", ("GET",)),
             ("/api/ui/calendar", ("GET",)),
             ("/api/ui/audio", ("GET",)),
+            ("/api/ui/audio/status", ("GET",)),
             ("/api/ui/house", ("GET",)),
             ("/api/ui/internet", ("GET",)),
             ("/api/ui/orchestrations/{orchestration_id}/preview", ("POST",)),

@@ -1,14 +1,13 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import Mock
+
 from network_test_support import *
 
 
 class NetworkControlExecutionTests(NetworkTestCase):
-    @patch("oracle_app.network_control_local_restart.check_host_readiness")
-    def test_canonical_pending_restart_does_not_fall_back_when_network_is_absent(
-        self,
-        mock_legacy_readiness,
-    ) -> None:
+    def test_canonical_pending_restart_does_not_fall_back_when_network_is_absent(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             state_path = Path(tmpdir) / "pending.json"
             boot_id_path = Path(tmpdir) / "boot-id"
@@ -25,7 +24,6 @@ class NetworkControlExecutionTests(NetworkTestCase):
             boot_id_path.write_text("boot-b\n", encoding="utf-8")
 
             result = complete_pending_local_host_restart(
-                canonical_authority=True,
                 canonical_execution=None,
                 state_path=state_path,
                 boot_id_path=boot_id_path,
@@ -35,7 +33,6 @@ class NetworkControlExecutionTests(NetworkTestCase):
             result,
             {"status": "pending", "reason": "canonical_network_unavailable"},
         )
-        mock_legacy_readiness.assert_not_called()
 
     @patch(
         "oracle_app.network_control_execution.recover_host_restart_dependents",
@@ -308,17 +305,14 @@ class NetworkControlExecutionTests(NetworkTestCase):
     )
     @patch("oracle_app.network_control_execution.time.sleep")
     @patch("oracle_app.network_control_execution.NetworkProbeBridge")
-    @patch("oracle_app.network_control_execution.get_home_assistant_settings")
     @patch("oracle_app.network_control_execution.HomeAssistantBridge")
     def test_network_control_executor_fails_when_powered_host_does_not_recover(
         self,
         mock_bridge_class,
-        mock_ha_settings,
         mock_probe_class,
         _mock_sleep,
         _mock_monotonic,
     ) -> None:
-        mock_ha_settings.return_value = ("http://home-assistant.local:8123", "dummy-token")
         bridge = mock_bridge_class.return_value
         bridge.wait_for_entity_state.side_effect = [{"state": "off"}, {"state": "on"}]
         mock_probe_class.return_value.check_host_reachable.return_value = {"status": "down"}
@@ -337,6 +331,7 @@ class NetworkControlExecutionTests(NetworkTestCase):
                 "host_display_name": "Lounge Mesh Node",
                 "host_address": "192.0.2.161",
             },
+            home_assistant_connection=("http://home-assistant.local:8123", "dummy-token"),
         )
 
         self.assertFalse(result["ok"])
@@ -362,14 +357,11 @@ class NetworkControlExecutionTests(NetworkTestCase):
         self.assertTrue(result["execution"]["deferred"])
         self.assertEqual(result["execution"]["verification_status"], "deferred")
 
-    @patch("oracle_app.network_control_execution.get_home_assistant_settings")
     @patch("oracle_app.network_control_execution.HomeAssistantBridge")
     def test_network_control_executor_power_cycle_attempts_restore_after_failed_off_verification(
         self,
         mock_bridge_class,
-        mock_ha_settings,
     ) -> None:
-        mock_ha_settings.return_value = ("http://home-assistant.local:8123", "dummy-token")
         bridge = mock_bridge_class.return_value
         bridge.wait_for_entity_state.return_value = {"state": "on"}
 
@@ -381,6 +373,7 @@ class NetworkControlExecutionTests(NetworkTestCase):
                 "capabilities": ["power_cycle"],
                 "enabled": True,
             },
+            home_assistant_connection=("http://home-assistant.local:8123", "dummy-token"),
         )
 
         self.assertFalse(result["ok"])
@@ -395,16 +388,13 @@ class NetworkControlExecutionTests(NetworkTestCase):
         "oracle_app.network_control_execution._wait_for_power_readiness",
         return_value={"ready": True, "check_count": 1, "passed_count": 1, "failed_check_ids": []},
     )
-    @patch("oracle_app.network_control_execution.get_home_assistant_settings")
     @patch("oracle_app.network_control_execution.HomeAssistantBridge")
     def test_network_control_executor_power_cycles_home_assistant_switch(
         self,
         mock_bridge_class,
-        mock_ha_settings,
         mock_wait_for_readiness,
         mock_sleep,
     ) -> None:
-        mock_ha_settings.return_value = ("http://home-assistant.local:8123", "dummy-token")
         bridge = mock_bridge_class.return_value
         bridge.wait_for_entity_state.side_effect = [
             {"state": "off"},
@@ -427,6 +417,7 @@ class NetworkControlExecutionTests(NetworkTestCase):
                     "checks": [{"id": "mesh_node_reachable", "kind": "host_reachable", "address": "192.0.2.161"}]
                 },
             },
+            home_assistant_connection=("http://home-assistant.local:8123", "dummy-token"),
         )
 
         self.assertTrue(result["ok"])
@@ -449,15 +440,12 @@ class NetworkControlExecutionTests(NetworkTestCase):
             "failed_check_ids": ["internet"],
         },
     )
-    @patch("oracle_app.network_control_execution.get_home_assistant_settings")
     @patch("oracle_app.network_control_execution.HomeAssistantBridge")
     def test_network_control_executor_reports_power_readiness_failure(
         self,
         mock_bridge_class,
-        mock_ha_settings,
         _mock_wait_for_readiness,
     ) -> None:
-        mock_ha_settings.return_value = ("http://home-assistant.local:8123", "dummy-token")
         mock_bridge_class.return_value.wait_for_entity_state.side_effect = [{"state": "off"}, {"state": "on"}]
 
         result = execute_network_control_action(
@@ -469,6 +457,7 @@ class NetworkControlExecutionTests(NetworkTestCase):
                 "enabled": True,
                 "readiness": {"checks": [{"id": "internet", "kind": "internet"}]},
             },
+            home_assistant_connection=("http://home-assistant.local:8123", "dummy-token"),
         )
 
         self.assertFalse(result["ok"])
@@ -815,18 +804,15 @@ class NetworkControlExecutionTests(NetworkTestCase):
         return_value={"ready": True, "check_count": 1, "passed_count": 1, "failed_check_ids": []},
     )
     @patch("oracle_app.network_control_execution.NetworkProbeBridge")
-    @patch("oracle_app.network_control_execution.get_home_assistant_settings")
     @patch("oracle_app.network_control_execution.HomeAssistantBridge")
     def test_network_control_executor_waits_for_powered_host_recovery(
         self,
         mock_bridge_class,
-        mock_ha_settings,
         mock_probe_class,
         _mock_wait_for_readiness,
         mock_sleep,
         _mock_monotonic,
     ) -> None:
-        mock_ha_settings.return_value = ("http://home-assistant.local:8123", "dummy-token")
         bridge = mock_bridge_class.return_value
         bridge.wait_for_entity_state.side_effect = [{"state": "off"}, {"state": "on"}]
         mock_probe_class.return_value.check_host_reachable.side_effect = [
@@ -856,6 +842,7 @@ class NetworkControlExecutionTests(NetworkTestCase):
                     "checks": [{"id": "mesh_node_reachable", "kind": "host_reachable", "address": "192.0.2.161"}]
                 },
             },
+            home_assistant_connection=("http://home-assistant.local:8123", "dummy-token"),
         )
 
         self.assertTrue(result["ok"])
@@ -874,7 +861,7 @@ class NetworkControlExecutionTests(NetworkTestCase):
         self.assertEqual(mock_sleep.call_args_list[-1].args, (5,))
 
     @patch(
-        "oracle_app.network_control_local_restart.check_host_readiness",
+        "oracle_app.network_runtime.service_control.TypedServiceControl.check_readiness",
         return_value={
             "ok": True,
             "status": "passed",
@@ -884,6 +871,10 @@ class NetworkControlExecutionTests(NetworkTestCase):
         },
     )
     def test_pending_local_restart_completes_after_new_boot_and_readiness(self, _mock_readiness) -> None:
+        canonical_execution = SimpleNamespace(
+            policy=Mock(action_for=Mock(return_value=SimpleNamespace(adapter=Mock()))),
+            adapters=Mock(),
+        )
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             state_path = tmp_path / "pending.json"
@@ -913,7 +904,7 @@ class NetworkControlExecutionTests(NetworkTestCase):
             boot_id_path.write_text("boot-b\n", encoding="utf-8")
 
             result = complete_pending_local_host_restart(
-                service_control_settings={"hosts": {"oracle_host": {}}},
+                canonical_execution=canonical_execution,
                 state_path=state_path,
                 boot_id_path=boot_id_path,
                 db_path=db_path,
@@ -954,7 +945,6 @@ class NetworkControlExecutionTests(NetworkTestCase):
             )
 
             result = complete_pending_local_host_restart(
-                service_control_settings={"hosts": {}},
                 state_path=state_path,
                 boot_id_path=boot_id_path,
             )

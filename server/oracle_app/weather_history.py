@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from .config import get_weather_history_settings
-from .provider_bridges.weewx_weather_station import get_weather_station_bridge
 
 
 @dataclass(frozen=True)
@@ -113,16 +111,6 @@ def _local_midnight_epoch(target_date: date) -> int:
     return int(local_midnight.timestamp())
 
 
-def _query_day_row(table_name: str, target_epoch: int) -> dict[str, object] | None:
-    settings = get_weather_history_settings()
-    return get_weather_station_bridge(settings).query_day_row(table_name, target_epoch, settings=settings)
-
-
-def _load_static_history_entry(target_date: date) -> dict[str, object] | None:
-    settings = get_weather_history_settings()
-    return get_weather_station_bridge(settings).load_static_history_entry(target_date, settings=settings)
-
-
 def _weighted_average(row: dict[str, object] | None) -> float | None:
     if row is None:
         return None
@@ -135,49 +123,6 @@ def _weighted_average(row: dict[str, object] | None) -> float | None:
 
 def _day_label(target_date: date) -> str:
     return target_date.strftime("%A, %B %d, %Y").replace(" 0", " ")
-
-
-def build_historical_weather_response(query_text: str, *, now: datetime | None = None) -> tuple[str, dict]:
-    parsed = parse_historical_weather_query(query_text, now=now)
-    if parsed is None:
-        raise RuntimeError("Historical weather query could not be parsed")
-
-    static_entry = _load_static_history_entry(parsed.target_date)
-    if static_entry is not None:
-        details = dict(static_entry)
-        details["field"] = parsed.field
-        return _build_historical_speech(parsed, details), details
-
-    target_epoch = _local_midnight_epoch(parsed.target_date)
-    temp_row = _query_day_row("archive_day_outTemp", target_epoch)
-    humidity_row = _query_day_row("archive_day_outHumidity", target_epoch)
-    wind_row = _query_day_row("archive_day_windSpeed", target_epoch)
-    gust_row = _query_day_row("archive_day_windGust", target_epoch)
-    rain_row = _query_day_row("archive_day_rain", target_epoch)
-    pressure_row = _query_day_row("archive_day_barometer", target_epoch)
-
-    if temp_row is None:
-        raise RuntimeError("No local historical weather was found for that date")
-
-    details = {
-        "date": parsed.target_date.isoformat(),
-        "field": parsed.field,
-        "temperature_min_f": temp_row.get("min"),
-        "temperature_max_f": temp_row.get("max"),
-        "temperature_avg_f": _weighted_average(temp_row),
-        "humidity_min_pct": humidity_row.get("min") if humidity_row else None,
-        "humidity_max_pct": humidity_row.get("max") if humidity_row else None,
-        "humidity_avg_pct": _weighted_average(humidity_row),
-        "wind_max_mph": wind_row.get("max") if wind_row else None,
-        "wind_avg_mph": _weighted_average(wind_row),
-        "wind_gust_max_mph": gust_row.get("max") if gust_row else None,
-        "rain_total_in": rain_row.get("sum") if rain_row else None,
-        "rain_rate_max_in_h": rain_row.get("max") if rain_row else None,
-        "pressure_min_inhg": pressure_row.get("min") if pressure_row else None,
-        "pressure_max_inhg": pressure_row.get("max") if pressure_row else None,
-        "pressure_avg_inhg": _weighted_average(pressure_row),
-    }
-    return _build_historical_speech(parsed, details), details
 
 
 def _format_number(value: float | None, *, digits: int = 0) -> str:

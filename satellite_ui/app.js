@@ -9,6 +9,7 @@ const state = {
   pageRefreshTimer: 0,
   headerAudio: null,
   headerAudioLoading: false,
+  headerAudioLoadedAt: 0,
   pageSnapshots: {},
   pageSnapshotLoadedAt: {},
   pageLoadSeq: 0,
@@ -93,8 +94,8 @@ async function initialize() {
   highlightNav();
   setVoiceState("ready", "Tap to talk");
   startClock();
-  startHeaderAudioPolling();
   await loadCurrentPage();
+  startHeaderAudioPolling();
 }
 
 function startClock() {
@@ -132,11 +133,15 @@ async function refreshHeaderAudio() {
   if (!state.sourceId || state.headerAudioLoading) {
     return;
   }
+  const activePageHasFreshPlayback = ["audio", "music", "audiobooks"].includes(state.currentPage)
+    && Date.now() - Number(state.pageSnapshotLoadedAt[state.currentPage] || 0) < 5500;
+  if (activePageHasFreshPlayback || Date.now() - state.headerAudioLoadedAt < 4000) {
+    return;
+  }
   state.headerAudioLoading = true;
   try {
-    const payload = await apiGet(`/api/ui/audio?source=${encodeURIComponent(state.sourceId)}`);
-    state.headerAudio = buildHeaderAudioState(payload);
-    renderHeaderAudio();
+    const payload = await apiGet(`/api/ui/audio/status?source=${encodeURIComponent(state.sourceId)}`);
+    consumeHeaderAudioSnapshot(payload);
   } catch (error) {
     noteVoiceEvent("header_audio_refresh_failed", {
       message: error instanceof Error ? error.message : String(error),
@@ -144,6 +149,12 @@ async function refreshHeaderAudio() {
   } finally {
     state.headerAudioLoading = false;
   }
+}
+
+function consumeHeaderAudioSnapshot(payload) {
+  state.headerAudio = buildHeaderAudioState(payload);
+  state.headerAudioLoadedAt = Date.now();
+  renderHeaderAudio();
 }
 
 function buildHeaderAudioState(payload) {
@@ -159,6 +170,8 @@ function buildHeaderAudioState(payload) {
     mediaKind: mediaKind || null,
     icon: mediaKind === "audiobook" ? "book" : mediaKind === "music" ? "music_note" : "graphic_eq",
     label: mediaKind === "audiobook" ? "Story" : mediaKind === "music" ? "Music" : "Audio",
+    positionSeconds: outputOwner.position_seconds,
+    durationSeconds: outputOwner.duration_seconds,
   };
 }
 
@@ -180,6 +193,11 @@ function renderHeaderAudio() {
         <span class="header-player__label">${escapeHtml(audio.label)}</span>
         <span class="header-player__title">${escapeHtml(audio.title)}</span>
         ${audio.subtitle ? `<span class="header-player__subtitle">${escapeHtml(audio.subtitle)}</span>` : ""}
+        ${
+          audio.positionSeconds != null
+            ? `<span class="header-player__progress">${escapeHtml(formatDuration(audio.positionSeconds))} / ${escapeHtml(formatDuration(audio.durationSeconds))}</span>`
+            : ""
+        }
       </span>
     </div>
     <button class="header-player__stop" type="button" data-header-audio-stop="true" aria-label="Stop current audio">
@@ -818,6 +836,11 @@ async function refreshPageSnapshot(page, seq, { renderErrors }) {
     const payload = await loader();
     state.pageSnapshots[page] = payload;
     state.pageSnapshotLoadedAt[page] = Date.now();
+    if (["audio", "music", "audiobooks"].includes(page)) {
+      consumeHeaderAudioSnapshot(payload);
+    } else if (page === "home" && payload?.audio?.playback) {
+      consumeHeaderAudioSnapshot({ playback: payload.audio.playback });
+    }
     if (seq === state.pageLoadSeq && state.currentPage === page) {
       renderPagePayload(page, payload);
       schedulePageRefresh(page, payload);

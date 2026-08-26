@@ -20,7 +20,7 @@ from oracle_app.brain_application_composition import (
     BRAIN_APPLICATION_COMPOSITION_STATE_KEY,
     CanonicalBrainApplicationComposition,
 )
-from oracle_app.api import health_config
+from oracle_app.health_routes import health_config
 
 
 class HealthConfigTests(unittest.TestCase):

@@ -156,7 +156,7 @@
       "errors": "immutable observation status/detail rather than provider exceptions",
       "cache_owner": "network domain status cache",
       "configuration_authority": "canonical network inventory and probe definitions",
-      "tests": ["tests/test_network_observations.py", "tests/test_network_platform_bridges.py", "tests/test_network_status_observations.py"]
+      "tests": ["tests/test_network_observations.py", "tests/test_network_platform_bridges.py", "tests/test_network_status_observations.py", "tests/test_network_canonical.py"]
     },
     {
       "role_id": "network_monitoring_observation",

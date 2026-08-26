@@ -9,24 +9,16 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
-from oracle_app.conversation import get_home_assistant_conversation_id, set_home_assistant_conversation_id
 from oracle_app.home_assistant_policy import (
     _STATE_VERIFICATION_ATTEMPTS,
     detect_failed_success_targets,
     fetch_entity_state_with_retry,
 )
 from oracle_app.provider_bridges.home_assistant import HomeAssistantBridge
-from oracle_app.session_state import clear_all_sessions
-
-
 class HomeAssistantBridgeTests(unittest.TestCase):
-    def tearDown(self) -> None:
-        clear_all_sessions()
-
     @patch("oracle_app.provider_bridges.home_assistant.request.urlopen")
-    def test_execute_command_reuses_and_updates_conversation_id(self, mock_urlopen) -> None:
+    def test_execute_command_translates_provider_conversation_identity(self, mock_urlopen) -> None:
         captured_bodies: list[dict[str, object]] = []
-        set_home_assistant_conversation_id("living_room_satellite", "home-session-1", "ha-old")
 
         class _FakeResponse:
             def read(self) -> bytes:
@@ -52,22 +44,13 @@ class HomeAssistantBridgeTests(unittest.TestCase):
 
         result = bridge.execute_command(
             "turn them off",
-            source="living_room_satellite",
-            session_id="home-session-1",
-        )
-        bridge.commit_conversation_id(
-            result.returned_conversation_id,
-            source="living_room_satellite",
-            session_id="home-session-1",
+            conversation_id="ha-old",
         )
 
         self.assertEqual(result.payload["conversation_id"], "ha-new")
         self.assertIsNone(result.verification_failure)
         self.assertEqual(captured_bodies[0]["conversation_id"], "ha-old")
-        self.assertEqual(
-            get_home_assistant_conversation_id("living_room_satellite", "home-session-1"),
-            "ha-new",
-        )
+        self.assertEqual(result.returned_conversation_id, "ha-new")
 
     def test_detect_failed_success_targets_returns_oracle_domain_error(self) -> None:
         bridge = HomeAssistantBridge(base_url="http://ha.local", token="token")

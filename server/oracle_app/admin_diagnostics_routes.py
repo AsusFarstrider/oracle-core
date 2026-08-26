@@ -4,30 +4,19 @@ import subprocess
 
 from fastapi import FastAPI, HTTPException, Request
 
-from .config import get_music_settings
 from .music_runtime.canonical import CanonicalMusicExecution
 from .audiobook_runtime.canonical import CanonicalAudiobookExecution
 from .configuration.satellite_fleet_runtime_settings import SatelliteFleetRuntimeSettings
 from .memory.diagnostics import DiagnosticsSummaryQuery, build_memory_diagnostics_summary
-from .music_runtime.control import ControlPlaneError, fetch_satellite_playback_authority
+from .music_runtime.control import ControlPlaneError, serialize_control_plane_error
 
 
-def serialize_control_plane_error(exc: ControlPlaneError) -> dict[str, object]:
-    return {
-        "error": "playback_authority_unavailable",
-        "detail": exc.detail,
-        "failure_class": exc.failure_class,
-        "owning_component": exc.owning_component,
-        "control_error": exc.error_code,
+def build_log_targets(*, fleet_settings: SatelliteFleetRuntimeSettings | None = None) -> list[dict[str, object]]:
+    satellites = {
+        item.source_id: {}
+        for item in (() if fleet_settings is None else fleet_settings.satellites.values())
+        if item.enabled and item.playback_capable and item.source_id
     }
-
-
-def build_log_targets(*, fleet_settings: SatelliteFleetRuntimeSettings | None = None, canonical_authority: bool = False) -> list[dict[str, object]]:
-    satellites = (
-        {item.source_id: {} for item in fleet_settings.satellites.values() if item.enabled and item.playback_capable and item.source_id}
-        if canonical_authority and fleet_settings is not None
-        else {} if canonical_authority else get_music_settings()["satellites"]
-    )
     targets: list[dict[str, object]] = [
         {
             "target": "brain",
@@ -107,21 +96,18 @@ def ui_playback_authority(
     music_execution: CanonicalMusicExecution | None = None,
     audiobook_execution: CanonicalAudiobookExecution | None = None,
     fleet_settings: SatelliteFleetRuntimeSettings | None = None,
-    canonical_authority: bool = False,
 ) -> dict[str, object]:
-    satellites = (
-        {item.source_id: {"playback_capable": True} for item in fleet_settings.satellites.values() if item.enabled and item.playback_capable and item.source_id}
-        if canonical_authority and fleet_settings is not None
-        else {} if canonical_authority else get_music_settings()["satellites"]
-    )
+    satellites = {
+        item.source_id: {"playback_capable": True}
+        for item in (() if fleet_settings is None else fleet_settings.satellites.values())
+        if item.enabled and item.playback_capable and item.source_id
+    }
     def fetch_authority(source_id):
         if music_execution is not None and music_execution.settings.playback_target(source_id) is not None:
             return music_execution.fetch_playback_authority(source_id)
         if audiobook_execution is not None and audiobook_execution.settings.playback_target(source_id) is not None:
             return audiobook_execution.fetch_playback_authority(source_id)
-        if canonical_authority:
-            raise HTTPException(status_code=409, detail="Playback source is not admitted by an enabled media domain.")
-        return fetch_satellite_playback_authority(source_id)
+        raise HTTPException(status_code=409, detail="Playback source is not admitted by an enabled media domain.")
     if source is not None:
         requested_source = str(source).strip()
         if not requested_source:
@@ -156,31 +142,19 @@ def ui_playback_authority(
     }
 
 
-def ui_sources(*, fleet_settings: SatelliteFleetRuntimeSettings | None = None, canonical_authority: bool = False) -> dict[str, object]:
-    if canonical_authority:
-        sources = [
-            {
-                "source": source_id,
-                "playback_capable": True,
-                "supports_oracle_native_music": True,
-                "supports_plexamp": False,
-            }
-            for source_id in sorted(
-                item.source_id
-                for item in (() if fleet_settings is None else fleet_settings.satellites.values())
-                if item.enabled and item.playback_capable and item.source_id
-            )
-        ]
-        return {"ok": True, "sources": sources}
-    satellites = get_music_settings()["satellites"]
+def ui_sources(*, fleet_settings: SatelliteFleetRuntimeSettings | None = None) -> dict[str, object]:
     sources = [
         {
-            "source": source_name,
-            "playback_capable": bool(target.get("playback_capable")),
-            "supports_oracle_native_music": bool(target.get("supports_oracle_native_music")),
-            "supports_plexamp": bool(target.get("supports_plexamp", True)),
+            "source": source_id,
+            "playback_capable": True,
+            "supports_oracle_native_music": True,
+            "supports_plexamp": False,
         }
-        for source_name, target in sorted(satellites.items())
+        for source_id in sorted(
+            item.source_id
+            for item in (() if fleet_settings is None else fleet_settings.satellites.values())
+            if item.enabled and item.playback_capable and item.source_id
+        )
     ]
     return {"ok": True, "sources": sources}
 
@@ -194,7 +168,6 @@ def ui_logs(
     lines: int = 120,
     *,
     fleet_settings: SatelliteFleetRuntimeSettings | None = None,
-    canonical_authority: bool = False,
 ) -> dict[str, object]:
     normalized_target = str(target).strip().lower() or "brain"
     if normalized_target == "brain":
@@ -202,7 +175,7 @@ def ui_logs(
 
     known_targets = {
         str(item["target"])
-        for item in build_log_targets(fleet_settings=fleet_settings, canonical_authority=canonical_authority)
+        for item in build_log_targets(fleet_settings=fleet_settings)
     }
     if normalized_target not in known_targets:
         raise HTTPException(status_code=404, detail=f"Unknown log target {target}")
@@ -269,29 +242,24 @@ def _canonical_music(request: Request):
     canonical = isinstance(composition, CanonicalBrainApplicationComposition)
     if not canonical:
         raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
-    return (
-        composition.music_execution if canonical else None,
-        composition.audiobook_execution if canonical else None,
-        composition.runtime.satellites if canonical else None,
-        canonical,
-    )
+    return composition.music_execution, composition.audiobook_execution, composition.runtime.satellites
 
 
 def ui_playback_authority_http(request: Request, source: str | None = None) -> dict[str, object]:
-    music, audiobooks, fleet, canonical = _canonical_music(request)
-    return ui_playback_authority(source, music_execution=music, audiobook_execution=audiobooks, fleet_settings=fleet, canonical_authority=canonical)
+    music, audiobooks, fleet = _canonical_music(request)
+    return ui_playback_authority(source, music_execution=music, audiobook_execution=audiobooks, fleet_settings=fleet)
 
 
 def ui_sources_http(request: Request) -> dict[str, object]:
-    _music, _audiobooks, fleet, canonical = _canonical_music(request)
-    return ui_sources(fleet_settings=fleet, canonical_authority=canonical)
+    _music, _audiobooks, fleet = _canonical_music(request)
+    return ui_sources(fleet_settings=fleet)
 
 
 def ui_log_targets_http(request: Request) -> dict[str, object]:
-    _music, _audiobooks, fleet, canonical = _canonical_music(request)
-    return {"ok": True, "targets": build_log_targets(fleet_settings=fleet, canonical_authority=canonical)}
+    _music, _audiobooks, fleet = _canonical_music(request)
+    return {"ok": True, "targets": build_log_targets(fleet_settings=fleet)}
 
 
 def ui_logs_http(request: Request, target: str = "brain", lines: int = 120) -> dict[str, object]:
-    _music, _audiobooks, fleet, canonical = _canonical_music(request)
-    return ui_logs(target, lines, fleet_settings=fleet, canonical_authority=canonical)
+    _music, _audiobooks, fleet = _canonical_music(request)
+    return ui_logs(target, lines, fleet_settings=fleet)

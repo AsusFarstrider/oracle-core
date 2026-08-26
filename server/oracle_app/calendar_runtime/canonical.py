@@ -87,7 +87,9 @@ class CanonicalCalendarExecution:
         }
 
     def commit_event(self, event_draft: dict[str, Any]) -> dict[str, Any]:
-        return self.bridge.commit_typed_event(event_draft, settings=self.settings)
+        committed = self.bridge.commit_typed_event(event_draft, settings=self.settings)
+        self._cache.invalidate("calendar:events:")
+        return committed
 
     def health(self) -> dict[str, Any]:
         configured = self.settings.enabled and self.settings.read.enabled and bool(self.settings.read.feeds)

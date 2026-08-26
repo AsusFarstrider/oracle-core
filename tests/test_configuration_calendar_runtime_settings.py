@@ -17,9 +17,11 @@ from oracle_app.dispatch import build_dispatch_plan, build_dispatch_registry, ex
 from oracle_app.routing import build_route_capability_registry, choose_route
 from oracle_app.schemas import CommandRequest, DispatchPlan
 from oracle_app.ui_calendar import build_ui_calendar_page_snapshot
+from canonical_test_support import neutral_brain_runtime_settings
 
 
 EXAMPLE_ROOT = Path(__file__).resolve().parents[1] / "examples" / "config"
+NEUTRAL_HOUSEHOLD = neutral_brain_runtime_settings().household
 
 
 class CalendarRuntimeSettingsTests(unittest.TestCase):
@@ -87,28 +89,23 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
         )
 
         with patch(
-            "oracle_app.calendar.get_calendar_settings",
-            side_effect=AssertionError("canonical calendar used V1 settings"),
-        ), patch(
             "oracle_app.provider_bridges.nextcloud_calendar.NextcloudCalendarBridge.fetch_typed_events",
             return_value=[event],
         ) as fetch:
             route = choose_route(
                 "when is oracle test",
                 registry=build_route_capability_registry(
+                    NEUTRAL_HOUSEHOLD,
                     calendar_settings=settings,
-                    canonical_calendar=True,
                 ),
+                household_settings=NEUTRAL_HOUSEHOLD,
             )
             dispatched = execute_dispatch(
                 build_dispatch_plan(
                     CommandRequest(text="when is oracle test", source="test"),
                     route,
                 ),
-                registry=build_dispatch_registry(
-                    canonical_configuration=True,
-                    calendar_execution=execution,
-                ),
+                registry=build_dispatch_registry(calendar_execution=execution),
             )
             health = execution.health()
             ui = build_ui_calendar_page_snapshot(
@@ -170,10 +167,7 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
         ) as commit:
             result = execute_dispatch(
                 dispatch,
-                registry=build_dispatch_registry(
-                    canonical_configuration=True,
-                    calendar_execution=execution,
-                ),
+                registry=build_dispatch_registry(calendar_execution=execution),
             )
 
         self.assertEqual(result.status, "executed")

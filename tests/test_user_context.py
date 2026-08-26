@@ -28,26 +28,22 @@ class UserContextTests(unittest.TestCase):
         household.configured_associated_user_id.return_value = "resident_one"
         household.default_user.return_value = unittest.mock.MagicMock(id="resident_two")
 
-        with (
-            patch("oracle_app.user_context.get_user_registry") as legacy_users,
-            patch("oracle_app.user_context.get_source_registry") as legacy_sources,
-        ):
-            explicit = resolve_effective_user(
-                source="living_room_voice",
-                requested_user_name="Resident One",
-                household_settings=household,
-            )
-            associated = resolve_effective_user(
-                source="living_room_voice",
-                session_id="canonical-user-association",
-                household_settings=household,
-            )
-            household.configured_associated_user_id.return_value = None
-            defaulted = resolve_effective_user(
-                source="unassociated_browser",
-                session_id="canonical-household-default",
-                household_settings=household,
-            )
+        explicit = resolve_effective_user(
+            source="living_room_voice",
+            requested_user_name="Resident One",
+            household_settings=household,
+        )
+        associated = resolve_effective_user(
+            source="living_room_voice",
+            session_id="canonical-user-association",
+            household_settings=household,
+        )
+        household.configured_associated_user_id.return_value = None
+        defaulted = resolve_effective_user(
+            source="unassociated_browser",
+            session_id="canonical-household-default",
+            household_settings=household,
+        )
 
         self.assertEqual(explicit["user_id"], "resident_one")
         self.assertEqual(explicit["resolution_source"], "explicit_user")
@@ -55,8 +51,6 @@ class UserContextTests(unittest.TestCase):
         self.assertEqual(associated["resolution_source"], "source_association")
         self.assertEqual(defaulted["user_id"], "resident_two")
         self.assertEqual(defaulted["resolution_source"], "household_default")
-        legacy_users.assert_not_called()
-        legacy_sources.assert_not_called()
 
     def test_canonical_resolution_rejects_stale_disabled_session_user(self) -> None:
         household = unittest.mock.MagicMock()

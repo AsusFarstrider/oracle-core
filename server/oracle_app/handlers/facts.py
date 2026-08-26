@@ -23,11 +23,9 @@ class FactsHandler:
         canonical_execution: CanonicalFactsExecution | None = None,
         *,
         inference: InferenceClient | None = None,
-        canonical_authority: bool = False,
     ) -> None:
         self.canonical_execution = canonical_execution
         self.inference = inference
-        self.canonical_authority = canonical_authority
 
     def handle(self, dispatch: DispatchPlan, registry: Any) -> DispatchPlan:
         del registry

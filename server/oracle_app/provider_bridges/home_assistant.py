@@ -6,12 +6,6 @@ from dataclasses import dataclass
 from typing import Any
 from urllib import error, request
 
-from oracle_app.conversation import (
-    get_home_assistant_conversation_id,
-    set_home_assistant_conversation_id,
-)
-
-
 class HomeAssistantBridgeError(Exception):
     pass
 
@@ -55,13 +49,11 @@ class HomeAssistantBridge:
         self,
         command_text: str,
         *,
-        source: str | None,
-        session_id: str | None,
+        conversation_id: str | None = None,
     ) -> HomeAssistantExecutionResult:
         payload = self._post_conversation(
             command_text,
-            source=source,
-            session_id=session_id,
+            conversation_id=conversation_id,
         )
         try:
             parsed = json.loads(payload)
@@ -80,25 +72,13 @@ class HomeAssistantBridge:
             ),
         )
 
-    def commit_conversation_id(
-        self,
-        conversation_id: str | None,
-        *,
-        source: str | None,
-        session_id: str | None,
-    ) -> None:
-        if conversation_id:
-            set_home_assistant_conversation_id(source, session_id, conversation_id)
-
     def _post_conversation(
         self,
         command_text: str,
         *,
-        source: str | None,
-        session_id: str | None,
+        conversation_id: str | None,
     ) -> str:
         body_payload: dict[str, Any] = {"text": command_text, "language": "en"}
-        conversation_id = get_home_assistant_conversation_id(source, session_id)
         if conversation_id:
             body_payload["conversation_id"] = conversation_id
         req = request.Request(

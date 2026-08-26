@@ -27,6 +27,26 @@ _DOMAIN = "home_automation"
 logger = logging.getLogger("oracle-brain.home-automation")
 
 
+def home_automation_scheduler_required(
+    home_assistant_settings: HomeAssistantRuntimeSettings | None,
+    *,
+    db_path: Path | None = None,
+) -> bool:
+    """Keep the automation scheduler dormant unless it owns live work."""
+
+    if home_assistant_settings is not None and home_assistant_settings.automations:
+        return True
+    repository = RunbookRepository(db_path=db_path)
+    return bool(
+        repository.list_runs(
+            kind=_STORAGE_KIND,
+            domain=_DOMAIN,
+            status="waiting",
+            limit=1,
+        )
+    )
+
+
 @dataclass(frozen=True)
 class EntryRunbookDefinition:
     definition_version: str

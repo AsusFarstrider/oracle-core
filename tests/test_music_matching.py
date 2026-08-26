@@ -852,8 +852,7 @@ class MusicMatchingTests(unittest.TestCase):
             "plex_music_section_id": 4,
         }
 
-        with patch("oracle_app.music_runtime.client.get_music_settings", return_value=settings):
-            matches = search_track_from_album_fallback(intent, settings)
+        matches = search_track_from_album_fallback(intent, settings)
 
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0]["title"], "How It's Done")
@@ -907,8 +906,7 @@ class MusicMatchingTests(unittest.TestCase):
             "plex_music_section_id": 4,
         }
 
-        with patch("oracle_app.music_runtime.client.get_music_settings", return_value=settings):
-            matches = search_track_from_artist_fallback(intent, settings)
+        matches = search_track_from_artist_fallback(intent, settings)
 
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0]["title"], "Thunderstruck")
@@ -916,12 +914,10 @@ class MusicMatchingTests(unittest.TestCase):
         self.assertTrue(any("query=ac+dc" in url for url in called_urls))
         self.assertTrue(any("query=AC%2FDC" in url for url in called_urls))
 
-    @patch("oracle_app.music_runtime.client.get_music_settings")
     @patch("oracle_app.provider_bridges.plex_music.PlexMusicBridge.fetch_xml")
     def test_build_native_queue_manifest_expands_artist_into_sorted_tracks(
         self,
         mock_fetch_xml,
-        mock_get_music_settings,
     ) -> None:
         artist_children_xml = """<?xml version="1.0" encoding="UTF-8"?>
 <MediaContainer size="2">
@@ -948,7 +944,7 @@ class MusicMatchingTests(unittest.TestCase):
             raise AssertionError(f"Unexpected URL: {endpoint}")
 
         mock_fetch_xml.side_effect = _fetch
-        mock_get_music_settings.return_value = {
+        settings = {
             "plex_configured": True,
             "plex_base_url": "http://plex",
             "plex_token": "token",
@@ -962,7 +958,8 @@ class MusicMatchingTests(unittest.TestCase):
                 "artist": "David Bowie",
                 "plex_key": "/library/metadata/artist-bowie/children",
                 "rating_key": "artist-bowie",
-            }
+            },
+            settings=settings,
         )
 
         assert manifest is not None
@@ -973,12 +970,10 @@ class MusicMatchingTests(unittest.TestCase):
         self.assertEqual(manifest["tracks"][1]["title"], "Speed of Life")
         self.assertEqual(manifest["tracks"][2]["title"], "Breaking Glass")
 
-    @patch("oracle_app.music_runtime.client.get_music_settings")
     @patch("oracle_app.provider_bridges.plex_music.PlexMusicBridge.fetch_xml")
     def test_build_native_queue_manifest_expands_playlist_into_tracks(
         self,
         mock_fetch_xml,
-        mock_get_music_settings,
     ) -> None:
         playlist_tracks_xml = """<?xml version="1.0" encoding="UTF-8"?>
 <MediaContainer size="2">
@@ -987,7 +982,7 @@ class MusicMatchingTests(unittest.TestCase):
 </MediaContainer>"""
 
         mock_fetch_xml.return_value = playlist_tracks_xml
-        mock_get_music_settings.return_value = {
+        settings = {
             "plex_configured": True,
             "plex_base_url": "http://plex",
             "plex_token": "token",
@@ -1000,7 +995,8 @@ class MusicMatchingTests(unittest.TestCase):
                 "title": "Road Trip Mix",
                 "plex_key": "/playlists/123/items",
                 "rating_key": "playlist-123",
-            }
+            },
+            settings=settings,
         )
 
         assert manifest is not None

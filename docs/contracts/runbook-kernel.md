@@ -140,7 +140,7 @@ event mapping and at most one enabled lifecycle owner. A new run records the
 applied configuration revision and its resolved bounded definition before
 waiting. Continuation uses an explicitly supplied Home Assistant state reader
 and notifications capability; it cannot reopen V1 configuration or silently
-fall back to the V1 notification service.
+fall back to a V1 notification service.
 
 Canonical composite routines follow the same snapshot law. A new run records
 the exact applied configuration revision and a frozen serialized definition

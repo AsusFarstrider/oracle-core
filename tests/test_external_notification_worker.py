@@ -4,8 +4,12 @@ import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
-from oracle_app.notifications.external_worker import process_due_external_deliveries
+from oracle_app.notifications.external_worker import (
+    external_delivery_worker_required,
+    process_due_external_deliveries,
+)
 from oracle_app.notifications.receipts import (
     get_notification_delivery,
     reserve_notification_delivery,
@@ -95,6 +99,31 @@ class ExternalNotificationWorkerTests(unittest.TestCase):
             apprise_settings=self.apprise_settings,
             bridge=bridge,
             suppression_evaluator=lambda *_args, **_kwargs: "inactive",
+        )
+
+    def test_worker_is_dormant_without_configuration_or_recovery_work(self) -> None:
+        execution = SimpleNamespace(settings=SimpleNamespace(recipient_groups={}))
+        self.assertFalse(
+            external_delivery_worker_required(execution, db_path=self.db_path)
+        )
+        receipt = self._reserve()
+        self.assertTrue(
+            external_delivery_worker_required(execution, db_path=self.db_path)
+        )
+        from oracle_app.notifications.receipts import transition_notification_delivery
+        transition_notification_delivery(
+            receipt["receipt_id"], status="failed", db_path=self.db_path
+        )
+        self.assertFalse(
+            external_delivery_worker_required(execution, db_path=self.db_path)
+        )
+
+    def test_worker_starts_for_configured_external_delivery(self) -> None:
+        execution = SimpleNamespace(
+            settings=SimpleNamespace(recipient_groups={"household": object()})
+        )
+        self.assertTrue(
+            external_delivery_worker_required(execution, db_path=self.db_path)
         )
 
     def test_accepted_delivery_records_attempt_and_logical_route(self) -> None:

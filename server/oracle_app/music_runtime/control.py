@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from typing import Any
 from urllib import error, request
 
-from oracle_app.config import get_satellite_control_target
-
 
 _LONGFORM_START_TIMEOUT_SECONDS = 30
 
@@ -33,6 +31,18 @@ class ControlPlaneError(RuntimeError):
         self.failure_class = failure_class
         self.owning_component = owning_component
         self.error_code = error_code
+
+
+def serialize_control_plane_error(exc: ControlPlaneError) -> dict[str, object]:
+    """Serialize the finite cross-boundary control failure fields."""
+
+    return {
+        "error": "playback_authority_unavailable",
+        "detail": exc.detail,
+        "failure_class": exc.failure_class,
+        "owning_component": exc.owning_component,
+        "control_error": exc.error_code,
+    }
 
 
 def build_control_plane_failure(
@@ -137,9 +147,9 @@ def execute_satellite_command(
     action: str,
     args: dict[str, Any] | None = None,
     *,
-    control_target: SatelliteControlTarget | None = None,
+    control_target: SatelliteControlTarget,
 ) -> dict[str, Any]:
-    target = control_target or _legacy_control_target(source)
+    target = control_target
     endpoint = f"{target.base_url}/control"
     payload = {
         "command_id": uuid.uuid4().hex,
@@ -204,7 +214,7 @@ def execute_satellite_command(
 def fetch_satellite_playback_authority(
     source: str | None,
     *,
-    control_target: SatelliteControlTarget | None = None,
+    control_target: SatelliteControlTarget,
 ) -> dict[str, Any]:
     return _fetch_satellite_control_json(
         source,
@@ -216,7 +226,7 @@ def fetch_satellite_playback_authority(
 def fetch_satellite_music_session(
     source: str | None,
     *,
-    control_target: SatelliteControlTarget | None = None,
+    control_target: SatelliteControlTarget,
 ) -> dict[str, Any] | None:
     authority = fetch_satellite_playback_authority(source, control_target=control_target)
     if not isinstance(authority, dict):
@@ -227,7 +237,7 @@ def fetch_satellite_music_session(
 def fetch_satellite_audiobook_session(
     source: str | None,
     *,
-    control_target: SatelliteControlTarget | None = None,
+    control_target: SatelliteControlTarget,
 ) -> dict[str, Any] | None:
     authority = fetch_satellite_playback_authority(source, control_target=control_target)
     if not isinstance(authority, dict):
@@ -235,8 +245,12 @@ def fetch_satellite_audiobook_session(
     return _find_authority_session(authority, backend_type="oracle_audiobook", media_kind="audiobook")
 
 
-def fetch_satellite_audiobook_context_session(source: str | None) -> dict[str, Any] | None:
-    authority = fetch_satellite_playback_authority(source)
+def fetch_satellite_audiobook_context_session(
+    source: str | None,
+    *,
+    control_target: SatelliteControlTarget,
+) -> dict[str, Any] | None:
+    authority = fetch_satellite_playback_authority(source, control_target=control_target)
     if not isinstance(authority, dict):
         return None
     session = _find_authority_session(authority, backend_type="oracle_audiobook", media_kind="audiobook")
@@ -259,7 +273,7 @@ def fetch_satellite_audiobook_context_session(source: str | None) -> dict[str, A
 def fetch_satellite_reply_audio_session(
     source: str | None,
     *,
-    control_target: SatelliteControlTarget | None = None,
+    control_target: SatelliteControlTarget,
 ) -> dict[str, Any] | None:
     authority = fetch_satellite_playback_authority(source, control_target=control_target)
     if not isinstance(authority, dict):
@@ -271,9 +285,9 @@ def _fetch_satellite_control_json(
     source: str | None,
     path: str,
     *,
-    control_target: SatelliteControlTarget | None = None,
+    control_target: SatelliteControlTarget,
 ) -> dict[str, Any]:
-    target = control_target or _legacy_control_target(source)
+    target = control_target
     endpoint = f"{target.base_url}{path}"
     req = request.Request(
         endpoint,
@@ -321,15 +335,6 @@ def _fetch_satellite_control_json(
             owning_component="satellite.control_service",
             error_code="control_response_invalid",
         ) from exc
-
-
-def _legacy_control_target(source: str | None) -> SatelliteControlTarget:
-    target = get_satellite_control_target(source)
-    return SatelliteControlTarget(
-        base_url=str(target["base_url"]),
-        credential=str(target["api_key"]),
-        timeout_seconds=int(target["timeout_seconds"]),
-    )
 
 
 def _find_authority_session(

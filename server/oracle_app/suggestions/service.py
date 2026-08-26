@@ -5,8 +5,6 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from oracle_app.config import get_openclaw_settings
-from oracle_app.provider_bridges.openclaw import generate_suggestions as openclaw_generate_suggestions
 
 from .models import SuggestionGenerateRequest, SuggestionReviewRequest
 from .packet import build_packet
@@ -31,16 +29,10 @@ def generate_suggestion_run(
     *,
     canonical_execution=None,
     canonical_composition=None,
-    canonical_authority: bool = False,
 ) -> dict[str, Any]:
-    if canonical_authority:
-        if canonical_execution is None or not canonical_execution.enabled:
-            raise HTTPException(status_code=409, detail="Suggestions is disabled in canonical configuration.")
-        settings: dict[str, Any] = {}
-        max_suggestions = canonical_execution.max_suggestions(request.max_suggestions)
-    else:
-        settings = get_openclaw_settings()
-        max_suggestions = int(request.max_suggestions or settings.get("max_suggestions") or 10)
+    if canonical_execution is None or not canonical_execution.enabled:
+        raise HTTPException(status_code=409, detail="Suggestions is disabled in canonical configuration.")
+    max_suggestions = canonical_execution.max_suggestions(request.max_suggestions)
     window_start, window_end = _resolve_window(request)
     run_id = create_run(
         run_type=request.run_type,
@@ -59,12 +51,10 @@ def generate_suggestion_run(
         custom_prompt=request.custom_prompt,
         max_suggestions=max_suggestions,
         canonical_composition=canonical_composition,
-        canonical_authority=canonical_authority,
     )
     save_current_exchange(run_id, packet=packet)
 
     bridge_options = {
-        **settings,
         "max_suggestions": max_suggestions,
         "use_mock": request.use_mock,
         "adapter": (
@@ -72,7 +62,7 @@ def generate_suggestion_run(
             if request.use_mock
             else canonical_execution.status()["adapter"]
             if canonical_execution is not None
-            else settings.get("adapter", "http")
+            else ""
         ),
     }
     if request.wait_for_completion:
@@ -120,14 +110,12 @@ def _complete_suggestion_run(
     use_mock: bool,
     canonical_execution=None,
 ) -> dict[str, Any]:
-    result = (
-        canonical_execution.generate(
-            packet,
-            max_suggestions=int(bridge_options["max_suggestions"]),
-            use_mock=use_mock,
-        )
-        if canonical_execution is not None
-        else openclaw_generate_suggestions(packet, bridge_options)
+    if canonical_execution is None:
+        raise RuntimeError("Canonical Suggestions execution is unavailable.")
+    result = canonical_execution.generate(
+        packet,
+        max_suggestions=int(bridge_options["max_suggestions"]),
+        use_mock=use_mock,
     )
     redacted_result = redact_secrets(result)
     save_current_exchange(run_id, response=redacted_result)
@@ -220,38 +208,18 @@ def read_current_exchange(part: str) -> dict[str, Any]:
 def openclaw_status(
     *,
     canonical_execution=None,
-    canonical_authority: bool = False,
 ) -> dict[str, Any]:
-    if canonical_authority:
-        if canonical_execution is None:
-            return {
-                "ok": False,
-                "provider": "openclaw",
-                "adapter": "",
-                "configured": False,
-                "base_url_configured": False,
-                "ssh_target_configured": False,
-                "endpoint_path_configured": False,
-                "detail": "Suggestions is disabled in canonical configuration.",
-            }
+    if canonical_execution is not None:
         return canonical_execution.status()
-    settings = get_openclaw_settings()
-    adapter = str(settings.get("adapter") or "http")
-    if adapter == "http":
-        configured = bool(settings.get("base_url"))
-    elif adapter == "ssh_cli":
-        configured = bool(settings.get("ssh_target"))
-    else:
-        configured = adapter == "mock"
     return {
-        "ok": configured,
+        "ok": False,
         "provider": "openclaw",
-        "adapter": adapter,
-        "configured": configured,
-        "base_url_configured": bool(settings.get("base_url")),
-        "ssh_target_configured": bool(settings.get("ssh_target")),
-        "endpoint_path_configured": bool(settings.get("endpoint_path")),
-        "detail": "OpenClaw transport is configured." if configured else "OpenClaw transport is not configured. Interface discovery is still required.",
+        "adapter": "",
+        "configured": False,
+        "base_url_configured": False,
+        "ssh_target_configured": False,
+        "endpoint_path_configured": False,
+        "detail": "Suggestions is disabled in canonical configuration.",
     }
 
 

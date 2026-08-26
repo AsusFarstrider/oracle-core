@@ -21,7 +21,7 @@ python_multipart_multipart_stub.parse_options_header = lambda value: (value, {})
 sys.modules.setdefault("python_multipart", python_multipart_stub)
 sys.modules.setdefault("python_multipart.multipart", python_multipart_multipart_stub)
 
-from oracle_app import api
+from oracle_app import health_routes
 from oracle_app.memory import provider_status, schema
 from oracle_app.memory.events import list_events
 from oracle_app.memory.store import transaction
@@ -515,7 +515,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
             patch("oracle_app.health_routes.check_home_assistant_health", return_value=response) as mock_check,
             patch("oracle_app.health_routes.safe_observe_provider_health", return_value=True) as mock_observe,
         ):
-            returned = api.health_home_assistant()
+            returned = health_routes.health_home_assistant()
 
         self.assertIs(returned, response)
         mock_check.assert_called_once_with()
@@ -528,7 +528,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
             patch("oracle_app.health_routes.check_ollama_health", return_value=response),
             patch("oracle_app.health_routes.safe_observe_provider_health", return_value=False) as mock_observe,
         ):
-            returned = api.health_ollama()
+            returned = health_routes.health_ollama()
 
         self.assertIs(returned, response)
         mock_observe.assert_called_once_with("ollama", response)
@@ -605,7 +605,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
                     patch(f"oracle_app.health_routes.{check_name}", return_value=response) as mock_check,
                     patch("oracle_app.health_routes.safe_observe_provider_health", return_value=True) as mock_observe,
                 ):
-                    returned = getattr(api, endpoint_name)()
+                    returned = getattr(health_routes, endpoint_name)()
 
                 self.assertIs(returned, response)
                 mock_check.assert_called_once_with()
@@ -631,7 +631,7 @@ class OracleMemoryProviderStatusTests(unittest.TestCase):
             },
         )()
         with patch("oracle_app.health_routes.safe_observe_provider_health") as mock_observe:
-            response = api.canonical_health(composition)
+            response = health_routes.canonical_health(composition)
 
         self.assertEqual(response.status, "ok")
         mock_observe.assert_not_called()

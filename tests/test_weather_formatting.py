@@ -131,11 +131,8 @@ class WeatherFormattingTests(unittest.TestCase):
         )
         self.assertIn("chilly", text)
 
-    @patch("oracle_app.weather_current.fetch_weather_observation")
-    @patch("oracle_app.weather_current.fetch_weather_forecast")
-    def test_field_specific_wind_response_uses_current_details(self, mock_fetch_forecast, mock_fetch_observation) -> None:
-        mock_fetch_forecast.return_value = {"periods": []}
-        mock_fetch_observation.return_value = self._obs(
+    def test_field_specific_wind_response_uses_current_details(self) -> None:
+        observation = self._obs(
             temp=60.0,
             humidity=60.0,
             wind_speed=7.0,
@@ -143,17 +140,14 @@ class WeatherFormattingTests(unittest.TestCase):
             rain=0.0,
         )
 
-        speech, details = build_weather_response("what is the wind")
+        speech, details = build_weather_response("what is the wind", observation=observation)
 
         self.assertIn("wind is out of the east", speech)
         self.assertEqual(details["field"], "wind")
         self.assertEqual(details["mode"], "field")
 
-    @patch("oracle_app.weather_current.fetch_weather_observation")
-    @patch("oracle_app.weather_current.fetch_weather_forecast")
-    def test_full_current_weather_response_lists_meaningful_fields(self, mock_fetch_forecast, mock_fetch_observation) -> None:
-        mock_fetch_forecast.return_value = {"periods": []}
-        mock_fetch_observation.return_value = self._obs(
+    def test_full_current_weather_response_lists_meaningful_fields(self) -> None:
+        observation = self._obs(
             temp=60.0,
             humidity=82.0,
             wind_speed=4.0,
@@ -161,24 +155,22 @@ class WeatherFormattingTests(unittest.TestCase):
             rain=0.0,
         )
 
-        speech, details = build_weather_response("full current weather")
+        speech, details = build_weather_response("full current weather", observation=observation)
 
         self.assertIn("Current weather for Test", speech)
         self.assertIn("Humidity is 82 percent", speech)
         self.assertIn("The barometer is 30.12 inches of mercury", speech)
         self.assertEqual(details["mode"], "full")
 
-    @patch("oracle_app.weather_current.fetch_weather_observation")
-    @patch("oracle_app.weather_current.fetch_weather_forecast")
-    def test_summary_can_append_single_forecast_hint(self, mock_fetch_forecast, mock_fetch_observation) -> None:
-        mock_fetch_observation.return_value = self._obs(
+    def test_summary_can_append_single_forecast_hint(self) -> None:
+        observation = self._obs(
             temp=58.0,
             humidity=82.0,
             wind_speed=2.0,
             gust=4.0,
             rain=0.0,
         )
-        mock_fetch_forecast.return_value = {
+        forecast = {
             "periods": [
                 self._period(
                     name="Tonight",
@@ -191,22 +183,24 @@ class WeatherFormattingTests(unittest.TestCase):
             ]
         }
 
-        speech, details = build_weather_response("what is the weather")
+        speech, details = build_weather_response(
+            "what is the weather",
+            observation=observation,
+            forecast_loader=lambda: forecast,
+        )
 
         self.assertIn("Rain is expected tonight.", speech)
         self.assertEqual(details["mode"], "summary")
 
-    @patch("oracle_app.weather_current.fetch_weather_observation")
-    @patch("oracle_app.weather_current.fetch_weather_forecast")
-    def test_summary_can_append_single_temperature_trend_hint(self, mock_fetch_forecast, mock_fetch_observation) -> None:
-        mock_fetch_observation.return_value = self._obs(
+    def test_summary_can_append_single_temperature_trend_hint(self) -> None:
+        observation = self._obs(
             temp=60.0,
             humidity=55.0,
             wind_speed=2.0,
             gust=4.0,
             rain=0.0,
         )
-        mock_fetch_forecast.return_value = {
+        forecast = {
             "periods": [
                 self._period(
                     name="Tonight",
@@ -219,21 +213,21 @@ class WeatherFormattingTests(unittest.TestCase):
             ]
         }
 
-        speech, _ = build_weather_response("what is the weather")
+        speech, _ = build_weather_response(
+            "what is the weather", observation=observation, forecast_loader=lambda: forecast
+        )
 
         self.assertIn("The temperature is expected to drop tonight.", speech)
 
-    @patch("oracle_app.weather_current.fetch_weather_observation")
-    @patch("oracle_app.weather_current.fetch_weather_forecast")
-    def test_summary_can_append_generic_forecast_condition_hint(self, mock_fetch_forecast, mock_fetch_observation) -> None:
-        mock_fetch_observation.return_value = self._obs(
+    def test_summary_can_append_generic_forecast_condition_hint(self) -> None:
+        observation = self._obs(
             temp=57.9,
             humidity=55.0,
             wind_speed=2.0,
             gust=4.0,
             rain=0.0,
         )
-        mock_fetch_forecast.return_value = {
+        forecast = {
             "periods": [
                 self._period(
                     name="Tonight",
@@ -246,7 +240,9 @@ class WeatherFormattingTests(unittest.TestCase):
             ]
         }
 
-        speech, _ = build_weather_response("what is the weather")
+        speech, _ = build_weather_response(
+            "what is the weather", observation=observation, forecast_loader=lambda: forecast
+        )
 
         self.assertIn("Expect mostly cloudy conditions tonight.", speech)
 

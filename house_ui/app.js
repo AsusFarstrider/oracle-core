@@ -1326,7 +1326,7 @@ async function loadHome() {
     const audioQuery = state.homeAudioSource ? `?source=${encodeURIComponent(state.homeAudioSource)}` : "";
     const [homePayload, audioPayload] = await Promise.all([
       fetchJson("/api/ui/home"),
-      fetchJson(`/api/ui/audio${audioQuery}`).catch(() => null),
+      fetchJson(`/api/ui/audio/status${audioQuery}`).catch(() => null),
     ]);
     state.escapeHatches = normalizeEscapeHatches(homePayload.escape_hatches);
     renderEscapeHatches(state.currentPage);

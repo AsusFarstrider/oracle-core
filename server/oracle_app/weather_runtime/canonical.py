@@ -183,14 +183,12 @@ class CanonicalWeatherExecution:
         return build_remote_current_weather_response(
             query_text,
             runtime_settings=self.settings.remote,
-            canonical_authority=True,
         )
 
     def build_remote_forecast_response(self, query_text: str):
         return build_remote_forecast_response(
             query_text,
             runtime_settings=self.settings.remote,
-            canonical_authority=True,
         )
 
 

@@ -9,16 +9,6 @@ from datetime import datetime
 from typing import Any
 from urllib import error, request
 
-from .config import (
-    get_librenms_settings,
-    get_music_settings,
-    get_network_inventory_settings,
-    get_network_probe_settings,
-    get_network_router_control_settings,
-    get_network_service_control_settings,
-)
-from .provider_bridges.librenms import LibreNmsBridge
-from .provider_bridges.network_probe import NetworkProbeBridge
 from .provider_bridges.router_control import get_available_router_actions
 from .provider_bridges.service_control import get_available_service_actions
 from .network_status import build_network_status_snapshot
@@ -76,86 +66,20 @@ def parse_network_query(text: str) -> NetworkQuery | None:
 def get_network_summary(
     *,
     canonical_execution: CanonicalNetworkExecution | None = None,
-    canonical_authority: bool = False,
 ) -> dict[str, Any]:
     if canonical_execution is not None:
         return canonical_execution.summary()
-    if canonical_authority:
-        return _unconfigured_network_summary()
-    probe = _observation_dict(NetworkProbeBridge().get_internet_status(settings=get_network_probe_settings()))
-    monitoring = _observation_dict(LibreNmsBridge().get_monitoring_status(settings=get_librenms_settings()))
-    actions_available = get_available_actions()
-    problems = _collect_problems(probe, monitoring)
-    status = _summarize_network_status(
-        internet_status=str(probe.get("status") or "unknown"),
-        monitoring_status=str(monitoring.get("status") or "unknown"),
-    )
-    generated_at = str(probe.get("checked_at") or monitoring.get("checked_at") or "")
-    return {
-        "status": status,
-        "internet": {
-            "status": str(probe.get("status") or "unknown"),
-            "checked_at": probe.get("checked_at"),
-            "source": probe.get("source"),
-            "detail": probe.get("detail"),
-        },
-        "monitoring": {
-            "status": str(monitoring.get("status") or "unknown"),
-            "checked_at": monitoring.get("checked_at"),
-            "source": monitoring.get("source"),
-            "detail": monitoring.get("detail"),
-        },
-        "problems": problems,
-        "actions_available": actions_available,
-        "generated_at": generated_at,
-    }
+    return _unconfigured_network_summary()
 
 
 def get_network_status_snapshot(
     *,
     force_refresh: bool = False,
     canonical_execution: CanonicalNetworkExecution | None = None,
-    canonical_authority: bool = False,
 ) -> dict[str, Any]:
     if canonical_execution is not None:
         return canonical_execution.status_snapshot(force_refresh=force_refresh)
-    if canonical_authority:
-        raise RuntimeError("Canonical network capability is not configured.")
-    with _NETWORK_STATUS_CACHE_LOCK:
-        now_monotonic = time.monotonic()
-        cached_snapshot = _NETWORK_STATUS_CACHE.get("snapshot")
-        cached_monotonic = float(_NETWORK_STATUS_CACHE.get("stored_monotonic") or 0.0)
-        if not force_refresh and isinstance(cached_snapshot, dict) and cached_monotonic:
-            age_seconds = max(0.0, now_monotonic - cached_monotonic)
-            if age_seconds <= _NETWORK_STATUS_CACHE_TTL_SECONDS:
-                return _with_cache_metadata(
-                    cached_snapshot,
-                    cached_at=str(_NETWORK_STATUS_CACHE.get("cached_at") or ""),
-                    age_seconds=age_seconds,
-                    cache_hit=True,
-                )
-
-        raw_probe = NetworkProbeBridge().get_internet_status(settings=get_network_probe_settings())
-        raw_monitoring = LibreNmsBridge().get_monitoring_status(settings=get_librenms_settings())
-        probe = _observation_dict(raw_probe)
-        monitoring = _observation_dict(raw_monitoring)
-        inventory = get_network_inventory_settings()
-        snapshot = build_network_status_snapshot(
-            inventory=inventory,
-            probe=probe,
-            monitoring=monitoring,
-            satellite_control=_get_satellite_control_status(inventory=inventory),
-        )
-        cached_at = datetime.now().astimezone().isoformat()
-        _NETWORK_STATUS_CACHE["snapshot"] = copy.deepcopy(snapshot)
-        _NETWORK_STATUS_CACHE["stored_monotonic"] = now_monotonic
-        _NETWORK_STATUS_CACHE["cached_at"] = cached_at
-        return _with_cache_metadata(
-            snapshot,
-            cached_at=cached_at,
-            age_seconds=0.0,
-            cache_hit=False,
-        )
+    raise RuntimeError("Canonical network capability is not configured.")
 
 
 def _observation_dict(value: Any) -> dict[str, Any]:
@@ -165,7 +89,9 @@ def _observation_dict(value: Any) -> dict[str, Any]:
     return dict(value)
 
 
-def _get_satellite_control_status(*, inventory: dict[str, Any]) -> dict[str, Any]:
+def _get_satellite_control_status(
+    *, inventory: dict[str, Any], satellite_controls: dict[str, Any]
+) -> dict[str, Any]:
     monitors = [
         monitor
         for monitor in inventory.get("monitors") or []
@@ -182,7 +108,6 @@ def _get_satellite_control_status(*, inventory: dict[str, Any]) -> dict[str, Any
             "checks": [],
         }
 
-    satellite_controls = dict(get_music_settings().get("satellites") or {})
     checks = [_probe_satellite_control_monitor(monitor, satellite_controls=satellite_controls) for monitor in monitors]
     statuses = [str(item.get("status") or "unknown") for item in checks]
     if any(status == "down" for status in statuses):
@@ -291,9 +216,11 @@ def _with_cache_metadata(
     return payload
 
 
-def get_available_actions() -> list[dict[str, str]]:
-    actions = get_available_service_actions(get_network_service_control_settings())
-    actions.extend(get_available_router_actions(get_network_router_control_settings()))
+def get_available_actions(
+    *, service_control_settings: dict[str, Any], router_control_settings: dict[str, Any]
+) -> list[dict[str, str]]:
+    actions = get_available_service_actions(service_control_settings)
+    actions.extend(get_available_router_actions(router_control_settings))
     return actions
 
 
@@ -301,12 +228,10 @@ def build_network_response(
     text: str,
     *,
     canonical_execution: CanonicalNetworkExecution | None = None,
-    canonical_authority: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     del text
     summary = get_network_summary(
         canonical_execution=canonical_execution,
-        canonical_authority=canonical_authority,
     )
     speech = summarize_network_speech(summary)
     return speech, summary
@@ -336,11 +261,9 @@ def summarize_network_speech(summary: dict[str, Any]) -> str:
 def build_ui_network_health_snapshot(
     *,
     canonical_execution: CanonicalNetworkExecution | None = None,
-    canonical_authority: bool = False,
 ) -> dict[str, Any]:
     summary = get_network_summary(
         canonical_execution=canonical_execution,
-        canonical_authority=canonical_authority,
     )
     return {
         "status": str(summary.get("status") or "unknown"),

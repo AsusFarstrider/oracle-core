@@ -23,6 +23,13 @@ ROUTINE = {
 }
 
 
+def _execution(*, definition=ROUTINE, run=None):
+    execution = Mock()
+    execution.definition_payload.return_value = dict(definition)
+    execution.start.return_value = run or {"run_id": "run-1", "status": "waiting"}
+    return execution
+
+
 class OrchestrationRoutineRouteTests(unittest.TestCase):
     @patch("oracle_app.orchestration_routine_routes.state.store_pending_ui_context", return_value=True)
     def test_run_control_prompts_for_declared_spoken_duration(self, mock_store) -> None:
@@ -38,7 +45,6 @@ class OrchestrationRoutineRouteTests(unittest.TestCase):
             "child_bedtime_prompt",
             UiRoutineRunRequest(client_id="ui", source="satellite-child", ui_session_id="session", inputs={}),
             routine_execution=execution,
-            canonical_authority=True,
         )
 
         self.assertTrue(result["pending_input"])
@@ -96,15 +102,7 @@ class OrchestrationRoutineRouteTests(unittest.TestCase):
         self.assertEqual(response.dispatch.result["error"], "routine_duration_required")
         starter.assert_not_called()
         clear.assert_not_called()
-    @patch(
-        "oracle_app.orchestration_routine_routes.get_orchestration_settings",
-        side_effect=AssertionError("canonical route used V1 routine settings"),
-    )
-    @patch(
-        "oracle_app.orchestration_routine_routes.get_source_registry",
-        side_effect=AssertionError("canonical route used V1 source registry"),
-    )
-    def test_canonical_run_uses_typed_execution(self, _legacy_sources, _legacy_settings) -> None:
+    def test_canonical_run_uses_typed_execution(self) -> None:
         class FakeExecution:
             def definition_payload(self, routine_id):
                 self.definition_id = routine_id
@@ -123,7 +121,6 @@ class OrchestrationRoutineRouteTests(unittest.TestCase):
                 inputs={"sleep_minutes": 20},
             ),
             routine_execution=execution,  # type: ignore[arg-type]
-            canonical_authority=True,
         )
 
         self.assertTrue(payload["ok"])
@@ -136,18 +133,8 @@ class OrchestrationRoutineRouteTests(unittest.TestCase):
             ),
         )
 
-    @patch("oracle_app.orchestration_routine_routes.start_routine")
-    @patch("oracle_app.orchestration_routine_routes.get_orchestration_settings")
-    @patch("oracle_app.orchestration_routine_routes.get_source_registry")
-    def test_run_accepts_known_source_and_declared_inputs(
-        self,
-        mock_sources,
-        mock_settings,
-        mock_start,
-    ) -> None:
-        mock_sources.return_value = {"satellite-child": {"source_type": "satellite"}}
-        mock_settings.return_value = {"routines": [ROUTINE]}
-        mock_start.return_value = {"run_id": "run-1", "status": "waiting"}
+    def test_run_accepts_bound_source_and_declared_inputs(self) -> None:
+        execution = _execution()
 
         payload = run_routine(
             "child_bedtime",
@@ -156,27 +143,18 @@ class OrchestrationRoutineRouteTests(unittest.TestCase):
                 source="satellite-child",
                 inputs={"sleep_minutes": 20},
             ),
+            routine_execution=execution,
         )
 
         self.assertTrue(payload["ok"])
-        mock_start.assert_called_once_with(
+        execution.start.assert_called_once_with(
             "child_bedtime",
             client_id="satellite-ui-satellite-child",
             inputs={"sleep_minutes": 20},
         )
 
-    @patch("oracle_app.orchestration_routine_routes.start_routine")
-    @patch("oracle_app.orchestration_routine_routes.get_orchestration_settings")
-    @patch("oracle_app.orchestration_routine_routes.get_source_registry")
-    def test_run_hides_kernel_private_metadata(
-        self,
-        mock_sources,
-        mock_settings,
-        mock_start,
-    ) -> None:
-        mock_sources.return_value = {"satellite-child": {"source_type": "satellite"}}
-        mock_settings.return_value = {"routines": [ROUTINE]}
-        mock_start.return_value = {
+    def test_run_hides_kernel_private_metadata(self) -> None:
+        execution = _execution(run={
             "run_id": "run-1",
             "status": "waiting",
             "definition_domain": "composite",
@@ -187,7 +165,7 @@ class OrchestrationRoutineRouteTests(unittest.TestCase):
             "activation_idempotency_key": "",
             "cancellation_reason": "",
             "cancellation_requester": "",
-        }
+        })
 
         payload = run_routine(
             "child_bedtime",
@@ -195,37 +173,27 @@ class OrchestrationRoutineRouteTests(unittest.TestCase):
                 client_id="satellite-ui-satellite-child",
                 source="satellite-child",
             ),
+            routine_execution=execution,
         )
 
         self.assertEqual(payload["run"], {"run_id": "run-1", "status": "waiting"})
 
-    @patch("oracle_app.orchestration_routine_routes.get_source_registry", return_value={})
-    def test_run_rejects_unknown_source(self, _mock_sources) -> None:
+    def test_run_rejects_unbound_source(self) -> None:
         with self.assertRaises(HTTPException) as raised:
             run_routine(
                 "child_bedtime",
                 UiRoutineRunRequest(client_id="browser", source="unknown"),
+                routine_execution=_execution(),
             )
 
-        self.assertEqual(raised.exception.status_code, 400)
+        self.assertEqual(raised.exception.status_code, 409)
 
-    @patch(
-        "oracle_app.orchestration_routine_routes.get_source_registry",
-        return_value={"satellite-guest": {"source_type": "satellite"}},
-    )
-    @patch(
-        "oracle_app.orchestration_routine_routes.get_orchestration_settings",
-        return_value={"routines": [ROUTINE]},
-    )
-    def test_run_rejects_known_source_not_bound_to_routine(
-        self,
-        _mock_settings,
-        _mock_sources,
-    ) -> None:
+    def test_run_rejects_source_not_bound_to_routine(self) -> None:
         with self.assertRaises(HTTPException) as raised:
             run_routine(
                 "child_bedtime",
                 UiRoutineRunRequest(client_id="browser", source="satellite-guest"),
+                routine_execution=_execution(),
             )
 
         self.assertEqual(raised.exception.status_code, 409)

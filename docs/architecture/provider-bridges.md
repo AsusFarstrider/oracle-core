@@ -150,7 +150,8 @@ Current seams:
 Current shape:
 
 - the domain owns room-context, confirmation behavior, expected outcomes, bounded post-action verification, and failure shaping
-- the bridge owns Home Assistant conversation requests, direct service requests, conversation-id reuse/update, provider payload parsing, success-target extraction, and entity-state reads
+- the domain handler owns source/session-scoped conversation-id reuse/update
+- the bridge owns Home Assistant conversation requests, direct service requests, supplied/returned provider conversation identities, provider payload parsing, success-target extraction, and entity-state reads
 - final dispatch status and user-facing reply behavior remain in the domain/brain path
 
 ### Apprise

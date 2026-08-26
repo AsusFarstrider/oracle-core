@@ -83,7 +83,7 @@ Audio/runtime rules:
 ### Pending music clarification
 
 - Create: `handlers/music.py` when Plex results require clarification or best-guess follow-up.
-- Read: `capabilities/plugins.py` and `handlers/music.py`.
+- Read: `capabilities/media.py` and `handlers/music.py`.
 - Clear: `handlers/music.py` after selection, execution, or hard failure.
 - Forbidden: global clarification state shared across sessions.
 - Forbidden: storing playback-authority truth, service health, deploy/config truth, or global alerts inside pending payloads.
@@ -92,7 +92,7 @@ Audio/runtime rules:
 ### Pending audiobook clarification
 
 - Create: `handlers/audiobook.py` when Audiobookshelf results require clarification.
-- Read: `capabilities/plugins.py` and `handlers/audiobook.py`.
+- Read: `capabilities/media.py` and `handlers/audiobook.py`.
 - Clear: `handlers/audiobook.py` after selection, execution, or hard failure.
 - Forbidden: global clarification state shared across sessions.
 - Forbidden: storing playback-authority truth, service health, deploy/config truth, or global alerts inside pending payloads.
@@ -100,7 +100,8 @@ Audio/runtime rules:
 
 ### Conversation context and HA conversation linkage
 
-- Create/update: `api.py` via `append_turn()` and `set_dispatch_context()`, plus `handlers/home_assistant.py` for HA linkage.
+- Create/update: `application_command.py` via `append_turn()` and
+  `set_dispatch_context()`, plus `handlers/home_assistant.py` for HA linkage.
 - Read: `handlers/ollama.py` for prompt shaping and `handlers/home_assistant.py` for HA reuse.
 - Clear: the effective-session lifecycle clears conversation, Home Assistant
   linkage, interim events, and prior audit data atomically on expiry or explicit

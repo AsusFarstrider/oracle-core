@@ -10,7 +10,6 @@ from typing import Any, Callable
 from .constants import NETWORK_LOCAL_RESTART_STATE_PATH
 from .memory.events import record_event
 from .network_control_results import build_network_control_audit_payload, record_network_control_result
-from .provider_bridges.service_control import check_host_readiness
 
 
 _BOOT_ID_PATH = Path("/proc/sys/kernel/random/boot_id")
@@ -79,9 +78,7 @@ def clear_pending_local_host_restart(
 
 def complete_pending_local_host_restart(
     *,
-    service_control_settings: dict[str, Any] | None = None,
     canonical_execution=None,
-    canonical_authority: bool = False,
     state_path: Path = NETWORK_LOCAL_RESTART_STATE_PATH,
     boot_id_path: Path = _BOOT_ID_PATH,
     db_path: Path | None = None,
@@ -95,7 +92,7 @@ def complete_pending_local_host_restart(
         return {"status": "pending", "reason": "boot_id_unavailable"}
     if boot_id_after == str(pending.get("boot_id_before") or ""):
         return {"status": "pending", "reason": "boot_not_changed"}
-    if canonical_authority and canonical_execution is None:
+    if canonical_execution is None:
         return {"status": "pending", "reason": "canonical_network_unavailable"}
 
     host_id = str(pending.get("target_id") or "").strip()
@@ -104,28 +101,21 @@ def complete_pending_local_host_restart(
     deadline = time.monotonic() + timeout_seconds
     readiness: dict[str, Any] = {}
     while time.monotonic() < deadline:
-        if canonical_execution is not None:
-            from .network_runtime.service_control import TypedServiceControl
+        from .network_runtime.service_control import TypedServiceControl
 
-            action = canonical_execution.policy.action_for(
-                target_type="host",
-                target_id=host_id,
-                operation="restart_host",
-            )
-            readiness = (
-                TypedServiceControl(canonical_execution.adapters).check_readiness(
-                    action.adapter,
-                    timeout_seconds=min(15, poll_seconds + 5),
-                )
-                if action is not None
-                else {"ok": False, "check_count": 0, "passed_count": 0, "failed_check_ids": []}
-            )
-        else:
-            readiness = check_host_readiness(
-                settings=service_control_settings or {},
-                host_id=host_id,
+        action = canonical_execution.policy.action_for(
+            target_type="host",
+            target_id=host_id,
+            operation="restart_host",
+        )
+        readiness = (
+            TypedServiceControl(canonical_execution.adapters).check_readiness(
+                action.adapter,
                 timeout_seconds=min(15, poll_seconds + 5),
             )
+            if action is not None
+            else {"ok": False, "check_count": 0, "passed_count": 0, "failed_check_ids": []}
+        )
         if readiness.get("ok") is True:
             break
         remaining = deadline - time.monotonic()
@@ -221,15 +211,11 @@ def complete_pending_local_host_restart(
 
 def safe_complete_pending_local_host_restart(
     *,
-    service_control_settings: dict[str, Any] | None = None,
     canonical_execution=None,
-    canonical_authority: bool = False,
 ) -> dict[str, Any]:
     try:
         return complete_pending_local_host_restart(
-            service_control_settings=service_control_settings,
             canonical_execution=canonical_execution,
-            canonical_authority=canonical_authority,
         )
     except Exception as exc:
         logger.warning("network_control_local_restart_completion_failed detail=%s", exc)

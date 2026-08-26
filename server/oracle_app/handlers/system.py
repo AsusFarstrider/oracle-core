@@ -21,7 +21,7 @@ class SystemHandler:
 
     def __init__(
         self,
-        household_settings: HouseholdRuntimeSettings | None = None,
+        household_settings: HouseholdRuntimeSettings,
         calendar_execution: CanonicalCalendarExecution | None = None,
         home_assistant_settings: HomeAssistantRuntimeSettings | None = None,
     ) -> None:

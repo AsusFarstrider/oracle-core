@@ -2,15 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from .config import get_forecast_settings
-from .provider_bridges.nws_weather_forecast import NwsWeatherForecastBridge, get_weather_forecast_bridge
-from .read_cache import BoundedReadCache
+from .provider_bridges.nws_weather_forecast import NwsWeatherForecastBridge
 from .weather_models import ForecastPeriod
 
-
-_FORECAST_CACHE: BoundedReadCache[dict] = BoundedReadCache()
-FORECAST_TTL_SECONDS = 10 * 60
-FORECAST_STALE_MAX_SECONDS = 2 * 60 * 60
 
 WEEKDAY_NAMES = (
     "monday",
@@ -32,23 +26,6 @@ class ForecastOutOfRangeError(RuntimeError):
 
 def _parse_forecast_period(item: dict) -> ForecastPeriod:
     return NwsWeatherForecastBridge().parse_forecast_period(item)
-
-
-def fetch_weather_forecast() -> dict:
-    settings = get_forecast_settings()
-    cache_key = f"forecast:{settings.get('provider')}:{settings.get('latitude')}:{settings.get('longitude')}"
-    cached = _FORECAST_CACHE.read(
-        cache_key,
-        ttl_seconds=FORECAST_TTL_SECONDS,
-        stale_max_seconds=FORECAST_STALE_MAX_SECONDS,
-        loader=lambda: get_weather_forecast_bridge(settings).fetch_local_forecast(settings=settings),
-    )
-    return {
-        **cached.value,
-        "freshness": cached.freshness,
-        "age_seconds": round(cached.age_seconds, 3),
-        "stale_reason": cached.stale_reason,
-    }
 
 
 def _select_forecast_periods(query_text: str, periods: list[ForecastPeriod]) -> list[ForecastPeriod]:
@@ -202,33 +179,3 @@ def format_forecast_summary(query_text: str, periods: list[ForecastPeriod]) -> s
 
     first, second = selected[0], selected[1]
     return f"{_describe_forecast_period(first)} {_describe_forecast_period(second)}"
-
-
-def build_forecast_response(query_text: str) -> tuple[str, dict]:
-    forecast = fetch_weather_forecast()
-    periods: list[ForecastPeriod] = forecast["periods"]
-    selected = _select_forecast_periods(query_text, periods)
-    speech = format_forecast_summary(query_text, periods)
-    if forecast["freshness"] == "stale":
-        speech = f"I couldn't refresh the forecast, so this is the latest saved forecast. {speech}"
-    details = {
-        "location": forecast["location"],
-        "state": forecast["state"],
-        "forecast_url": forecast["forecast_url"],
-        "forecast_hourly_url": forecast["forecast_hourly_url"],
-        "freshness": forecast["freshness"],
-        "age_seconds": forecast["age_seconds"],
-        "stale_reason": forecast["stale_reason"],
-        "selected_periods": [
-            {
-                "name": period.name,
-                "start_time": period.start_time.isoformat(),
-                "end_time": period.end_time.isoformat(),
-                "is_daytime": period.is_daytime,
-                "temperature_f": period.temperature_f,
-                "short_forecast": period.short_forecast,
-            }
-            for period in selected
-        ],
-    }
-    return speech, details

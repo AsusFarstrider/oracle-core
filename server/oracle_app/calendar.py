@@ -6,22 +6,8 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import HTTPException
-
 from .calendar_models import CalendarEvent
-from .config import get_calendar_settings
-from .provider_bridges import CalendarBridgeError, get_calendar_bridge
 from .calendar_write import parse_calendar_write_request
-from .read_cache import BoundedReadCache, CachedRead
-
-
-_CALENDAR_CACHE: BoundedReadCache[list[CalendarEvent]] = BoundedReadCache()
-CALENDAR_TTL_SECONDS = 60
-CALENDAR_STALE_MAX_SECONDS = 10 * 60
-
-
-def invalidate_calendar_cache() -> None:
-    _CALENDAR_CACHE.invalidate("calendar:")
 
 
 WEEKDAY_NAMES = {
@@ -44,19 +30,14 @@ class CalendarQuery:
     original_text: str
 
 
-def load_calendar_events(*, scope: str = "personal") -> list[CalendarEvent]:
-    settings = get_calendar_settings()
-    return _load_events_for_scope(settings, scope=scope, require_config=False).value
-
-
-def is_calendar_request(text: str, *, timezone_name: str | None = None) -> bool:
+def is_calendar_request(text: str, *, timezone_name: str = "UTC") -> bool:
     return (
         parse_calendar_query(text, timezone_name=timezone_name) is not None
         or parse_calendar_write_request(text) is not None
     )
 
 
-def parse_calendar_query(text: str, *, timezone_name: str | None = None) -> CalendarQuery | None:
+def parse_calendar_query(text: str, *, timezone_name: str = "UTC") -> CalendarQuery | None:
     normalized = " ".join(str(text).strip().lower().split())
     if not normalized:
         return None
@@ -97,31 +78,6 @@ def check_calendar_health(*, canonical_execution=None) -> dict[str, Any]:
         "calendar_configured": False,
         "timezone": "UTC",
         "detail": "Calendar feed is not configured",
-    }
-
-
-def execute_calendar_query(query: CalendarQuery) -> dict[str, Any]:
-    settings = get_calendar_settings()
-    if not settings["calendar_configured"]:
-        raise HTTPException(status_code=500, detail="Calendar feed is not configured")
-
-    cached = _load_events_for_scope(settings, scope="personal", require_config=True)
-    events = cached.value
-
-    if query.intent == "find_event":
-        result = _find_matching_event(query, events, settings["timezone"])
-    else:
-        result = _list_events(query, events, settings["timezone"])
-    return {
-        **result,
-        "freshness": cached.freshness,
-        "age_seconds": round(cached.age_seconds, 3),
-        "stale_reason": cached.stale_reason,
-        "stale_notice": (
-            "I couldn't refresh the calendar, so these are the latest saved events."
-            if cached.freshness == "stale"
-            else None
-        ),
     }
 
 
@@ -234,37 +190,6 @@ def _calendar_match_sort_key(score: int, event: CalendarEvent, now: datetime) ->
     return (-score, is_past, distance)
 
 
-def _load_events_for_scope(
-    settings: dict[str, Any],
-    *,
-    scope: str,
-    require_config: bool,
-    force_refresh: bool = False,
-    allow_stale: bool = True,
-) -> CachedRead[list[CalendarEvent]]:
-    bridge = get_calendar_bridge(settings)
-    url = settings.get("ics_url") if scope == "personal" else settings.get("holiday_ics_url")
-
-    def load() -> list[CalendarEvent]:
-        try:
-            return bridge.fetch_events(
-                settings=settings,
-                scope=scope,
-                require_config=require_config,
-            )
-        except CalendarBridgeError as exc:
-            raise RuntimeError(exc.detail) from exc
-
-    return _CALENDAR_CACHE.read(
-        f"calendar:{scope}:{url}:{settings.get('timezone')}",
-        ttl_seconds=CALENDAR_TTL_SECONDS,
-        stale_max_seconds=CALENDAR_STALE_MAX_SECONDS,
-        loader=load,
-        force_refresh=force_refresh,
-        allow_stale=allow_stale,
-    )
-
-
 def _event_to_payload(event: CalendarEvent, timezone_name: str) -> dict[str, Any]:
     return {
         "uid": event.uid,
@@ -286,9 +211,7 @@ def _search_tokens(value: str) -> list[str]:
     return [token for token in value.split(" ") if token and token not in stopwords]
 
 
-def _now_in_calendar_timezone(timezone_name: str | None = None) -> datetime:
-    if timezone_name is None:
-        timezone_name = str(get_calendar_settings()["timezone"])
+def _now_in_calendar_timezone(timezone_name: str = "UTC") -> datetime:
     timezone = ZoneInfo(timezone_name)
     return datetime.now(timezone)
 

@@ -17,12 +17,10 @@ def build_packet(
     custom_prompt: str | None,
     max_suggestions: int,
     canonical_composition=None,
-    canonical_authority: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     sections, collector_status = collect_sources(
         run_type,
         canonical_composition=canonical_composition,
-        canonical_authority=canonical_authority,
     )
     packet = {
         "run_id": run_id,

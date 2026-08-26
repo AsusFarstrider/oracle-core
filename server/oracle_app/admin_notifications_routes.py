@@ -8,7 +8,6 @@ from .brain_application_composition import (
     BRAIN_APPLICATION_COMPOSITION_STATE_KEY,
     CanonicalBrainApplicationComposition,
 )
-from .config import get_apprise_settings, get_notification_settings
 from .configuration.notification_runtime_settings import NotificationRuntimeSettings
 from .notifications.receipts import (
     DELIVERY_STATUSES,
@@ -17,52 +16,6 @@ from .notifications.receipts import (
     summarize_notification_deliveries,
 )
 from .provider_bridges.apprise import AppriseBridge
-
-
-def admin_notifications_overview() -> dict[str, Any]:
-    notification_settings = get_notification_settings()
-    apprise_settings = get_apprise_settings()
-    provider = AppriseBridge().check_health(settings=apprise_settings)
-    provider["enabled"] = apprise_settings.get("enabled") is True
-    definitions = [
-        _public_definition(definition)
-        for _notification_id, definition in sorted(
-            (notification_settings.get("notifications") or {}).items()
-        )
-        if isinstance(definition, dict)
-    ]
-    recipient_groups = [
-        {
-            "id": str(group.get("id") or group_id),
-            "enabled": group.get("enabled") is True,
-            "provider": str(group.get("provider") or ""),
-        }
-        for group_id, group in sorted(
-            (notification_settings.get("recipient_groups") or {}).items()
-        )
-        if isinstance(group, dict)
-    ]
-    recent = list_notification_deliveries(
-        NotificationDeliveryQuery(channel="external", limit=25)
-    )
-    return {
-        "ok": True,
-        "provider": provider,
-        "summary": {
-            "notification_count": len(definitions),
-            "external_enabled_count": sum(
-                1 for item in definitions if item["external_delivery_enabled"] is True
-            ),
-            "recipient_group_count": len(recipient_groups),
-            "enabled_recipient_group_count": sum(
-                1 for item in recipient_groups if item["enabled"] is True
-            ),
-            "deliveries": summarize_notification_deliveries(channel="external"),
-        },
-        "definitions": definitions,
-        "recipient_groups": recipient_groups,
-        "recent_deliveries": [_public_delivery(item) for item in recent],
-    }
 
 
 def admin_notification_deliveries(

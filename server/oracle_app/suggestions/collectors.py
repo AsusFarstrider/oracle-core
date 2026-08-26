@@ -27,7 +27,6 @@ def collect_sources(
     *,
     log_lines: int = 400,
     canonical_composition=None,
-    canonical_authority: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     selected = _selected_collectors(run_type)
     sections: dict[str, Any] = {}
@@ -37,7 +36,6 @@ def collect_sources(
             sections[name] = collector(
                 log_lines=log_lines,
                 canonical_composition=canonical_composition,
-                canonical_authority=canonical_authority,
             )
             statuses[name] = {"ok": True}
         except Exception as exc:  # pragma: no cover - defensive collector boundary
@@ -63,7 +61,6 @@ def _collect_oracle(
     *,
     log_lines: int,
     canonical_composition=None,
-    canonical_authority: bool = False,
 ) -> dict[str, Any]:
     health_checks = {}
     composition = canonical_composition
@@ -102,7 +99,6 @@ def _collect_oracle(
     try:
         network_health = build_ui_network_health_snapshot(
             canonical_execution=None if composition is None else composition.network_execution,
-            canonical_authority=canonical_authority,
         )
     except Exception as exc:
         network_health = {"status": "failed", "detail": str(exc)}
@@ -126,11 +122,9 @@ def _collect_home_assistant(
     *,
     log_lines: int,
     canonical_composition=None,
-    canonical_authority: bool = False,
 ) -> dict[str, Any]:
     del log_lines
     del canonical_composition
-    del canonical_authority
     try:
         cache = load_home_assistant_cache()
     except HTTPException as exc:
@@ -168,25 +162,14 @@ def _collect_librenms(
     *,
     log_lines: int,
     canonical_composition=None,
-    canonical_authority: bool = False,
 ) -> dict[str, Any]:
     del log_lines
-    if canonical_authority:
-        execution = None if canonical_composition is None else canonical_composition.network_execution
-        if execution is None:
-            return {"enabled": False, "status": {"status": "unconfigured"}}
-        return {
-            "enabled": True,
-            "status": execution.status_snapshot(force_refresh=True),
-        }
-    from oracle_app.config import get_librenms_settings
-    from oracle_app.provider_bridges.librenms import LibreNmsBridge
-
-    settings = get_librenms_settings()
-    status = LibreNmsBridge().get_monitoring_status(settings=settings)
+    execution = None if canonical_composition is None else canonical_composition.network_execution
+    if execution is None:
+        return {"enabled": False, "status": {"status": "unconfigured"}}
     return {
-        "enabled": bool(settings.get("enabled")),
-        "status": status.to_dict(),
+        "enabled": True,
+        "status": execution.status_snapshot(force_refresh=True),
     }
 
 

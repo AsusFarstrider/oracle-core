@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import json
-from typing import Any
+from typing import Annotated, Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from .schemas import (
     CommandRequest,
@@ -17,6 +19,52 @@ from .schemas import (
 
 
 GENERIC_SAFETY_REPLY = "I couldn't complete that request."
+
+
+class _DeferredPlayMediaArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    media_type: str = Field(..., min_length=1)
+    plex_key: str = Field(..., min_length=1)
+    parent_key: str | None = None
+    rating_key: str | None = None
+    title: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    duration_seconds: float
+    backend_hint: str | None = None
+    queue_id: str | None = None
+    queue_position: int | None = None
+    queue_count: int | None = None
+    collection_title: str | None = None
+    collection_type: str | None = None
+    queue_tracks: list[dict[str, Any]] | None = None
+
+
+class _DeferredLongformContinuation(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: Literal["audiobook"]
+    backend_type: Literal["oracle_audiobook"]
+    session_id: str = Field(..., min_length=1)
+    resume_action: Literal["resume_longform_audio"]
+
+
+class _DeferredMusicContinuation(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: Literal["music"]
+    backend_type: str = Field(..., min_length=1)
+    session_id: str = Field(..., min_length=1)
+    resume_action: Literal["play_media"]
+    resume_args: _DeferredPlayMediaArguments
+
+
+_DeferredContinuation = Annotated[
+    _DeferredLongformContinuation | _DeferredMusicContinuation,
+    Field(discriminator="resume_action"),
+]
+_DEFERRED_CONTINUATION_ADAPTER = TypeAdapter(_DeferredContinuation)
 
 
 def build_conversation_result(
@@ -125,7 +173,15 @@ def _deferred_effect(result: dict[str, Any]) -> DeferredSatellitePlaybackEffect 
     session = result.get("deferred_session")
     if not isinstance(session, dict) or not session:
         return None
-    serialized = json.dumps(session, sort_keys=True, separators=(",", ":"))
+    try:
+        continuation = _DEFERRED_CONTINUATION_ADAPTER.validate_python(session)
+    except ValidationError as exc:
+        raise ValueError("Invalid internal deferred satellite playback continuation.") from exc
+    serialized = json.dumps(
+        continuation.model_dump(mode="json", exclude_none=True),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     token = base64.urlsafe_b64encode(serialized.encode("utf-8")).decode("ascii").rstrip("=")
     return DeferredSatellitePlaybackEffect(continuation_token=token)
 
@@ -134,15 +190,12 @@ def decode_deferred_satellite_playback(token: str) -> dict[str, Any]:
     clean = str(token or "").strip()
     padding = "=" * (-len(clean) % 4)
     try:
-        value = json.loads(base64.urlsafe_b64decode(clean + padding).decode("utf-8"))
-    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        encoded = base64.b64decode(clean + padding, altchars=b"-_", validate=True)
+        value = json.loads(encoded.decode("utf-8"))
+        continuation = _DEFERRED_CONTINUATION_ADAPTER.validate_python(value)
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError, ValidationError) as exc:
         raise ValueError("Invalid deferred satellite playback continuation token.") from exc
-    if not isinstance(value, dict) or str(value.get("resume_action") or "") not in {
-        "resume_longform_audio",
-        "play_media",
-    }:
-        raise ValueError("Unsupported deferred satellite playback continuation token.")
-    return value
+    return continuation.model_dump(mode="json", exclude_none=True)
 
 
 def _ui_effect(result: dict[str, Any]) -> UiPresentationEffect | None:

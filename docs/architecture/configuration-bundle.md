@@ -520,6 +520,13 @@ set derived from the projection. A local activation cannot pair a projection
 with missing or unrelated secrets. The activation, rather than the reusable
 projection payload, binds the pair to one exact Brain configuration revision.
 
+The storage invariants and atomic filesystem primitives are owned by
+`configuration/generation_storage.py`; Brain generations and satellite
+projection generations depend on that narrow seam rather than on one another.
+Accepted satellite runtime-compatibility reports are owned separately by
+`configuration/runtime_compatibility_store.py`, not by projection DTO and
+generation construction code.
+
 `selected.json` carries `satellite_projection_activation_ids`, with exactly one
 activation per enabled projection-bearing satellite. That map is part of the
 existing global selection journal and atomic pointer replacement, so activation,

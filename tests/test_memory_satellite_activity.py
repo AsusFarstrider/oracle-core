@@ -19,7 +19,7 @@ sys.modules.setdefault("python_multipart.multipart", python_multipart_multipart_
 
 from fastapi import HTTPException
 
-from oracle_app import api
+from oracle_app import satellite_activity_routes
 from oracle_app.memory import satellite_activity, schema, sources
 from oracle_app.memory.events import list_events
 from oracle_app.memory.store import transaction
@@ -133,7 +133,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
 
         with patch("oracle_app.memory.satellite_activity.DB_PATH", self.db_path):
             with self.assertRaises(HTTPException) as raised:
-                api.satellite_activity(request, fake_request)
+                satellite_activity_routes.satellite_activity(request, fake_request)
 
         self.assertEqual(raised.exception.status_code, 422)
         schema.ensure_schema(self.db_path)
@@ -203,7 +203,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
         fake_request = SimpleNamespace(headers={})
 
         with patch("oracle_app.memory.satellite_activity.DB_PATH", self.db_path):
-            response = api.satellite_activity(request, fake_request)
+            response = satellite_activity_routes.satellite_activity(request, fake_request)
 
         self.assertEqual(response.model_dump(), {"accepted": True})
         [event] = list_events(db_path=self.db_path)
@@ -215,7 +215,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
 
         with patch("oracle_app.memory.satellite_activity.DB_PATH", self.db_path):
             with self.assertRaises(HTTPException) as raised:
-                api.satellite_activity(request, fake_request)
+                satellite_activity_routes.satellite_activity(request, fake_request)
 
         self.assertEqual(raised.exception.status_code, 422)
         schema.ensure_schema(self.db_path)
@@ -228,7 +228,7 @@ class OracleMemorySatelliteActivityTests(unittest.TestCase):
         fake_request = SimpleNamespace(headers={})
 
         with patch("oracle_app.satellite_activity_routes.observe_satellite_activity", side_effect=RuntimeError("db unavailable")):
-            response = api.satellite_activity(request, fake_request)
+            response = satellite_activity_routes.satellite_activity(request, fake_request)
 
         self.assertEqual(response.model_dump(), {"accepted": True})
 

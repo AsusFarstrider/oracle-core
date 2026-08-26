@@ -23,15 +23,10 @@ class MediaExecutionContext:
     def from_dispatch(
         cls,
         dispatch: DispatchPlan,
-        *,
-        canonical_playback_target: bool,
     ) -> MediaExecutionContext:
         payload = dispatch.payload
         request_source_id = _optional_text(payload.get("source"))
         session_id = _optional_text(payload.get("session_id"))
-        if not canonical_playback_target:
-            raise MediaExecutionContextError("playback_target_required")
-
         error = _optional_text(payload.get("playback_target_error"))
         if error is not None:
             raise MediaExecutionContextError(error)

@@ -4,7 +4,6 @@ import subprocess
 import time
 from typing import Any, Callable
 
-from .config import get_home_assistant_settings
 from .network_control import service_control_ref_for_action
 from .network_control_local_restart import (
     clear_pending_local_host_restart,
@@ -38,6 +37,7 @@ def execute_network_control_action(
     network_probe_settings: dict[str, Any] | None = None,
     control_context: dict[str, Any] | None = None,
     verify_available: Callable[[], dict[str, Any]] | None = None,
+    home_assistant_connection: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
     adapter = str(action_policy.get("adapter") or "").strip()
     if adapter == "service_control":
@@ -60,6 +60,7 @@ def execute_network_control_action(
             action_policy=action_policy,
             target=target or {},
             network_probe_settings=network_probe_settings or {},
+            home_assistant_connection=home_assistant_connection,
         )
     if adapter == "router_control":
         return _execute_router_control_action(
@@ -781,6 +782,7 @@ def _execute_switch_power_cycle_action(
     action_policy: dict[str, Any],
     target: dict[str, Any],
     network_probe_settings: dict[str, Any],
+    home_assistant_connection: tuple[str, str] | None,
 ) -> dict[str, Any]:
     if str(action_policy.get("action_id") or "").strip() != "power_cycle":
         return {
@@ -815,9 +817,7 @@ def _execute_switch_power_cycle_action(
     host_display_name = str(target.get("host_display_name") or target.get("host_id") or "device").strip()
     steps: list[dict[str, str]] = []
     started = time.monotonic()
-    try:
-        base_url, token = get_home_assistant_settings()
-    except (RuntimeError, ValueError):
+    if home_assistant_connection is None:
         return {
             "ok": False,
             "result_status": "failed",
@@ -825,6 +825,7 @@ def _execute_switch_power_cycle_action(
             "summary": "Home Assistant control settings are unavailable.",
             "steps": steps,
         }
+    base_url, token = home_assistant_connection
     bridge = HomeAssistantBridge(base_url=base_url, token=token)
     turned_off = False
     try:

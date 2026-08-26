@@ -41,11 +41,8 @@ def execute_home_assistant_ui_action(
     action_id: str,
     *,
     home_assistant_settings: HomeAssistantRuntimeSettings | None = None,
-    canonical_authority: bool = False,
 ) -> dict[str, object] | None:
     action_id = str(action_id or "").strip()
-    if not canonical_authority:
-        return None
     mapping = _canonical_action_mapping(home_assistant_settings, action_id)
     if mapping is None:
         return None
@@ -133,11 +130,8 @@ def resolve_home_assistant_dynamic_ui_action(
     action_id: str,
     *,
     home_assistant_settings: HomeAssistantRuntimeSettings | None = None,
-    canonical_authority: bool = False,
 ) -> dict[str, object] | None:
     action_id = str(action_id or "").strip()
-    if not canonical_authority:
-        return None
     mapping = _canonical_action_mapping(home_assistant_settings, action_id)
     if mapping is None:
         return None

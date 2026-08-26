@@ -113,18 +113,6 @@ class WeatherRuntimeSettingsTests(unittest.TestCase):
         }
 
         with patch(
-            "oracle_app.weather_current.get_weather_current_settings",
-            side_effect=AssertionError("canonical current weather used V1 settings"),
-        ), patch(
-            "oracle_app.weather_forecast.get_forecast_settings",
-            side_effect=AssertionError("canonical forecast used V1 settings"),
-        ), patch(
-            "oracle_app.weather_history.get_weather_history_settings",
-            side_effect=AssertionError("canonical history used V1 settings"),
-        ), patch(
-            "oracle_app.weather_remote.get_forecast_settings",
-            side_effect=AssertionError("canonical remote weather used V1 settings"),
-        ), patch(
             "oracle_app.provider_bridges.weewx_weather_station.WeeWxWeatherStationBridge.fetch_typed_current_observation",
             return_value=observation,
         ), patch(
@@ -134,10 +122,7 @@ class WeatherRuntimeSettingsTests(unittest.TestCase):
             "oracle_app.provider_bridges.weewx_weather_station.WeeWxWeatherStationBridge.load_typed_history_entry",
             return_value=historical,
         ):
-            registry = build_dispatch_registry(
-                canonical_configuration=True,
-                weather_execution=execution,
-            )
+            registry = build_dispatch_registry(weather_execution=execution)
             current = execute_dispatch(
                 DispatchPlan(
                     target="weather",
@@ -204,9 +189,6 @@ class WeatherRuntimeSettingsTests(unittest.TestCase):
         }
 
         with patch(
-            "oracle_app.weather_remote.get_forecast_settings",
-            side_effect=AssertionError("canonical remote weather used V1 settings"),
-        ), patch(
             "oracle_app.weather_remote._resolve_remote_location",
             return_value=location,
         ) as resolve, patch(

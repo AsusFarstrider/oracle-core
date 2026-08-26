@@ -13,11 +13,8 @@ class NetworkHandler:
     def __init__(
         self,
         canonical_execution: CanonicalNetworkExecution | None = None,
-        *,
-        canonical_authority: bool = False,
     ) -> None:
         self.canonical_execution = canonical_execution
-        self.canonical_authority = canonical_authority
 
     def handle(self, dispatch: DispatchPlan, registry: Any) -> DispatchPlan:
         del registry
@@ -36,7 +33,6 @@ class NetworkHandler:
         speech, summary = build_network_response(
             normalized,
             canonical_execution=self.canonical_execution,
-            canonical_authority=self.canonical_authority,
         )
         dispatch.status = "executed"
         dispatch.result = {

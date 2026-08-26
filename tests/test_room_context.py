@@ -37,10 +37,21 @@ class RoomContextTests(unittest.TestCase):
         return household
 
     def test_classifier_marks_generic_lights_as_room_sensitive(self) -> None:
-        self.assertEqual(classify_room_sensitive_home_command("turn on the lights"), "lights_room")
+        self.assertEqual(
+            classify_room_sensitive_home_command(
+                "turn on the lights",
+                household_settings=self._canonical_household(),
+            ),
+            "lights_room",
+        )
 
     def test_classifier_skips_explicit_entity_command(self) -> None:
-        self.assertIsNone(classify_room_sensitive_home_command("turn on the office lamp"))
+        self.assertIsNone(
+            classify_room_sensitive_home_command(
+                "turn on the office lamp",
+                household_settings=self._canonical_household(),
+            )
+        )
 
     def test_canonical_resolver_uses_associations_without_legacy_sources_or_vocabulary(self) -> None:
         household = unittest.mock.MagicMock()
@@ -49,31 +60,23 @@ class RoomContextTests(unittest.TestCase):
         }.get(str(value or "").strip().lower())
         household.configured_associated_room_id.return_value = "living_room"
 
-        with (
-            patch("oracle_app.room_context.resolver.get_source_entry") as legacy_sources,
-            patch("oracle_app.room_context.resolver.canonical_room_name") as legacy_rooms,
-            patch("oracle_app.room_context.resolver.extract_room_phrase") as legacy_vocabulary,
-        ):
-            ordinary = resolve_room_context(
-                "turn on the lights",
-                source="living_room_voice",
-                active_room_ref="office",
-                household_settings=household,
-            )
-            local = resolve_room_context(
-                "turn on the lights here",
-                source="living_room_voice",
-                active_room_ref="office",
-                household_settings=household,
-            )
+        ordinary = resolve_room_context(
+            "turn on the lights",
+            source="living_room_voice",
+            active_room_ref="office",
+            household_settings=household,
+        )
+        local = resolve_room_context(
+            "turn on the lights here",
+            source="living_room_voice",
+            active_room_ref="office",
+            household_settings=household,
+        )
 
         self.assertEqual(ordinary.resolved_room, "office")
         self.assertEqual(ordinary.resolution_source, "session_room")
         self.assertEqual(local.resolved_room, "living_room")
         self.assertEqual(local.resolution_source, "deictic_source_association")
-        legacy_sources.assert_not_called()
-        legacy_rooms.assert_not_called()
-        legacy_vocabulary.assert_not_called()
 
     def test_canonical_explicit_room_uses_household_terms_without_legacy_cache(self) -> None:
         household = unittest.mock.MagicMock()
@@ -81,16 +84,14 @@ class RoomContextTests(unittest.TestCase):
             "office": "office",
         }.get(str(value or "").strip().lower())
 
-        with patch("oracle_app.room_context.resolver.extract_room_phrase") as legacy_vocabulary:
-            result = resolve_room_context(
-                "turn on the office lights",
-                source="browser-ui",
-                household_settings=household,
-            )
+        result = resolve_room_context(
+            "turn on the office lights",
+            source="browser-ui",
+            household_settings=household,
+        )
 
         self.assertEqual(result.resolved_room, "office")
         self.assertEqual(result.resolution_source, "explicit_room")
-        legacy_vocabulary.assert_not_called()
 
     def test_canonical_home_normalization_uses_household_room_aliases(self) -> None:
         household = self._canonical_household()
@@ -129,18 +130,9 @@ class RoomContextTests(unittest.TestCase):
     def test_canonical_pending_room_reply_uses_household_vocabulary(self) -> None:
         household = self._canonical_household()
 
-        with (
-            patch("oracle_app.room_context.vocabulary.load_home_assistant_cache") as legacy_cache,
-            patch("oracle_app.room_context.vocabulary.get_source_registry") as legacy_sources,
-        ):
-            resolved = canonical_pending_room_reply_name(
-                "in the lounge please",
-                household,
-            )
+        resolved = canonical_pending_room_reply_name("in the lounge please", household)
 
         self.assertEqual(resolved, "living room")
-        legacy_cache.assert_not_called()
-        legacy_sources.assert_not_called()
 
     @patch("oracle_app.room_context.home_routing.get_active_context", return_value=None)
     @patch("oracle_app.room_context.home_routing.state.load_pending_home_request", return_value=None)
@@ -180,54 +172,59 @@ class RoomContextTests(unittest.TestCase):
         self.assertEqual(result.resolved_room, "living_room")
         self.assertEqual(result.resolution_source, "source_association_fallback")
 
-    @patch(
-        "oracle_app.room_context.resolver.canonical_room_name",
-        side_effect=lambda text: {"kitchen": "kitchen", "office": "office"}.get(str(text or "").strip().lower()),
-    )
-    @patch(
-        "oracle_app.room_context.resolver.get_source_entry",
-        return_value={"source_type": "satellite", "fixed": True, "default_room": "kitchen"},
-    )
-    def test_resolver_uses_source_default_when_room_is_required(self, _mock_source, _mock_room_name) -> None:
-        result = resolve_room_context("turn on the lights", source="kitchen-satellite")
+    def test_resolver_uses_source_association_when_room_is_required(self) -> None:
+        household = self._canonical_household()
+        household.configured_associated_room_id.return_value = "living_room"
+        result = resolve_room_context(
+            "turn on the lights",
+            source="kitchen-satellite",
+            household_settings=household,
+        )
 
-        self.assertEqual(result.resolved_room, "kitchen")
-        self.assertEqual(result.resolution_source, "source_default")
+        self.assertEqual(result.resolved_room, "living_room")
+        self.assertEqual(result.resolution_source, "source_association_fallback")
         self.assertTrue(result.room_required)
         self.assertFalse(result.needs_clarification)
 
-    @patch(
-        "oracle_app.room_context.resolver.canonical_room_name",
-        side_effect=lambda text: {"kitchen": "kitchen", "office": "office"}.get(str(text or "").strip().lower()),
-    )
-    @patch(
-        "oracle_app.room_context.resolver.get_source_entry",
-        return_value={"source_type": "satellite", "fixed": True, "default_room": "kitchen"},
-    )
-    def test_resolver_prefers_session_room_before_source_default(self, _mock_source, _mock_room_name) -> None:
-        result = resolve_room_context("turn on the lights", source="kitchen-satellite", active_room_ref="office")
+    def test_resolver_prefers_session_room_before_source_association(self) -> None:
+        household = self._canonical_household()
+        household.resolve_room_id.side_effect = lambda value: {
+            "office": "office",
+        }.get(str(value or "").strip().lower())
+        household.configured_associated_room_id.return_value = "living_room"
+        result = resolve_room_context(
+            "turn on the lights",
+            source="kitchen-satellite",
+            active_room_ref="office",
+            household_settings=household,
+        )
 
         self.assertEqual(result.resolved_room, "office")
         self.assertEqual(result.resolution_source, "session_room")
 
-    @patch(
-        "oracle_app.room_context.resolver.canonical_room_name",
-        side_effect=lambda text: {"kitchen": "kitchen", "office": "office"}.get(str(text or "").strip().lower()),
-    )
-    @patch(
-        "oracle_app.room_context.resolver.get_source_entry",
-        return_value={"source_type": "satellite", "fixed": True, "default_room": "kitchen"},
-    )
-    def test_resolver_keeps_explicit_room_over_source_default(self, _mock_source, _mock_room_name) -> None:
-        result = resolve_room_context("turn on the office lights", source="kitchen-satellite")
+    def test_resolver_keeps_explicit_room_over_source_association(self) -> None:
+        household = self._canonical_household()
+        household.resolve_room_id.side_effect = lambda value: {
+            "office": "office",
+        }.get(str(value or "").strip().lower())
+        household.configured_associated_room_id.return_value = "living_room"
+        result = resolve_room_context(
+            "turn on the office lights",
+            source="kitchen-satellite",
+            household_settings=household,
+        )
 
         self.assertEqual(result.resolved_room, "office")
         self.assertEqual(result.resolution_source, "explicit_room")
 
-    @patch("oracle_app.room_context.resolver.get_source_entry", return_value={"source_type": "mobile", "fixed": False})
-    @patch("oracle_app.room_context.resolver.canonical_room_name", return_value=None)
-    def test_resolver_marks_deictic_room_without_fixed_source_for_clarification(self, _mock_room_name, _mock_source) -> None:
-        result = resolve_room_context("turn on the lights here", source="mobile-client")
+    def test_resolver_marks_deictic_room_without_association_for_clarification(self) -> None:
+        household = self._canonical_household()
+        household.configured_associated_room_id.return_value = None
+        result = resolve_room_context(
+            "turn on the lights here",
+            source="mobile-client",
+            household_settings=household,
+        )
 
         self.assertIsNone(result.resolved_room)
         self.assertEqual(result.resolution_source, "unresolved")

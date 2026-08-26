@@ -24,7 +24,7 @@ The current domain is split across:
 - `server/oracle_app/provider_bridges/librenms.py` for optional LibreNMS visibility
 - `server/oracle_app/network_runtime/service_control.py` for Brain-owned lifecycle, recovery, and rollback
 - `server/oracle_app/network_runtime/platform_adapters.py` and `platform_transport.py` for typed service, router, local, SSH, systemd, Docker, Windows, storage, mount/RAID, and reboot mechanics
-- capability routing in `server/oracle_app/capabilities/plugins.py`, which recognizes simple network-health questions
+- capability routing in `server/oracle_app/capabilities/system.py`, which recognizes simple network-health questions
 
 ## Provider Bridge Roles
 

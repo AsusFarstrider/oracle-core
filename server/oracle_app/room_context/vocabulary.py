@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from oracle_app.config import get_source_registry, load_home_assistant_cache
+from oracle_app.config import load_home_assistant_cache
 from oracle_app.configuration.household_runtime_settings import HouseholdRuntimeSettings
 
 
@@ -17,59 +17,23 @@ def build_room_alias_pattern(alias_text: str) -> str:
 
 
 def get_room_vocabulary(
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> list[dict[str, Any]]:
-    if household_settings is not None:
-        vocabulary = []
-        for room in household_settings.rooms.values():
-            if not room.enabled:
-                continue
-            spoken_name = str(room.display_name).strip().lower()
-            aliases = {
-                str(room.id).replace("_", " ").strip().lower(),
-                spoken_name,
-                *(str(alias).strip().lower() for alias in room.aliases),
-            }
-            vocabulary.append(
-                {
-                    "spoken_name": spoken_name,
-                    "aliases": sorted(alias for alias in aliases if alias),
-                }
-            )
-        vocabulary.sort(key=lambda item: str(item["spoken_name"]))
-        return vocabulary
-
-    cache = load_home_assistant_cache()
-    rooms = cache.get("rooms", [])
-    if not isinstance(rooms, list):
-        rooms = []
-    vocabulary_by_name: dict[str, set[str]] = {}
-    for room in rooms:
-        if not isinstance(room, dict):
-            continue
-        spoken_name = str(room.get("spoken_name", "")).strip().lower()
-        aliases = room.get("aliases", [])
-        if not spoken_name or not isinstance(aliases, list):
-            continue
-        normalized_aliases = sorted(
-            {
-                str(alias).strip().lower()
-                for alias in aliases
-                if str(alias).strip()
-            }
-            | {spoken_name}
-        )
-        vocabulary_by_name.setdefault(spoken_name, set()).update(normalized_aliases)
-    for entry in get_source_registry().values():
-        if not isinstance(entry, dict) or not bool(entry.get("fixed")):
-            continue
-        room_name = str(entry.get("default_room") or "").strip().lower()
-        if not room_name:
-            continue
-        vocabulary_by_name.setdefault(room_name, set()).add(room_name)
     vocabulary = [
-        {"spoken_name": spoken_name, "aliases": sorted(aliases | {spoken_name})}
-        for spoken_name, aliases in vocabulary_by_name.items()
+        {
+            "spoken_name": str(room.display_name).strip().lower(),
+            "aliases": sorted(
+                alias
+                for alias in {
+                    str(room.id).replace("_", " ").strip().lower(),
+                    str(room.display_name).strip().lower(),
+                    *(str(alias).strip().lower() for alias in room.aliases),
+                }
+                if alias
+            ),
+        }
+        for room in household_settings.rooms.values()
+        if room.enabled
     ]
     vocabulary.sort(key=lambda item: str(item["spoken_name"]))
     return vocabulary
@@ -77,7 +41,7 @@ def get_room_vocabulary(
 
 def canonical_room_name(
     text: str | None,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str | None:
     normalized = str(text or "").strip().lower()
     if not normalized:
@@ -100,7 +64,7 @@ def canonical_room_name(
 
 def canonical_pending_room_reply_name(
     text: str | None,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str | None:
     normalized = " ".join(str(text or "").strip().lower().split())
     if not normalized:
@@ -121,6 +85,6 @@ def canonical_pending_room_reply_name(
 
 def room_name_known(
     text: str | None,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> bool:
     return canonical_room_name(text, household_settings) is not None

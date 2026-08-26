@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib import request
 
 from oracle_app import state
+from oracle_app.conversation import (
+    get_home_assistant_conversation_id,
+    set_home_assistant_conversation_id,
+)
 from oracle_app.text_normalization import normalize_text
 from oracle_app.configuration.home_assistant_runtime_settings import HomeAssistantRuntimeSettings
 from oracle_app.configuration.household_runtime_settings import HouseholdRuntimeSettings
@@ -103,7 +106,6 @@ def execute_home_assistant(
     skip_confirmation: bool = False,
     household_settings: HouseholdRuntimeSettings | None = None,
     home_assistant_settings: HomeAssistantRuntimeSettings | None = None,
-    canonical_authority: bool = False,
 ) -> DispatchPlan:
     source = dispatch.payload.get("source")
     session_id = dispatch.payload.get("session_id")
@@ -192,10 +194,13 @@ def execute_home_assistant(
         timeout_seconds=home_assistant_settings.timeout_seconds,
     )
     try:
+        provider_conversation_id = get_home_assistant_conversation_id(
+            str(source) if source is not None else None,
+            str(session_id) if session_id is not None else None,
+        )
         bridge_result = bridge.execute_command(
             str(dispatch.payload.get("text") or ""),
-            source=str(source) if source is not None else None,
-            session_id=str(session_id) if session_id is not None else None,
+            conversation_id=provider_conversation_id,
         )
     except HomeAssistantBridgeHttpError as exc:
         dispatch.status = "failed"
@@ -230,11 +235,12 @@ def execute_home_assistant(
             "room_context": dict(room_context) if isinstance(room_context, dict) else {},
         }
         return dispatch
-    bridge.commit_conversation_id(
-        bridge_result.returned_conversation_id,
-        source=str(source) if source is not None else None,
-        session_id=str(session_id) if session_id is not None else None,
-    )
+    if bridge_result.returned_conversation_id:
+        set_home_assistant_conversation_id(
+            str(source) if source is not None else None,
+            str(session_id) if session_id is not None else None,
+            bridge_result.returned_conversation_id,
+        )
     dispatch.result = bridge_result.payload
     dispatch.result["room_context"] = dict(room_context) if isinstance(room_context, dict) else {}
     return dispatch
@@ -247,18 +253,15 @@ class HomeAssistantHandler:
         self,
         household_settings: HouseholdRuntimeSettings | None = None,
         home_assistant_settings: HomeAssistantRuntimeSettings | None = None,
-        canonical_authority: bool = False,
     ) -> None:
         self.household_settings = household_settings
         self.home_assistant_settings = home_assistant_settings
-        self.canonical_authority = canonical_authority
 
     def handle(self, dispatch: DispatchPlan, registry: object) -> DispatchPlan:
         return execute_home_assistant(
             dispatch,
             household_settings=self.household_settings,
             home_assistant_settings=self.home_assistant_settings,
-            canonical_authority=self.canonical_authority,
         )
 
     def handle_confirmed(self, dispatch: DispatchPlan) -> DispatchPlan:
@@ -267,7 +270,6 @@ class HomeAssistantHandler:
             skip_confirmation=True,
             household_settings=self.household_settings,
             home_assistant_settings=self.home_assistant_settings,
-            canonical_authority=self.canonical_authority,
         )
 
 

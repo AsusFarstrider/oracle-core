@@ -7,7 +7,6 @@ from typing import Any
 from urllib import error, parse, request
 
 from oracle_app.audiobook_runtime.matching import build_search_queries
-from oracle_app.config import get_audiobook_connection_settings
 
 
 class AudiobookBridgeError(RuntimeError):
@@ -40,7 +39,7 @@ class AudiobookshelfAudiobookBridge:
         self,
         connection_resolver: Callable[[str | None], AudiobookProviderConnection] | None = None,
     ) -> None:
-        self._connection_resolver = connection_resolver or _legacy_connection
+        self._connection_resolver = connection_resolver or _missing_connection
 
     def search_titles(
         self,
@@ -390,16 +389,15 @@ class AudiobookshelfAudiobookBridge:
         raise AudiobookBridgeConfigurationError("audiobook_provider_not_configured", "Audiobookshelf is not configured")
 
 
-def _legacy_connection(user_id: str | None) -> AudiobookProviderConnection:
-    settings = get_audiobook_connection_settings(user_id)
+def _missing_connection(user_id: str | None) -> AudiobookProviderConnection:
     return AudiobookProviderConnection(
-        base_url=str(settings.get("base_url") or ""),
-        library_id=str(settings.get("library_id") or ""),
-        api_key=str(settings.get("api_key") or ""),
-        timeout_seconds=int(settings.get("timeout_seconds") or 10),
-        configured=bool(settings.get("configured")),
-        user_id=str(settings.get("user_id") or "").strip() or None,
-        user_enabled=bool(settings.get("user_enabled", True)),
+        base_url="",
+        library_id="",
+        api_key="",
+        timeout_seconds=10,
+        configured=False,
+        user_id=str(user_id or "").strip() or None,
+        user_enabled=bool(str(user_id or "").strip()),
     )
 
 

@@ -66,10 +66,6 @@ class AudiobookRuntimeSettingsTests(unittest.TestCase):
 
         with (
             patch(
-                "oracle_app.provider_bridges.audiobookshelf_audiobook.get_audiobook_connection_settings",
-                side_effect=AssertionError("canonical provider used V1 configuration"),
-            ),
-            patch(
                 "oracle_app.provider_bridges.audiobookshelf_audiobook.request.urlopen",
                 return_value=provider_response,
             ) as provider_open,
@@ -85,10 +81,6 @@ class AudiobookRuntimeSettingsTests(unittest.TestCase):
         control_response.__enter__.return_value = control_response
         control_response.__exit__.return_value = False
         with (
-            patch(
-                "oracle_app.music_runtime.control.get_satellite_control_target",
-                side_effect=AssertionError("canonical control used V1 configuration"),
-            ),
             patch(
                 "oracle_app.music_runtime.control.request.urlopen",
                 return_value=control_response,
@@ -120,15 +112,11 @@ class AudiobookRuntimeSettingsTests(unittest.TestCase):
             ],
         }
 
-        with patch(
-            "oracle_app.audiobook.get_oracle_base_url",
-            side_effect=AssertionError("canonical payload used V1 base URL"),
-        ):
-            _playback_id, payload, _state = execution.build_longform_payload(
-                session,
-                source="living_room_voice",
-                user_id="resident_one",
-            )
+        _playback_id, payload, _state = execution.build_longform_payload(
+            session,
+            source="living_room_voice",
+            user_id="resident_one",
+        )
 
         self.assertTrue(
             payload["tracks"][0]["url"].startswith(
@@ -140,13 +128,7 @@ class AudiobookRuntimeSettingsTests(unittest.TestCase):
         settings = AudiobookRuntimeSettings.from_effective_config(self._effective_config(enabled=True))
         execution = CanonicalAudiobookExecution(settings, satellite_control_timeout_seconds=6)
 
-        with (
-            patch.object(execution, "request_json", return_value={"success": True}) as request_json,
-            patch(
-                "oracle_app.audiobook.check_audiobook_health",
-                side_effect=AssertionError("canonical health used V1 settings"),
-            ),
-        ):
+        with patch.object(execution, "request_json", return_value={"success": True}) as request_json:
             response = check_audiobook_health(execution)
 
         self.assertEqual(response.status, "ok")

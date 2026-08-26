@@ -8,9 +8,9 @@ import re
 import secrets
 from typing import Any
 
-from .generations import (
+from .generation_storage import (
     GenerationIntegrityError,
-    GenerationStore,
+    GenerationStoreLike,
     GenerationStoreError,
     _fsync_directory,
     _read_bytes,
@@ -74,7 +74,7 @@ class InstalledSatelliteProjection:
 class SatelliteProjectionGenerationStore:
     """Persist immutable Brain-side desired artifacts for one satellite projection."""
 
-    def __init__(self, store: GenerationStore) -> None:
+    def __init__(self, store: GenerationStoreLike) -> None:
         store.validate_initialized()
         self.store = store
         self.root = Path(store.root) / "projections"

@@ -7,8 +7,6 @@ from oracle_app.configuration.household_runtime_settings import HouseholdRuntime
 from oracle_app.routing_helpers import extract_room_phrase
 
 from .classifier import classify_room_sensitive_home_command
-from .source_registry import get_source_entry
-from .vocabulary import canonical_room_name
 
 
 @dataclass(frozen=True)
@@ -25,12 +23,10 @@ def resolve_room_context(
     *,
     source: str | None = None,
     active_room_ref: str | None = None,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> RoomResolutionResult:
     normalized = " ".join(str(text).strip().lower().split())
     explicit_room_phrase = _extract_explicit_room_phrase(normalized)
-    if household_settings is None:
-        explicit_room_phrase = extract_room_phrase(normalized) or explicit_room_phrase
     explicit_room = _resolve_room_id(
         explicit_room_phrase,
         household_settings=household_settings,
@@ -68,8 +64,6 @@ def resolve_room_context(
                 resolved_room=associated_room,
                 resolution_source=(
                     "deictic_source_association"
-                    if household_settings is not None
-                    else "deictic_source_room"
                 ),
                 room_required=True,
                 needs_clarification=False,
@@ -154,23 +148,14 @@ def _extract_explicit_room_phrase(text: str) -> str:
 def _associated_room_for_source(
     source: str | None,
     *,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str | None:
-    if household_settings is not None:
-        return household_settings.configured_associated_room_id(source)
-    entry = get_source_entry(source)
-    if not isinstance(entry, dict):
-        return None
-    if not bool(entry.get("fixed")):
-        return None
-    return canonical_room_name(str(entry.get("default_room") or "").strip())
+    return household_settings.configured_associated_room_id(source)
 
 
 def _resolve_room_id(
     value: str | None,
     *,
-    household_settings: HouseholdRuntimeSettings | None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str | None:
-    if household_settings is not None:
-        return household_settings.resolve_room_id(value)
-    return canonical_room_name(value)
+    return household_settings.resolve_room_id(value)

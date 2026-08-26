@@ -163,6 +163,10 @@ inspection, and due-work lookup. Satellite announcements reserve one receipt
 per canonical target source: it remains pending through an alert lease, becomes
 accepted on acknowledgement, and becomes suppressed or expired with the typed
 terminal alert outcome. Receipt reconciliation is retry-safe after a crash.
+An empty authenticated satellite claim may return after a read-only Memory
+preflight only when no alert or receipt recovery work exists; it does not alter
+the two-second client cadence or any lease, ordering, retry, expiry, or receipt
+transition.
 An enabled external policy reserves one receipt per logical recipient group.
 `first_per_correlation` is enforced by a unique Memory index; later occurrences
 in the same correlation reuse the first receipt.
@@ -181,11 +185,14 @@ classified retryable. Other HTTP 4xx responses are permanent. A successful
 
 ## External Dispatch Worker
 
-The Brain lifecycle runs one worker that consumes only due `external`
-receipts. It resolves the current enabled notification definition and logical
-recipient group, then submits the definition-owned text through
-`AppriseBridge`. It never accepts provider destinations from a receipt or
-caller.
+The Brain lifecycle runs the worker when an external recipient group is enabled
+or Memory contains pending/retry-wait `external` receipts. Otherwise the
+optional capability is dormant. Existing durable work still starts the worker
+after configuration changes so it can converge through the normal failure,
+retry, or expiry contract. The worker consumes only due receipts, resolves the
+current enabled notification definition and logical recipient group, then
+submits the definition-owned text through `AppriseBridge`. It never accepts
+provider destinations from a receipt or caller.
 
 Suppression is evaluated again immediately before the provider request. Active
 suppression completes the receipt as `suppressed`. Unavailable suppression

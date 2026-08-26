@@ -3,7 +3,8 @@ from __future__ import annotations
 import pytest
 from fastapi import FastAPI, HTTPException, Request
 
-from oracle_app.api import _canonical_http_request_source, app
+from oracle_app.api import app
+from oracle_app.application_command import _canonical_http_request_source
 from oracle_app.admin_diagnostics_routes import ui_sources_http
 from oracle_app.admin_facts_routes import admin_facts_lookup_http
 from oracle_app.admin_network_routes import admin_network_status_http

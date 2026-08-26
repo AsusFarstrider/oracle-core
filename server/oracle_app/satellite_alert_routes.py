@@ -5,16 +5,12 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Request
 
 from . import alerts as alerts_module
-from .brain_application_composition import (
-    BRAIN_APPLICATION_COMPOSITION_STATE_KEY,
-    CanonicalBrainApplicationComposition,
-)
-from .configuration.generations import GenerationStoreError
-from .configuration.request_source_resolution import RequestSourceAuthenticationError
+from .brain_application_composition import CanonicalBrainApplicationComposition
 from .memory.alerts import acknowledge_alert, claim_due_alerts
 from .notifications.channels.satellite_announcement import (
     ensure_active_satellite_receipts,
     reconcile_satellite_receipts,
+    satellite_alert_claim_needs_work,
     transition_satellite_receipt,
 )
 from .schemas import (
@@ -24,6 +20,7 @@ from .schemas import (
     SatelliteAlertClaimResponse,
     SatelliteAlertLease,
 )
+from .satellite_authentication import authenticate_satellite_source
 
 
 def satellite_alert_claim(
@@ -31,11 +28,18 @@ def satellite_alert_claim(
     request: Request,
 ) -> SatelliteAlertClaimResponse:
     composition, source_id = _authenticated_alert_source(request, payload.source_id)
+    now = datetime.now(timezone.utc)
+    if not satellite_alert_claim_needs_work(
+        source_id,
+        now=now,
+        db_path=alerts_module.ALERT_DB_PATH,
+    ):
+        return SatelliteAlertClaimResponse(alerts=[])
     ensure_active_satellite_receipts(source_id)
     decisions = composition.notification_execution.build_delivery_decisions(source_id)
     alerts = claim_due_alerts(
         source_id=source_id,
-        now=datetime.now(timezone.utc),
+        now=now,
         lease_seconds=payload.lease_seconds,
         limit=payload.limit,
         notification_decisions=decisions,
@@ -99,50 +103,16 @@ def _authenticated_alert_source(
     request: Request,
     claimed_source_id: str,
 ) -> tuple[CanonicalBrainApplicationComposition, str]:
-    composition = getattr(
-        request.app.state,
-        BRAIN_APPLICATION_COMPOSITION_STATE_KEY,
-        None,
+    composition, source_id = authenticate_satellite_source(
+        request,
+        claimed_source_id=claimed_source_id,
     )
-    if not isinstance(composition, CanonicalBrainApplicationComposition):
-        raise HTTPException(status_code=503, detail="Canonical satellite authentication is unavailable.")
-    authorization = str(request.headers.get("Authorization") or "")
-    scheme, separator, token = authorization.partition(" ")
-    credential = token.strip() if separator and scheme.casefold() == "bearer" else ""
-    if not credential:
-        raise HTTPException(
-            status_code=401,
-            detail="Satellite authentication failed.",
-            headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
-        )
-    try:
-        resolved = composition.request_source_resolver.resolve(
-            claimed_source_id=claimed_source_id,
-            credential=credential,
-            peer_address=request.client.host if request.client is not None else None,
-        )
-    except RequestSourceAuthenticationError as exc:
-        raise HTTPException(
-            status_code=401,
-            detail="Satellite authentication failed.",
-            headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
-        ) from exc
-    except (GenerationStoreError, OSError) as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="Canonical satellite authentication is unavailable.",
-            headers={"Cache-Control": "no-store"},
-        ) from exc
     satellite = composition.runtime.satellites.satellite_for_source(
-        resolved.request_source_id
+        source_id
     )
-    if (
-        resolved.authentication != "satellite_credential"
-        or satellite is None
-        or not satellite.alert_capable
-    ):
+    if satellite is None or not satellite.alert_capable:
         raise HTTPException(status_code=403, detail="Source is not an alert-capable satellite.")
-    return composition, resolved.request_source_id
+    return composition, source_id
 
 
 def register_satellite_alert_routes(app: FastAPI) -> None:

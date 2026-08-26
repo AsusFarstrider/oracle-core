@@ -269,7 +269,7 @@ class VoiceDeferredResumeRequest(BaseModel):
 
 class DeferredSatelliteResumeRequest(BaseModel):
     source: str = Field(..., min_length=1)
-    continuation_token: str = Field(..., min_length=1)
+    continuation_token: str = Field(..., min_length=1, max_length=32768)
 
 
 class CommandInterimEvent(BaseModel):

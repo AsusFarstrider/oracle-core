@@ -318,6 +318,26 @@ def list_due_notification_deliveries(
     return [_row_to_delivery(row) for row in rows]
 
 
+def has_active_notification_deliveries(
+    *,
+    channel: str,
+    db_path: Path | None = None,
+) -> bool:
+    """Return whether a worker has durable delivery work to recover."""
+
+    clean_channel = _clean_required(channel, "channel")
+    path = db_path or DB_PATH
+    ensure_schema(path)
+    with transaction(path) as conn:
+        row = conn.execute(
+            """SELECT 1 FROM memory_notification_deliveries
+               WHERE channel=? AND status IN ('pending', 'retry_wait')
+               LIMIT 1""",
+            (clean_channel,),
+        ).fetchone()
+    return row is not None
+
+
 def list_expired_notification_deliveries(
     *,
     now: str,

@@ -7,7 +7,7 @@ import sys
 from types import MappingProxyType
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
@@ -35,24 +35,28 @@ _TEST_CALENDAR_SETTINGS = replace(_NEUTRAL_RUNTIME.calendar, enabled=True)
 _CANONICAL_ROUTE_ARGUMENTS = {
     "facts_enabled": False,
     "news_settings": _TEST_NEWS_SETTINGS,
-    "canonical_information": True,
     "calendar_settings": _TEST_CALENDAR_SETTINGS,
-    "canonical_calendar": True,
 }
 _NEUTRAL_ROUTE_REGISTRY = build_route_capability_registry(
     _NEUTRAL_HOUSEHOLD,
     **_CANONICAL_ROUTE_ARGUMENTS,
 )
 _BASELINE_ROUTE_REGISTRY = build_route_capability_registry(
+    _NEUTRAL_HOUSEHOLD,
     **_CANONICAL_ROUTE_ARGUMENTS,
 )
 _FACTS_ROUTE_REGISTRY = build_route_capability_registry(
+    _NEUTRAL_HOUSEHOLD,
     **(_CANONICAL_ROUTE_ARGUMENTS | {"facts_enabled": True}),
 )
 _CANONICAL_HOME_ROUTE_IDS = {
     "home-room-first-color",
     "home-room-first-cool-off",
 }
+_TEST_AUDIOBOOK_EXECUTION = Mock()
+_TEST_MUSIC_EXECUTION = Mock()
+_TEST_AUDIOBOOK_EXECUTION.search_audiobooks.return_value = []
+_TEST_AUDIOBOOK_EXECUTION.find_series_entry.return_value = None
 
 
 def _choose_canonical_home_route(text: str, **kwargs):
@@ -81,15 +85,12 @@ def execute_audiobook(dispatch: DispatchPlan) -> DispatchPlan:
     """Execute fixture behavior with explicit canonical household authority."""
 
     _add_canonical_playback_target(dispatch)
-    with patch(
-        "oracle_app.handlers.audiobook.build_longform_payload",
-        side_effect=_build_neutral_longform_payload,
-    ):
-        return _execute_audiobook(
-            dispatch,
-            household_settings=_NEUTRAL_HOUSEHOLD,
-            canonical_playback_target=True,
-        )
+    _TEST_AUDIOBOOK_EXECUTION.build_longform_payload.side_effect = _build_neutral_longform_payload
+    return _execute_audiobook(
+        dispatch,
+        household_settings=_NEUTRAL_HOUSEHOLD,
+        canonical_execution=_TEST_AUDIOBOOK_EXECUTION,
+    )
 
 
 def _build_neutral_longform_payload(session, **kwargs):
@@ -115,13 +116,14 @@ def execute_music(dispatch: DispatchPlan) -> DispatchPlan:
         "oracle_app.handlers.audiobook.resolve_effective_user",
         side_effect=_resolve_neutral_effective_user,
     ), patch(
-        "oracle_app.handlers.audiobook.build_longform_payload",
-        side_effect=_build_neutral_longform_payload,
-    ), patch(
         "oracle_app.handlers.music.resolve_with_ollama",
         return_value=None,
     ):
-        return _execute_music(dispatch, canonical_playback_target=True)
+        return _execute_music(
+            dispatch,
+            canonical_execution=_TEST_MUSIC_EXECUTION,
+            audiobook_execution=_TEST_AUDIOBOOK_EXECUTION,
+        )
 
 
 def _add_canonical_playback_target(dispatch: DispatchPlan) -> None:
@@ -360,7 +362,7 @@ class UtteranceLedgerExecutionTests(unittest.TestCase):
                     continue
                 self.assertEqual(entry.get("execution_level"), "handler_executed")
 
-    @patch("oracle_app.handlers.music.search_music_catalog")
+    @patch.object(_TEST_MUSIC_EXECUTION, "search")
     @patch("oracle_app.handlers.music.choose_best_guess_with_ollama")
     def test_fixture_weak_single_match_should_not_overcommit(self, mock_choose_best_guess_with_ollama, mock_search_plex) -> None:
         entry = self.entries_by_id["weak-single-match-should-not-overcommit"]
@@ -399,7 +401,7 @@ class UtteranceLedgerExecutionTests(unittest.TestCase):
 
     @patch("oracle_app.handlers.music.choose_music_match")
     @patch("oracle_app.handlers.music.score_music_candidates")
-    @patch("oracle_app.handlers.music.search_music_catalog")
+    @patch.object(_TEST_MUSIC_EXECUTION, "search")
     def test_fixture_cross_domain_rescue_executes_audiobook_path(
         self,
         mock_search_plex,
@@ -498,7 +500,7 @@ class UtteranceLedgerExecutionTests(unittest.TestCase):
                     self.assertEqual(result.target, "audiobook")
                     self.assertEqual(result.result["selected"]["title"], "Dune")
 
-    @patch("oracle_app.handlers.music.search_music_catalog")
+    @patch.object(_TEST_MUSIC_EXECUTION, "search")
     @patch("oracle_app.handlers.music.choose_best_guess_with_ollama")
     def test_fixture_no_defensible_media_candidate_hard_not_found(self, mock_choose_best_guess_with_ollama, mock_search_plex) -> None:
         entry = self.entries_by_id["no-defensible-media-candidate-hard-not-found"]
@@ -530,7 +532,7 @@ class UtteranceLedgerExecutionTests(unittest.TestCase):
     @patch("oracle_app.handlers.music.choose_music_match_with_ollama")
     @patch("oracle_app.handlers.music.choose_music_match")
     @patch("oracle_app.handlers.music.score_music_candidates")
-    @patch("oracle_app.handlers.music.search_music_catalog")
+    @patch.object(_TEST_MUSIC_EXECUTION, "search")
     def test_fixture_ultra_generic_single_word_clarifies_and_trims_substring_spillover(
         self,
         mock_search_plex,
@@ -680,10 +682,10 @@ class UtteranceLedgerExecutionTests(unittest.TestCase):
         mock_choose_music_match_with_ollama.assert_not_called()
 
     def test_fixture_audiobook_deterministic_clarification_entries_resolve_pending_clarification(self) -> None:
-        with patch("oracle_app.handlers.audiobook.fetch_audiobook_item") as mock_fetch_audiobook_item, patch(
-            "oracle_app.handlers.audiobook.open_audiobook_playback_session"
-        ) as mock_open_audiobook_playback_session, patch(
-            "oracle_app.handlers.audiobook.execute_satellite_command"
+        with patch.object(_TEST_AUDIOBOOK_EXECUTION, "fetch_item") as mock_fetch_audiobook_item, patch.object(
+            _TEST_AUDIOBOOK_EXECUTION, "open_playback_session"
+        ) as mock_open_audiobook_playback_session, patch.object(
+            _TEST_AUDIOBOOK_EXECUTION, "execute_satellite_command"
         ) as mock_execute_satellite_command:
             mock_fetch_audiobook_item.return_value = {
                 "userMediaProgress": {"isFinished": False, "currentTime": 0}
@@ -795,10 +797,10 @@ class UtteranceLedgerExecutionTests(unittest.TestCase):
         entry = self.entries_by_id["audiobook-safe-other-pronoun"]
         self._store_two_candidate_audiobook_pending("utterance-ledger-other-one")
 
-        with patch("oracle_app.handlers.audiobook.fetch_audiobook_item") as mock_fetch_audiobook_item, patch(
-            "oracle_app.handlers.audiobook.open_audiobook_playback_session"
-        ) as mock_open_audiobook_playback_session, patch(
-            "oracle_app.handlers.audiobook.execute_satellite_command"
+        with patch.object(_TEST_AUDIOBOOK_EXECUTION, "fetch_item") as mock_fetch_audiobook_item, patch.object(
+            _TEST_AUDIOBOOK_EXECUTION, "open_playback_session"
+        ) as mock_open_audiobook_playback_session, patch.object(
+            _TEST_AUDIOBOOK_EXECUTION, "execute_satellite_command"
         ) as mock_execute_satellite_command:
             mock_fetch_audiobook_item.return_value = {
                 "userMediaProgress": {"isFinished": False, "currentTime": 0}

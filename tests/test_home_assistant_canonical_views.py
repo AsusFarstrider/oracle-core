@@ -59,7 +59,6 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
                 result = execute_home_assistant_ui_action(
                     action_id,
                     home_assistant_settings=settings,
-                    canonical_authority=True,
                 )
 
                 self.assertIsNotNone(result)
@@ -90,7 +89,6 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
         result = execute_home_assistant_ui_action(
             "custom_on",
             home_assistant_settings=settings,
-            canonical_authority=True,
         )
 
         self.assertIsNone(result)
@@ -119,7 +117,6 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
         result = resolve_home_assistant_dynamic_ui_action(
             "temperature_down",
             home_assistant_settings=settings,
-            canonical_authority=True,
         )
 
         self.assertEqual(

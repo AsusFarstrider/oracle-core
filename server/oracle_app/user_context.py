@@ -4,7 +4,6 @@ from dataclasses import dataclass
 import re
 from typing import Any
 
-from .config import get_source_registry, get_user_registry
 from .configuration.household_runtime_settings import HouseholdRuntimeSettings
 from .session_state import get_active_context, get_active_user_id
 
@@ -97,67 +96,22 @@ def extract_switch_user_name(text: str) -> str | None:
 
 def get_default_user_id(
     *,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str | None:
-    if household_settings is not None:
-        user = household_settings.default_user()
-        return user.id if user is not None else None
-    registry = get_user_registry()
-    for user_id, entry in registry.items():
-        if bool(entry.get("is_default")):
-            return user_id
-    return next(iter(registry.keys()), None)
-
-
-def get_source_default_user_id(source: str | None) -> str | None:
-    normalized_source = str(source or "").strip()
-    if not normalized_source:
-        return None
-    entry = get_source_registry().get(normalized_source)
-    if not isinstance(entry, dict):
-        return None
-    ui = entry.get("ui")
-    if not isinstance(ui, dict):
-        return None
-    candidates = []
-    for key in ("audiobook", "audio"):
-        scoped = ui.get(key)
-        if isinstance(scoped, dict):
-            candidates.append(scoped)
-    candidates.append(ui)
-    registry = get_user_registry()
-    for candidate in candidates:
-        user_id = str(candidate.get("default_user_id") or candidate.get("default_user") or "").strip().lower()
-        if user_id and user_id in registry:
-            return user_id
-    return None
+    user = household_settings.default_user()
+    return user.id if user is not None else None
 
 
 def resolve_user_name(
     raw_name: str | None,
     *,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str | None:
     normalized_name = _normalize_user_phrase(raw_name)
     if not normalized_name:
         return None
 
-    if household_settings is not None:
-        return household_settings.resolve_user_id(normalized_name)
-
-    registry = get_user_registry()
-    for user_id, entry in registry.items():
-        candidates = {user_id}
-        display_name = _normalize_user_phrase(entry.get("display_name"))
-        if display_name:
-            candidates.add(display_name)
-        for alias in entry.get("aliases") or []:
-            normalized_alias = _normalize_user_phrase(alias)
-            if normalized_alias:
-                candidates.add(normalized_alias)
-        if normalized_name in candidates:
-            return user_id
-    return None
+    return household_settings.resolve_user_id(normalized_name)
 
 
 def resolve_effective_user(
@@ -165,7 +119,7 @@ def resolve_effective_user(
     source: str | None = None,
     session_id: str | None = None,
     requested_user_name: str | None = None,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> dict[str, Any]:
     requested = _normalize_user_phrase(requested_user_name)
     if requested:
@@ -187,10 +141,7 @@ def resolve_effective_user(
         }
 
     session_user_id = get_active_user_id(source, session_id)
-    if session_user_id and (
-        household_settings is None
-        or household_settings.user(session_user_id) is not None
-    ):
+    if session_user_id and household_settings.user(session_user_id) is not None:
         return {
             "ok": True,
             "user_id": session_user_id,
@@ -198,20 +149,12 @@ def resolve_effective_user(
             "requested_user_name": None,
         }
 
-    associated_user_id = (
-        household_settings.configured_associated_user_id(source)
-        if household_settings is not None
-        else get_source_default_user_id(source)
-    )
+    associated_user_id = household_settings.configured_associated_user_id(source)
     if associated_user_id:
         return {
             "ok": True,
             "user_id": associated_user_id,
-            "resolution_source": (
-                "source_association"
-                if household_settings is not None
-                else "source_default_user"
-            ),
+            "resolution_source": "source_association",
             "requested_user_name": None,
         }
 
@@ -222,11 +165,7 @@ def resolve_effective_user(
         return {
             "ok": True,
             "user_id": default_user_id,
-            "resolution_source": (
-                "household_default"
-                if household_settings is not None
-                else "default_user"
-            ),
+            "resolution_source": "household_default",
             "requested_user_name": None,
         }
 
@@ -240,20 +179,15 @@ def resolve_effective_user(
 def get_user_entry(
     user_id: str | None,
     *,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> dict[str, Any] | None:
     user_key = str(user_id or "").strip().lower()
     if not user_key:
         return None
-    if household_settings is not None:
-        entry = household_settings.user(user_key)
-        if entry is None:
-            return None
-        return entry.model_dump(mode="python")
-    entry = get_user_registry().get(user_key)
-    if not isinstance(entry, dict):
+    entry = household_settings.user(user_key)
+    if entry is None:
         return None
-    return dict(entry)
+    return entry.model_dump(mode="python")
 
 
 def _normalize_user_phrase(value: Any) -> str:

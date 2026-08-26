@@ -23,7 +23,7 @@ from .ui_house import (
 
 
 BuildNoArgSnapshot = Callable[[], dict[str, object]]
-BuildAudioSnapshot = Callable[[str | None, str | None], dict[str, object]]
+BuildAudioStatusSnapshot = Callable[[str | None], dict[str, object]]
 BuildCalendarSnapshot = Callable[..., dict[str, object]]
 
 _SATELLITE_UI_PAGES = ["home", "weather", "calendar", "audio", "house"]
@@ -472,7 +472,7 @@ def build_satellite_ui_home_snapshot(
     satellite_id: str | None,
     *,
     build_ui_home_snapshot: BuildNoArgSnapshot,
-    build_ui_audio_snapshot: BuildAudioSnapshot,
+    build_ui_audio_status_snapshot: BuildAudioStatusSnapshot,
     build_ui_calendar_snapshot: BuildCalendarSnapshot,
     home_assistant_settings: HomeAssistantRuntimeSettings | None,
     fleet_settings: SatelliteUiRuntimeSettings | None,
@@ -488,7 +488,7 @@ def build_satellite_ui_home_snapshot(
     resolved_source_id = str(config.get("source_id") or resolved_id)
     home_snapshot = build_ui_home_snapshot()
     try:
-        audio_snapshot = build_ui_audio_snapshot(resolved_source_id, None)
+        audio_snapshot = build_ui_audio_status_snapshot(resolved_source_id)
     except HTTPException as exc:
         audio_snapshot = {
             "source": resolved_source_id,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
@@ -15,6 +15,7 @@ from oracle_app.audiobook import parse_audiobook_intent, parse_bare_audiobook_sl
 from oracle_app.handlers.audiobook import execute_audiobook as _execute_audiobook
 from oracle_app.replies import build_reply_text
 from oracle_app.routing import build_route_capability_registry, choose_route as _choose_route
+from oracle_app.route_refinement import CharacterizedPlaybackRouteState
 from oracle_app.schemas import DispatchPlan
 from oracle_app.session_state import clear_all_sessions
 from canonical_test_support import neutral_brain_runtime_settings
@@ -25,10 +26,9 @@ _NEUTRAL_ROUTE_REGISTRY = build_route_capability_registry(
     _NEUTRAL_RUNTIME.household,
     facts_enabled=False,
     news_settings=_NEUTRAL_RUNTIME.information.news if _NEUTRAL_RUNTIME.information else None,
-    canonical_information=True,
     calendar_settings=_NEUTRAL_RUNTIME.calendar,
-    canonical_calendar=True,
 )
+_TEST_AUDIOBOOK_EXECUTION = Mock()
 
 
 def choose_route(text: str, *, source: str | None = None):
@@ -37,6 +37,7 @@ def choose_route(text: str, *, source: str | None = None):
         source=source,
         registry=_NEUTRAL_ROUTE_REGISTRY,
         household_settings=_NEUTRAL_RUNTIME.household,
+        playback_state=CharacterizedPlaybackRouteState(),
     )
 
 
@@ -48,7 +49,7 @@ def execute_audiobook(dispatch: DispatchPlan) -> DispatchPlan:
     return _execute_audiobook(
         dispatch,
         household_settings=_NEUTRAL_RUNTIME.household,
-        canonical_playback_target=True,
+        canonical_execution=_TEST_AUDIOBOOK_EXECUTION,
     )
 
 
@@ -208,8 +209,8 @@ class AudiobookSleepTimerTests(IsolatedAlertStoreTestCase):
         self.assertEqual(timers[0].metadata.get("target"), "audiobook")
         self.assertTrue(timers[0].metadata.get("silent"))
 
-    @patch("oracle_app.handlers.audiobook.close_audiobook_session")
-    @patch("oracle_app.handlers.audiobook.execute_satellite_command")
+    @patch.object(_TEST_AUDIOBOOK_EXECUTION, "close_session")
+    @patch.object(_TEST_AUDIOBOOK_EXECUTION, "execute_satellite_command")
     def test_stop_audiobook_cancels_active_sleep_timer(
         self,
         mock_execute_satellite_command,

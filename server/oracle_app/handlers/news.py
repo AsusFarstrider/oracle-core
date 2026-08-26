@@ -13,22 +13,17 @@ class NewsHandler:
     def __init__(
         self,
         canonical_execution: CanonicalNewsExecution | None = None,
-        *,
-        canonical_authority: bool = False,
     ) -> None:
         self.canonical_execution = canonical_execution
-        self.canonical_authority = canonical_authority
 
     def handle(self, dispatch: DispatchPlan, registry: Any) -> DispatchPlan:
         text = str(dispatch.payload.get("text", "")).strip()
         normalized = str(dispatch.payload.get("normalized_text", "")).strip() or text
-        query = parse_news_query(
-            normalized,
-            runtime_settings=(
-                None if self.canonical_execution is None else self.canonical_execution.settings
-            ),
-            canonical_authority=self.canonical_authority,
-        )
+        if self.canonical_execution is None:
+            dispatch.status = "executed"
+            dispatch.result = _disabled_news_result(None)
+            return dispatch
+        query = parse_news_query(normalized, runtime_settings=self.canonical_execution.settings)
         if query is None:
             dispatch.status = "failed"
             dispatch.result = {
@@ -39,11 +34,7 @@ class NewsHandler:
             return dispatch
 
         try:
-            result = (
-                self.canonical_execution.execute(query)
-                if self.canonical_execution is not None
-                else _disabled_news_result(query)
-            )
+            result = self.canonical_execution.execute(query)
         except Exception as exc:
             dispatch.status = "failed"
             dispatch.result = {
@@ -61,7 +52,7 @@ class NewsHandler:
 def _disabled_news_result(query) -> dict[str, object]:
     return {
         "action": "headlines",
-        "source": query.source,
+        "source": None if query is None else query.source,
         "source_label": "the news",
         "headlines": [],
         "error": "news_source_unavailable",

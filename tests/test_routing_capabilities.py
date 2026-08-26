@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 from oracle_app.text_normalization import normalize_text
 from oracle_app import state
 from oracle_app.routing import build_route_capability_registry, choose_route
+from oracle_app.route_refinement import CharacterizedPlaybackRouteState
 from oracle_app.session_state import clear_all_sessions, set_active_context
 from canonical_test_support import neutral_brain_runtime_settings
 
@@ -28,18 +29,18 @@ _TEST_CALENDAR_SETTINGS = replace(_NEUTRAL_RUNTIME.calendar, enabled=True)
 _CANONICAL_ROUTE_ARGUMENTS = {
     "facts_enabled": False,
     "news_settings": _TEST_NEWS_SETTINGS,
-    "canonical_information": True,
     "calendar_settings": _TEST_CALENDAR_SETTINGS,
-    "canonical_calendar": True,
 }
 _NEUTRAL_ROUTE_REGISTRY = build_route_capability_registry(
     _NEUTRAL_HOUSEHOLD,
     **_CANONICAL_ROUTE_ARGUMENTS,
 )
 _BASELINE_ROUTE_REGISTRY = build_route_capability_registry(
+    _NEUTRAL_HOUSEHOLD,
     **_CANONICAL_ROUTE_ARGUMENTS,
 )
 _FACTS_ROUTE_REGISTRY = build_route_capability_registry(
+    _NEUTRAL_HOUSEHOLD,
     **(_CANONICAL_ROUTE_ARGUMENTS | {"facts_enabled": True}),
 )
 _BASE_CHOOSE_ROUTE = choose_route
@@ -50,6 +51,7 @@ def _choose_canonical_home_route(text: str, **kwargs):
 
     kwargs.setdefault("registry", _NEUTRAL_ROUTE_REGISTRY)
     kwargs.setdefault("household_settings", _NEUTRAL_HOUSEHOLD)
+    kwargs.setdefault("playback_state", CharacterizedPlaybackRouteState())
     return _BASE_CHOOSE_ROUTE(text, **kwargs)
 
 
@@ -58,11 +60,14 @@ def _choose_canonical_route(text: str, **kwargs):
 
     kwargs.setdefault("registry", _BASELINE_ROUTE_REGISTRY)
     kwargs.setdefault("household_settings", _NEUTRAL_HOUSEHOLD)
+    kwargs.setdefault("playback_state", CharacterizedPlaybackRouteState())
     return _BASE_CHOOSE_ROUTE(text, **kwargs)
 
 
 def _choose_canonical_facts_route(text: str, **kwargs):
     kwargs.setdefault("registry", _FACTS_ROUTE_REGISTRY)
+    kwargs.setdefault("household_settings", _NEUTRAL_HOUSEHOLD)
+    kwargs.setdefault("playback_state", CharacterizedPlaybackRouteState())
     return _BASE_CHOOSE_ROUTE(text, **kwargs)
 
 

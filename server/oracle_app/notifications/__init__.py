@@ -5,9 +5,6 @@ from .errors import (
     NotificationSuppressionUnavailableError,
 )
 from .policy import SuppressionStatus, evaluate_notification_suppression
-from .service import (
-    submit_notification,
-)
 
 __all__ = [
     "NotificationContextNotSupportedError",
@@ -16,5 +13,4 @@ __all__ = [
     "NotificationSuppressionUnavailableError",
     "SuppressionStatus",
     "evaluate_notification_suppression",
-    "submit_notification",
 ]

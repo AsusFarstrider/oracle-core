@@ -26,7 +26,10 @@ from oracle_app.configuration import (
     inspect_candidate,
 )
 from oracle_app.handlers.fallback_router import attempt_fallback_router_warmup
-from oracle_app.api import _synthesize_speech_with_provider, _transcribe_audio_with_provider
+from oracle_app.application_speech import (
+    synthesize_speech_with_provider,
+    transcribe_audio_with_provider,
+)
 from oracle_app.dispatch import build_dispatch_registry, execute_dispatch
 from oracle_app.schemas import DispatchPlan, TtsRequest
 from oracle_app.memory.retention import retention_policy_from_configuration
@@ -110,14 +113,14 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
                 "transcribe",
                 return_value=SttResult("hello oracle", "fast-whisper"),
             ) as transcribe,
-            patch("oracle_app.api.safe_record_transcript"),
+            patch("oracle_app.application_speech.safe_record_transcript"),
         ):
-            response = _synthesize_speech_with_provider(
+            response = synthesize_speech_with_provider(
                 TtsRequest(text="Hello"),
                 consumers.tts_provider,
             )
             result = asyncio.run(
-                _transcribe_audio_with_provider(
+                transcribe_audio_with_provider(
                     upload,
                     consumers.stt_provider,
                     source="example_source",

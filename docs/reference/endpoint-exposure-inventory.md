@@ -32,6 +32,7 @@ canonical trust, source, authentication, and credential policy must agree.
 | Speech conversion | `/api/speech/stt`, `/api/speech/tts` | Household LAN only for enabled clients; speech conversion owns no command, session, or reply policy. |
 | Satellite lifecycle | `/api/satellite/*` | Household LAN, with the exact directional lifecycle or operational credential required by each route. Do not expose through a public browser boundary. |
 | Reliable satellite alerts | `/api/satellite/alerts/claim`, `/api/satellite/alerts/{alert_id}/acknowledge` | Household LAN only; require the satellite projection credential and derive source identity from it. |
+| Deferred satellite playback | `/api/satellite/deferred-resume` | Household LAN only; require the satellite projection credential, derive/bind the managed source from it, and accept only the strict opaque typed continuation. Opacity is encapsulation, not integrity. |
 | Provider integrations | `/api/integrations/{provider}/*` | Internal or household LAN only, narrowly authenticated, and limited to Oracle-native evidence or callbacks. |
 | Media proxy | Brain-hosted artwork or prepared playback streams | Reachable only where the consuming authorized client requires it; provider credentials must never leak into URLs or responses. |
 | Development introspection | `/docs`, `/redoc`, `/openapi.json` | Host-local by default; explicitly gate or disable before broader exposure. |

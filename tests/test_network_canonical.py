@@ -147,13 +147,11 @@ class CanonicalNetworkExecutionTests(unittest.TestCase):
         )
         request = Request({"type": "http", "app": application})
 
-        with patch("oracle_app.admin_network_routes.admin_network_status") as legacy_status:
-            status = admin_network_status_http(request)
-            health = health_librenms_http(request)
+        status = admin_network_status_http(request)
+        health = health_librenms_http(request)
 
         self.assertEqual(status["network"]["status"], "healthy")
         self.assertTrue(health.available)
-        legacy_status.assert_not_called()
 
     @patch("oracle_app.network_runtime.canonical.LibreNmsBridge.get_typed_monitoring_status")
     @patch("oracle_app.network_runtime.canonical.NetworkProbeBridge.get_typed_internet_status")
@@ -178,27 +176,20 @@ class CanonicalNetworkExecutionTests(unittest.TestCase):
         )
         execution = self._execution()
 
-        with patch("oracle_app.network.get_network_probe_settings") as legacy_probe, patch(
-            "oracle_app.network.get_librenms_settings"
-        ) as legacy_librenms:
-            speech, summary = build_network_response(
-                "is the network okay",
-                canonical_execution=execution,
-                canonical_authority=True,
-            )
-            ui = build_ui_network_health_snapshot(
-                canonical_execution=execution,
-                canonical_authority=True,
-            )
-            snapshot = execution.status_snapshot(force_refresh=True)
+        speech, summary = build_network_response(
+            "is the network okay",
+            canonical_execution=execution,
+        )
+        ui = build_ui_network_health_snapshot(
+            canonical_execution=execution,
+        )
+        snapshot = execution.status_snapshot(force_refresh=True)
 
         self.assertEqual(speech, "The network looks healthy.")
         self.assertEqual(summary["status"], "healthy")
         self.assertEqual(ui["status"], "healthy")
         self.assertEqual(snapshot["services"][0]["status"], "healthy")
         self.assertEqual(snapshot["monitors"][0]["provider"], "librenms")
-        legacy_probe.assert_not_called()
-        legacy_librenms.assert_not_called()
 
     @patch("oracle_app.network_runtime.control.ServicePlatformAdapter")
     def test_canonical_confirmed_control_uses_bound_typed_adapter(

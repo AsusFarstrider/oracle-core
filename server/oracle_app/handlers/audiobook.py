@@ -17,19 +17,11 @@ from oracle_app.media_execution_context import (
 )
 from oracle_app.alerts import cancel_alerts, create_alert, format_duration, list_alerts
 from oracle_app.audiobook import (
-    build_longform_payload,
     choose_audiobook_match,
-    close_audiobook_session,
-    fetch_audiobook_item,
-    fetch_current_audiobook_progress,
-    find_audiobook_series_entry,
     is_audiobook_request,
-    open_audiobook_playback_session,
     parse_bare_audiobook_sleep_timer_intent,
     parse_audiobook_intent,
     score_audiobook_candidates,
-    search_audiobooks,
-    sync_audiobook_session,
 )
 from oracle_app.provider_bridges.audiobookshelf_audiobook import (
     AudiobookBridgeConfigurationError,
@@ -53,9 +45,6 @@ from oracle_app.audiobook_runtime.policy import (
 )
 from oracle_app.music_runtime.control import (
     build_control_plane_failure,
-    execute_satellite_command,
-    fetch_satellite_audiobook_session,
-    fetch_satellite_music_session,
 )
 from oracle_app.schemas import DispatchPlan
 from oracle_app.user_context import resolve_effective_user
@@ -70,11 +59,9 @@ def execute_audiobook(
     dispatch: DispatchPlan,
     *,
     household_settings: HouseholdRuntimeSettings | None = None,
-    canonical_playback_target: bool = False,
     canonical_execution: CanonicalAudiobookExecution | None = None,
-    canonical_authority: bool = False,
 ) -> DispatchPlan:
-    if canonical_authority and canonical_execution is None:
+    if canonical_execution is None:
         dispatch.status = "failed"
         dispatch.result = {
             "action": "audiobook_failed",
@@ -95,10 +82,7 @@ def execute_audiobook(
         return dispatch
     payload = dispatch.payload
     try:
-        execution = MediaExecutionContext.from_dispatch(
-            dispatch,
-            canonical_playback_target=canonical_playback_target,
-        )
+        execution = MediaExecutionContext.from_dispatch(dispatch)
     except MediaExecutionContextError as exc:
         return fail_media_execution_context(dispatch, exc)
     request_source = execution.request_source_id
@@ -110,17 +94,9 @@ def execute_audiobook(
     user_resolution_error = str(payload.get("user_resolution_error") or "").strip()
     text = str(payload.get("text", "")).strip()
     normalized = str(payload.get("normalized_text", "")).strip() or text
-    search = search_audiobooks if canonical_execution is None else canonical_execution.search_audiobooks
-    find_series = (
-        find_audiobook_series_entry
-        if canonical_execution is None
-        else canonical_execution.find_series_entry
-    )
-    fetch_progress = (
-        fetch_current_audiobook_progress
-        if canonical_execution is None
-        else canonical_execution.fetch_current_progress
-    )
+    search = canonical_execution.search_audiobooks
+    find_series = canonical_execution.find_series_entry
+    fetch_progress = canonical_execution.fetch_current_progress
     if effective_user_id is None and not user_resolution_error:
         resolved_user = resolve_effective_user(
             source=request_source,
@@ -628,8 +604,8 @@ def _lookup_series_entry(
     *,
     series: str | None,
     ordinal: int | None,
+    find_series,
     user_id: str | None = None,
-    find_series=find_audiobook_series_entry,
 ) -> DispatchPlan:
     if not series or ordinal is None or ordinal <= 0:
         dispatch.status = "failed"
@@ -688,18 +664,9 @@ def _play_selected(
     selection: dict[str, Any],
     sleep_timer_seconds: int | None = None,
     defer_audible_start: bool | None = None,
-    canonical_execution: CanonicalAudiobookExecution | None = None,
+    canonical_execution: CanonicalAudiobookExecution,
 ) -> DispatchPlan:
     should_defer = bool(source) if defer_audible_start is None else defer_audible_start
-    fetch_item = fetch_audiobook_item if canonical_execution is None else canonical_execution.fetch_item
-    open_session = (
-        open_audiobook_playback_session
-        if canonical_execution is None
-        else canonical_execution.open_playback_session
-    )
-    payload_builder = build_longform_payload if canonical_execution is None else canonical_execution.build_longform_payload
-    command = execute_satellite_command if canonical_execution is None else canonical_execution.execute_satellite_command
-    close_session = close_audiobook_session if canonical_execution is None else canonical_execution.close_session
     music_interrupt = _interrupt_active_music_for_audiobook(
         source,
         canonical_execution=canonical_execution,
@@ -721,9 +688,9 @@ def _play_selected(
         selection=selection,
         sleep_timer_seconds=sleep_timer_seconds,
         defer_audible_start=should_defer,
-        fetch_audiobook_item=fetch_item,
-        open_audiobook_playback_session=open_session,
-        build_longform_payload=lambda session: payload_builder(
+        fetch_audiobook_item=canonical_execution.fetch_item,
+        open_audiobook_playback_session=canonical_execution.open_playback_session,
+        build_longform_payload=lambda session: canonical_execution.build_longform_payload(
             session,
             source=str(source or ""),
             user_id=user_id,
@@ -731,8 +698,8 @@ def _play_selected(
         ),
         register_active_playback=audiobook_state.register_active_audiobook_playback,
         clear_active_playback=audiobook_state.clear_active_audiobook_playback,
-        execute_satellite_command=command,
-        close_audiobook_session=close_session,
+        execute_satellite_command=canonical_execution.execute_satellite_command,
+        close_audiobook_session=canonical_execution.close_session,
         create_sleep_timer=lambda current_source, current_session_id, duration: _create_sleep_timer(
             source=current_source,
             session_id=current_session_id,
@@ -747,16 +714,12 @@ def _play_selected(
 def _interrupt_active_music_for_audiobook(
     source: str | None,
     *,
-    canonical_execution: CanonicalAudiobookExecution | None = None,
+    canonical_execution: CanonicalAudiobookExecution,
 ) -> dict[str, Any] | None:
     if not source:
         return None
     try:
-        music_session = (
-            fetch_satellite_music_session(source)
-            if canonical_execution is None
-            else canonical_execution.fetch_satellite_music_session(source)
-        )
+        music_session = canonical_execution.fetch_satellite_music_session(source)
     except HTTPException:
         return None
     except RuntimeError:
@@ -767,11 +730,7 @@ def _interrupt_active_music_for_audiobook(
     if music_state not in {"playing", "starting", "buffering", "stopping"}:
         return None
     try:
-        stop_result = (
-            execute_satellite_command(source, "stop", None)
-            if canonical_execution is None
-            else canonical_execution.execute_satellite_command(source, "stop", None)
-        )
+        stop_result = canonical_execution.execute_satellite_command(source, "stop", None)
     except RuntimeError as exc:
         return build_control_plane_failure(
             action="stop",
@@ -796,7 +755,7 @@ def play_selected_dispatch(
     selection: dict[str, Any],
     sleep_timer_seconds: int | None = None,
     defer_audible_start: bool | None = None,
-    canonical_execution: CanonicalAudiobookExecution | None = None,
+    canonical_execution: CanonicalAudiobookExecution,
 ) -> DispatchPlan:
     dispatch.target = "audiobook"
     dispatch.hook = "audiobook.execute"
@@ -816,7 +775,7 @@ def _pause_audiobook(
     dispatch: DispatchPlan,
     *,
     source: str | None,
-    canonical_execution: CanonicalAudiobookExecution | None = None,
+    canonical_execution: CanonicalAudiobookExecution,
 ) -> DispatchPlan:
     return _sync_then_control(
         dispatch,
@@ -834,14 +793,9 @@ def _resume_active_audiobook(
     session_id: str | None,
     user_id: str | None = None,
     defer_audible_start: bool | None = None,
-    canonical_execution: CanonicalAudiobookExecution | None = None,
+    canonical_execution: CanonicalAudiobookExecution,
 ) -> DispatchPlan:
-    fetch_progress = (
-        fetch_current_audiobook_progress
-        if canonical_execution is None
-        else canonical_execution.fetch_current_progress
-    )
-    progress = normalize_audiobook_progress(fetch_progress(user_id=user_id))
+    progress = normalize_audiobook_progress(canonical_execution.fetch_current_progress(user_id=user_id))
     library_item_id = str((progress or {}).get("library_item_id", "")).strip()
     if not library_item_id:
         dispatch.status = "failed"
@@ -868,7 +822,7 @@ def _stop_audiobook(
     dispatch: DispatchPlan,
     *,
     source: str | None,
-    canonical_execution: CanonicalAudiobookExecution | None = None,
+    canonical_execution: CanonicalAudiobookExecution,
 ) -> DispatchPlan:
     result = _sync_then_control(
         dispatch,
@@ -888,7 +842,7 @@ def _what_is_playing(
     dispatch: DispatchPlan,
     *,
     source: str | None,
-    canonical_execution: CanonicalAudiobookExecution | None = None,
+    canonical_execution: CanonicalAudiobookExecution,
 ) -> DispatchPlan:
     try:
         result = _fetch_audiobook_now_playing(source, canonical_execution=canonical_execution)
@@ -911,14 +865,10 @@ def _what_is_playing(
 def _fetch_audiobook_now_playing(
     source: str | None,
     *,
-    canonical_execution: CanonicalAudiobookExecution | None = None,
+    canonical_execution: CanonicalAudiobookExecution,
 ) -> dict[str, Any]:
     try:
-        session = (
-            fetch_satellite_audiobook_session(source)
-            if canonical_execution is None
-            else canonical_execution.fetch_satellite_audiobook_session(source)
-        )
+        session = canonical_execution.fetch_satellite_audiobook_session(source)
     except RuntimeError:
         session = None
     if isinstance(session, dict):
@@ -932,8 +882,6 @@ def _fetch_audiobook_now_playing(
             "position_seconds": session.get("position_seconds"),
             "duration_seconds": session.get("duration_seconds"),
         }
-    if canonical_execution is None:
-        return execute_satellite_command(source, "get_longform_state")
     return canonical_execution.execute_satellite_command(source, "get_longform_state")
 
 
@@ -1004,19 +952,16 @@ def _sync_then_control(
     source: str | None,
     action: str,
     close_session: bool,
-    canonical_execution: CanonicalAudiobookExecution | None = None,
+    canonical_execution: CanonicalAudiobookExecution,
 ) -> DispatchPlan:
-    command = execute_satellite_command if canonical_execution is None else canonical_execution.execute_satellite_command
-    close_provider_session = close_audiobook_session if canonical_execution is None else canonical_execution.close_session
-    sync_provider_session = sync_audiobook_session if canonical_execution is None else canonical_execution.sync_session
     status, result = sync_then_control_audiobook(
         source=source,
         action=action,
         close_session=close_session,
         get_active_playback_for_source=audiobook_state.get_active_audiobook_playback_for_source,
-        execute_satellite_command=command,
-        close_audiobook_session=close_provider_session,
-        sync_audiobook_session=sync_provider_session,
+        execute_satellite_command=canonical_execution.execute_satellite_command,
+        close_audiobook_session=canonical_execution.close_session,
+        sync_audiobook_session=canonical_execution.sync_session,
         clear_active_playback=audiobook_state.clear_active_audiobook_playback,
     )
     dispatch.status = status
@@ -1082,20 +1027,14 @@ class AudiobookHandler:
         self,
         household_settings: HouseholdRuntimeSettings | None = None,
         *,
-        canonical_playback_target: bool = False,
         canonical_execution: CanonicalAudiobookExecution | None = None,
-        canonical_authority: bool = False,
     ) -> None:
         self.household_settings = household_settings
-        self.canonical_playback_target = canonical_playback_target
         self.canonical_execution = canonical_execution
-        self.canonical_authority = canonical_authority
 
     def handle(self, dispatch: DispatchPlan, registry: Any) -> DispatchPlan:
         return execute_audiobook(
             dispatch,
             household_settings=self.household_settings,
-            canonical_playback_target=self.canonical_playback_target,
             canonical_execution=self.canonical_execution,
-            canonical_authority=self.canonical_authority,
         )

@@ -6,12 +6,11 @@ from urllib import parse as urlparse
 
 from fastapi import HTTPException
 
-from .admin_diagnostics_routes import serialize_control_plane_error
 from .alerts import format_duration, list_alerts
 from .audiobook_runtime.canonical import CanonicalAudiobookExecution
 from .configuration.household_runtime_settings import HouseholdRuntimeSettings
 from .music_runtime.canonical import CanonicalMusicExecution
-from .music_runtime.control import ControlPlaneError
+from .music_runtime.control import ControlPlaneError, serialize_control_plane_error
 from .music_runtime.parsing import MusicIntent
 from .music_runtime.selection import music_provider_ref, music_selection_id
 from .provider_bridges.audiobookshelf_audiobook import normalize_audiobook_item, normalize_audiobook_progress
@@ -384,7 +383,100 @@ def summarize_ui_playback_session(session: dict[str, object] | None) -> dict[str
         "artist_or_author": session.get("artist_or_author"),
         "position_seconds": session.get("position_seconds"),
         "duration_seconds": session.get("duration_seconds"),
+        "updated_at": session.get("updated_at"),
         "resumable": bool(session.get("resumable")),
+    }
+
+
+def _build_ui_playback_status(
+    selected_source: str | None,
+    *,
+    music_execution: CanonicalMusicExecution | None,
+    audiobook_execution: CanonicalAudiobookExecution | None,
+) -> dict[str, object]:
+    playback_payload: dict[str, object] = {
+        "ok": False,
+        "active": False,
+        "active_sessions": [],
+        "output_owner": None,
+    }
+    if selected_source is None:
+        playback_payload["detail"] = "No playback-capable sources are configured."
+        return playback_payload
+
+    try:
+        fetch_authority = (
+            music_execution.fetch_playback_authority
+            if music_execution is not None and music_execution.settings.playback_target(selected_source) is not None
+            else audiobook_execution.fetch_playback_authority
+            if audiobook_execution is not None
+            else None
+        )
+        if fetch_authority is None:
+            raise RuntimeError("No canonical playback provider is configured.")
+        authority = fetch_authority(selected_source)
+        sessions = authority.get("active_sessions")
+        if not isinstance(sessions, list):
+            sessions = []
+        return {
+            "ok": True,
+            "active": bool(authority.get("playback_active")) or bool(sessions),
+            "active_sessions": [
+                summary
+                for summary in (summarize_ui_playback_session(session) for session in sessions)
+                if summary is not None
+            ],
+            "output_owner": summarize_ui_playback_session(authority.get("output_owner")),
+            "degraded_state": bool(authority.get("degraded_state")),
+            "degraded_reasons": list(authority.get("degraded_reasons") or []),
+        }
+    except ControlPlaneError as exc:
+        return {
+            "ok": False,
+            "active": False,
+            "active_sessions": [],
+            "output_owner": None,
+            **serialize_control_plane_error(exc),
+        }
+
+
+def build_ui_audio_status_snapshot(
+    source: str | None = None,
+    *,
+    music_execution: CanonicalMusicExecution | None = None,
+    audiobook_execution: CanonicalAudiobookExecution | None = None,
+    household_settings: HouseholdRuntimeSettings | None,
+) -> dict[str, object]:
+    """Return lightweight, runtime-authority-observed playback status.
+
+    Position and duration are copied from the satellite playback authority. The
+    Brain does not advance or otherwise estimate them between observations.
+    """
+    selected_source, configured_sources = resolve_ui_audio_source(
+        source,
+        music_execution=music_execution,
+        audiobook_execution=audiobook_execution,
+    )
+    playback_payload = _build_ui_playback_status(
+        selected_source,
+        music_execution=music_execution,
+        audiobook_execution=audiobook_execution,
+    )
+    sources = _build_ui_audio_sources(configured_sources, household_settings=household_settings)
+    return {
+        "generated_at": _build_ui_generated_at(),
+        "source": selected_source,
+        "selected_source_id": selected_source,
+        "selected_target": selected_source,
+        "available_sources": sources,
+        "targets": sources,
+        "playback": playback_payload,
+        "now_playing": playback_payload.get("output_owner"),
+        "progress_observation": {
+            "basis": "runtime_playback_authority",
+            "estimated": False,
+        },
+        "refresh_after_seconds": 5,
     }
 
 
@@ -465,49 +557,11 @@ def build_ui_audio_snapshot(
         household_settings=household_settings,
     )
     selected_user = resolve_ui_audio_user(user_id, users, default_user_id)
-    playback_payload: dict[str, object] = {
-        "ok": False,
-        "active": False,
-        "active_sessions": [],
-        "output_owner": None,
-    }
-    if selected_source is None:
-        playback_payload["detail"] = "No playback-capable sources are configured."
-    else:
-        try:
-            fetch_authority = (
-                music_execution.fetch_playback_authority
-                if music_execution is not None and music_execution.settings.playback_target(selected_source) is not None
-                else audiobook_execution.fetch_playback_authority
-                if audiobook_execution is not None
-                else None
-            )
-            if fetch_authority is None:
-                raise RuntimeError("No canonical playback provider is configured.")
-            authority = fetch_authority(selected_source)
-            sessions = authority.get("active_sessions")
-            if not isinstance(sessions, list):
-                sessions = []
-            playback_payload = {
-                "ok": True,
-                "active": bool(authority.get("playback_active")) or bool(sessions),
-                "active_sessions": [
-                    summary
-                    for summary in (summarize_ui_playback_session(session) for session in sessions)
-                    if summary is not None
-                ],
-                "output_owner": summarize_ui_playback_session(authority.get("output_owner")),
-                "degraded_state": bool(authority.get("degraded_state")),
-                "degraded_reasons": list(authority.get("degraded_reasons") or []),
-            }
-        except ControlPlaneError as exc:
-            playback_payload = {
-                "ok": False,
-                "active": False,
-                "active_sessions": [],
-                "output_owner": None,
-                **serialize_control_plane_error(exc),
-            }
+    playback_payload = _build_ui_playback_status(
+        selected_source,
+        music_execution=music_execution,
+        audiobook_execution=audiobook_execution,
+    )
 
     try:
         if audiobook_execution is None:
@@ -536,6 +590,7 @@ def build_ui_audio_snapshot(
         "users": users,
         "selected_user": selected_user,
         "source": selected_source,
+        "selected_source_id": selected_source,
         "selected_target": selected_source,
         "available_sources": _build_ui_audio_sources(configured_sources, household_settings=household_settings),
         "targets": _build_ui_audio_sources(configured_sources, household_settings=household_settings),

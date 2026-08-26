@@ -14,7 +14,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
 from stt import SttError, SttResult
-from oracle_app.api import _transcribe_audio_with_provider
+from oracle_app.application_speech import transcribe_audio_with_provider
 from oracle_app.memory.correlation import correlation_context
 from oracle_app.memory import sources, transcripts
 from oracle_app.memory.retention import retention_policy_from_configuration
@@ -111,7 +111,7 @@ class SttTranscriptObservationTests(unittest.TestCase):
 
     def test_memory_write_failure_fails_open_for_successful_stt(self) -> None:
         with patch(
-            "oracle_app.api.safe_record_transcript",
+            "oracle_app.application_speech.safe_record_transcript",
             return_value=False,
         ):
             with correlation_context("corr-stt-1"):
@@ -150,7 +150,7 @@ class SttTranscriptObservationTests(unittest.TestCase):
 
     def test_memory_write_failure_fails_open_for_stt_error(self) -> None:
         with patch(
-            "oracle_app.api.safe_record_transcript",
+            "oracle_app.application_speech.safe_record_transcript",
             return_value=False,
         ):
             with self.assertRaises(HTTPException) as raised:
@@ -194,7 +194,7 @@ def _upload_file() -> UploadFile:
 
 def _run_transcribe(upload: UploadFile, *, provider: FakeSttProvider, source: str | None = None):
     try:
-        return asyncio.run(_transcribe_audio_with_provider(
+        return asyncio.run(transcribe_audio_with_provider(
             upload, provider, source=source, retention_policy=POLICY
         ))
     finally:

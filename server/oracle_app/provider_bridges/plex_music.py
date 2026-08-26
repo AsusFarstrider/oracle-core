@@ -5,7 +5,6 @@ from typing import Any, TypeAlias
 from urllib import error, parse, request
 from xml.etree import ElementTree
 
-from oracle_app.config import get_music_settings
 from oracle_app.music_runtime.selection import music_provider_ref, music_selection_id
 
 
@@ -408,7 +407,13 @@ class PlexMusicBridge:
         raise MusicBridgeConfigurationError("music_provider_not_configured", "Plex is not configured")
 
     def _settings(self) -> MusicProviderSettings:
-        return self._connection or self._configured_settings or get_music_settings()
+        settings = self._connection or self._configured_settings
+        if settings is None:
+            raise MusicBridgeConfigurationError(
+                "music_provider_not_configured",
+                "Plex bridge requires an injected provider connection.",
+            )
+        return settings
 
 
 def get_music_bridge(settings: dict[str, Any] | None = None) -> PlexMusicBridge:

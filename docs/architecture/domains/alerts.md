@@ -73,7 +73,10 @@ Each satellite notification target also owns a channel-neutral Memory delivery
 receipt. It remains pending while the alert is pending or leased, becomes
 accepted on acknowledgement, and becomes suppressed or expired with the
 corresponding terminal alert outcome. Receipt reconciliation is retry-safe after
-a process crash.
+a process crash. The authenticated two-second claim surface uses one read-only
+Memory preflight to bypass the heavier claim and receipt passes only when no
+due alert, expired lease, active notification repair, or pending receipt exists;
+the delivery cadence and durable path are unchanged.
 
 ## Current Surface
 

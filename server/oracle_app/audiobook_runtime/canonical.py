@@ -11,6 +11,7 @@ from oracle_app.music_runtime.control import (
     SatelliteControlTarget,
     execute_satellite_command,
     fetch_satellite_audiobook_session,
+    fetch_satellite_audiobook_context_session,
     fetch_satellite_music_session,
     fetch_satellite_playback_authority,
 )
@@ -145,6 +146,12 @@ class CanonicalAudiobookExecution:
 
     def fetch_satellite_audiobook_session(self, source: str | None) -> dict[str, Any] | None:
         return fetch_satellite_audiobook_session(source, control_target=self._control_target(source))
+
+    def fetch_satellite_audiobook_context_session(self, source: str | None) -> dict[str, Any] | None:
+        return fetch_satellite_audiobook_context_session(
+            source,
+            control_target=self._control_target(source),
+        )
 
     def fetch_playback_authority(self, source: str | None) -> dict[str, Any]:
         return fetch_satellite_playback_authority(source, control_target=self._control_target(source))

@@ -141,6 +141,16 @@ class UiBrowserSurfaceTests(unittest.TestCase):
         self.assertIn("calendar: 120", content)
         self.assertIn("weather: 300", content)
 
+    def test_passive_audio_surfaces_use_compact_runtime_status_with_progress(self) -> None:
+        satellite = (ROOT / "satellite_ui" / "app.js").read_text(encoding="utf-8")
+        house = (ROOT / "house_ui" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("/api/ui/audio/status?source=", satellite)
+        self.assertIn("positionSeconds: outputOwner.position_seconds", satellite)
+        self.assertIn("activePageHasFreshPlayback", satellite)
+        self.assertIn("/api/ui/audio/status", house)
+        self.assertIn("audioDisplay?.position_seconds", house)
+
     def test_satellite_ui_prioritizes_source_bound_routine_over_calendar_card(self) -> None:
         content = (ROOT / "satellite_ui" / "app.js").read_text(encoding="utf-8")
 
@@ -157,7 +167,7 @@ class UiBrowserSurfaceTests(unittest.TestCase):
         self.assertIn("} else if (hasRoomEnvironment", content)
 
         index = (ROOT / "satellite_ui" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("app.js?v=27", index)
+        self.assertIn("app.js?v=28", index)
 
     def test_browser_surface_paths_remain_repo_local(self) -> None:
         api_text = (ROOT / "server" / "oracle_app" / "api.py").read_text(encoding="utf-8")

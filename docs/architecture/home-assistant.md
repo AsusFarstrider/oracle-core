@@ -33,8 +33,13 @@ Execution lives in the dedicated Home Assistant handler.
 The handler is responsible for:
 
 - executing the `home_assistant` dispatch target
+- loading and committing the source/session-scoped Home Assistant conversation id
 - calling the Home Assistant conversation API
 - handling returned results for Oracle's dispatch flow
+
+The provider bridge accepts an optional provider conversation id and returns the
+provider's next id. It does not import or mutate Oracle conversation/session
+state.
 
 ## Integration Surfaces
 
@@ -68,7 +73,9 @@ Rules:
 
 The integration uses Home Assistant conversation-id continuity through Oracle conversation state.
 
-That conversation-id continuity is part of the handler flow rather than a separate integration layer.
+The Brain handler/domain owns that linkage under the effective interaction
+session. The provider bridge only translates the supplied and returned Home
+Assistant identities.
 
 For bounded same-session follow-up recovery, brain-side routing may also consult recent Oracle conversation history when a Home Assistant-dependent follow-up phrase is plausible but the strong active context is unexpectedly absent.
 

@@ -188,8 +188,6 @@ def build_dispatch_registry(
     inference_client: InferenceClient | None = None,
     household_settings: HouseholdRuntimeSettings | None = None,
     home_assistant_settings: HomeAssistantRuntimeSettings | None = None,
-    canonical_configuration: bool = False,
-    canonical_media_targets: bool = False,
     audiobook_execution: CanonicalAudiobookExecution | None = None,
     music_execution: CanonicalMusicExecution | None = None,
     facts_execution: CanonicalFactsExecution | None = None,
@@ -202,16 +200,13 @@ def build_dispatch_registry(
     registry.register(
         AudiobookHandler(
             household_settings,
-            canonical_playback_target=canonical_media_targets,
             canonical_execution=audiobook_execution,
-            canonical_authority=canonical_configuration,
         )
     )
     registry.register(
         FactsHandler(
             facts_execution,
             inference=inference_client,
-            canonical_authority=canonical_configuration,
         )
     )
     registry.register(
@@ -226,27 +221,24 @@ def build_dispatch_registry(
         HomeAssistantHandler(
             household_settings,
             home_assistant_settings,
-            canonical_authority=canonical_configuration,
         )
     )
     registry.register(
-        CalendarHandler(calendar_execution, canonical_authority=canonical_configuration)
+        CalendarHandler(calendar_execution)
     )
     registry.register(
         MusicHandler(
-            canonical_playback_target=canonical_media_targets,
             canonical_execution=music_execution,
             audiobook_execution=audiobook_execution,
             inference=inference_client,
-            canonical_authority=canonical_configuration,
         )
     )
     registry.register(
-        NetworkHandler(network_execution, canonical_authority=canonical_configuration)
+        NetworkHandler(network_execution)
     )
-    registry.register(NewsHandler(news_execution, canonical_authority=canonical_configuration))
+    registry.register(NewsHandler(news_execution))
     registry.register(
-        WeatherHandler(weather_execution, canonical_authority=canonical_configuration)
+        WeatherHandler(weather_execution)
     )
     return registry
 

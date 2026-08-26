@@ -6,12 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib import parse, request
 
-from .config import get_forecast_settings
 from .configuration.weather_runtime_settings import RemoteWeatherRuntimeSettings
 from .provider_bridges.nws_weather_forecast import (
     NwsWeatherForecastBridge,
     WeatherForecastBridgeError,
-    get_weather_forecast_bridge,
 )
 from .weather_current import build_current_weather_speech_from_details
 from .weather_forecast import ForecastOutOfRangeError, WEEKDAY_NAMES, format_forecast_summary
@@ -126,10 +124,8 @@ def _build_json_request(
     url: str,
     *,
     accept: str = "application/json",
-    user_agent: str | None = None,
+    user_agent: str,
 ) -> request.Request:
-    if user_agent is None:
-        user_agent = str(get_forecast_settings()["user_agent"])
     return request.Request(
         url,
         headers={
@@ -143,11 +139,9 @@ def _get_json(
     url: str,
     *,
     accept: str = "application/json",
-    user_agent: str | None = None,
-    timeout_seconds: int | None = None,
+    user_agent: str,
+    timeout_seconds: int,
 ) -> dict | list:
-    if timeout_seconds is None:
-        timeout_seconds = int(get_forecast_settings()["timeout_seconds"])
     req = _build_json_request(url, accept=accept, user_agent=user_agent)
     with request.urlopen(req, timeout=timeout_seconds) as response:
         return json.loads(response.read().decode("utf-8"))
@@ -334,8 +328,8 @@ def parse_remote_forecast_query(text: str) -> RemoteForecastQuery | None:
 def _resolve_remote_location(
     location_text: str,
     *,
-    user_agent: str | None = None,
-    timeout_seconds: int | None = None,
+    user_agent: str,
+    timeout_seconds: int,
 ) -> ResolvedRemoteLocation:
     stripped_location = " ".join(location_text.strip().split())
     if stripped_location.isalpha() and len(stripped_location) <= 3 and " " not in stripped_location:
@@ -405,8 +399,8 @@ def _get_point_payload(
     latitude: float,
     longitude: float,
     *,
-    user_agent: str | None = None,
-    timeout_seconds: int | None = None,
+    user_agent: str,
+    timeout_seconds: int,
 ) -> dict:
     payload = _get_json(
         f"https://api.weather.gov/points/{latitude:.4f},{longitude:.4f}",
@@ -422,8 +416,8 @@ def _fetch_station_observation(
     latitude: float,
     longitude: float,
     *,
-    user_agent: str | None = None,
-    timeout_seconds: int | None = None,
+    user_agent: str,
+    timeout_seconds: int,
 ) -> tuple[dict, dict]:
     point_payload = _get_point_payload(
         latitude,
@@ -467,23 +461,16 @@ def _fetch_remote_forecast(
     latitude: float,
     longitude: float,
     *,
-    runtime_settings: RemoteWeatherRuntimeSettings | None = None,
+    runtime_settings: RemoteWeatherRuntimeSettings,
 ) -> dict:
     try:
-        if runtime_settings is not None:
-            if not runtime_settings.enabled or runtime_settings.user_agent is None:
-                raise RemoteWeatherError("Remote weather is not configured")
-            return NwsWeatherForecastBridge().fetch_typed_forecast_for_coordinates(
-                latitude=latitude,
-                longitude=longitude,
-                user_agent=runtime_settings.user_agent,
-                timeout_seconds=runtime_settings.timeout_seconds or 8,
-            )
-        settings = get_forecast_settings()
-        return get_weather_forecast_bridge(settings).fetch_forecast_for_coordinates(
+        if not runtime_settings.enabled or runtime_settings.user_agent is None:
+            raise RemoteWeatherError("Remote weather is not configured")
+        return NwsWeatherForecastBridge().fetch_typed_forecast_for_coordinates(
             latitude=latitude,
             longitude=longitude,
-            settings=settings,
+            user_agent=runtime_settings.user_agent,
+            timeout_seconds=runtime_settings.timeout_seconds or 8,
         )
     except WeatherForecastBridgeError as exc:
         if exc.error_code == "forecast_location_out_of_range":
@@ -594,19 +581,16 @@ def _build_remote_details(
 def build_remote_current_weather_response(
     query_text: str,
     *,
-    runtime_settings: RemoteWeatherRuntimeSettings | None = None,
-    canonical_authority: bool = False,
+    runtime_settings: RemoteWeatherRuntimeSettings,
 ) -> tuple[str, dict]:
     parsed = parse_remote_current_weather_query(query_text)
     if parsed is None:
         raise RemoteWeatherLocationError("I couldn't tell which remote location you meant.")
 
-    if canonical_authority and (
-        runtime_settings is None or not runtime_settings.enabled or runtime_settings.user_agent is None
-    ):
+    if not runtime_settings.enabled or runtime_settings.user_agent is None:
         raise RemoteWeatherError("Remote weather is not configured")
-    user_agent = None if runtime_settings is None else runtime_settings.user_agent
-    timeout_seconds = None if runtime_settings is None else runtime_settings.timeout_seconds
+    user_agent = runtime_settings.user_agent
+    timeout_seconds = runtime_settings.timeout_seconds
     location = _resolve_remote_location(
         parsed.location_text,
         user_agent=user_agent,
@@ -640,8 +624,7 @@ def build_remote_current_weather_response(
 def build_remote_forecast_response(
     query_text: str,
     *,
-    runtime_settings: RemoteWeatherRuntimeSettings | None = None,
-    canonical_authority: bool = False,
+    runtime_settings: RemoteWeatherRuntimeSettings,
 ) -> tuple[str, dict]:
     parsed = parse_remote_forecast_query(query_text)
     if parsed is None:
@@ -649,14 +632,12 @@ def build_remote_forecast_response(
 
     from .weather_forecast import _select_forecast_periods
 
-    if canonical_authority and (
-        runtime_settings is None or not runtime_settings.enabled or runtime_settings.user_agent is None
-    ):
+    if not runtime_settings.enabled or runtime_settings.user_agent is None:
         raise RemoteWeatherError("Remote weather is not configured")
     location = _resolve_remote_location(
         parsed.location_text,
-        user_agent=None if runtime_settings is None else runtime_settings.user_agent,
-        timeout_seconds=None if runtime_settings is None else runtime_settings.timeout_seconds,
+        user_agent=runtime_settings.user_agent,
+        timeout_seconds=runtime_settings.timeout_seconds,
     )
     forecast = _fetch_remote_forecast(
         location.latitude,

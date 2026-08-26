@@ -1,46 +1,37 @@
 from __future__ import annotations
 
-from .capabilities import (
-    CapabilityRegistry,
-    AlertsCapability,
-    AudiobookCapability,
-    CalendarCapability,
-    FallbackOllamaCapability,
-    FactsCapability,
-    ForecastQueryCapability,
-    HistoricalWeatherCapability,
-    ImpliedHomeCapability,
-    KeywordHomeCapability,
-    MathAndConversionCapability,
-    MusicCapability,
-    NetworkCapability,
-    NewsCapability,
-    PendingAudiobookCapability,
-    PendingCalendarCapability,
-    PendingConfirmationCapability,
-    PendingHomeCapability,
-    PendingMusicCapability,
-    ProbableAudiobookTitleCapability,
-    SystemCommandCapability,
-    TimeDateQueryCapability,
+from .capabilities.fallback import FallbackOllamaCapability
+from .capabilities.household import ImpliedHomeCapability, KeywordHomeCapability
+from .capabilities.information import (
+    CalendarCapability, FactsCapability, ForecastQueryCapability,
+    HistoricalWeatherCapability, NetworkCapability, NewsCapability,
     WeatherQueryCapability,
+)
+from .capabilities.media import AudiobookCapability, MusicCapability, ProbableAudiobookTitleCapability
+from .capabilities.registry import CapabilityRegistry
+from .capabilities.session import (
+    PendingAudiobookCapability, PendingCalendarCapability,
+    PendingConfirmationCapability, PendingHomeCapability, PendingMusicCapability,
+)
+from .capabilities.system import (
+    AlertsCapability, MathAndConversionCapability, SystemCommandCapability,
+    TimeDateQueryCapability,
 )
 from .text_normalization import normalize_text
 from .configuration.household_runtime_settings import HouseholdRuntimeSettings
 from .configuration.information_runtime_settings import NewsRuntimeSettings
 from .configuration.calendar_runtime_settings import CalendarRuntimeSettings
 from .route_refinement import refine_route
+from .route_refinement import PlaybackRouteState
 from .schemas import RouteResponse
 
 
 def build_route_capability_registry(
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
     *,
     facts_enabled: bool = False,
     news_settings: NewsRuntimeSettings | None = None,
-    canonical_information: bool = False,
     calendar_settings: CalendarRuntimeSettings | None = None,
-    canonical_calendar: bool = False,
 ) -> CapabilityRegistry:
     registry = CapabilityRegistry()
     registry.register(SystemCommandCapability())
@@ -51,18 +42,17 @@ def build_route_capability_registry(
     registry.register(AlertsCapability())
     registry.register(AudiobookCapability())
     registry.register(
-        CalendarCapability(calendar_settings, canonical_authority=canonical_calendar)
+        CalendarCapability(calendar_settings)
     )
     registry.register(NetworkCapability())
     registry.register(
-        NewsCapability(news_settings, canonical_authority=canonical_information)
+        NewsCapability(news_settings)
     )
     registry.register(PendingAudiobookCapability())
     registry.register(
         PendingCalendarCapability(
             news_settings,
             calendar_settings,
-            canonical_authority=canonical_information,
         )
     )
     registry.register(PendingMusicCapability())
@@ -84,7 +74,8 @@ def choose_route(
     source: str | None = None,
     session_id: str | None = None,
     registry: CapabilityRegistry,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
+    playback_state: PlaybackRouteState | None = None,
 ) -> RouteResponse:
     normalized = normalize_text(text)
     route = registry.evaluate(
@@ -98,4 +89,5 @@ def choose_route(
         source=source,
         session_id=session_id,
         household_settings=household_settings,
+        playback_state=playback_state,
     )

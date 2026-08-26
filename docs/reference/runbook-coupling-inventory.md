@@ -40,12 +40,13 @@ Slice 2 removes its direct Memory storage calls. Routine lifecycle reads and
 writes now go through `RunbookRepository`; interpretation and domain adapter
 execution remain in the routine module.
 
-The routine scheduler calls `resume_due_routines` directly. API startup calls
-the scheduler and the shared interruption reconciler.
+The routine scheduler calls `resume_due_routines` directly. The application
+runtime lifespan calls the scheduler and the shared interruption reconciler.
 
-`server/oracle_app/api.py` owns concrete adapters for UI actions, audiobook
+`server/oracle_app/application_ui.py` owns concrete adapters for UI actions, audiobook
 start, sleep timers, Home Assistant state checks, and playback checks, then
-registers them with `configure_routine_adapters`.
+`api.py` installs them with `configure_routine_adapters` during visible route
+assembly.
 
 ## Network Recovery Coupling
 

@@ -109,7 +109,7 @@ class ConversationTests(unittest.TestCase):
         self.assertIsNone(get_conversation(source, session_id))
         self.assertIsNone(get_home_assistant_conversation_id(source, session_id))
 
-    @patch("oracle_app.handlers.home_assistant.request.urlopen")
+    @patch("oracle_app.provider_bridges.home_assistant.request.urlopen")
     def test_home_assistant_conversation_id_is_scoped_by_session(self, mock_urlopen) -> None:
         set_home_assistant_conversation_id("source-a", "session-a", "ha-a")
         set_home_assistant_conversation_id("source-b", "session-b", "ha-b")
@@ -148,7 +148,7 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(get_home_assistant_conversation_id("source-a", "shared"), "ha-a")
         self.assertEqual(get_home_assistant_conversation_id("source-b", "shared"), "ha-b")
 
-    @patch("oracle_app.handlers.home_assistant.request.urlopen")
+    @patch("oracle_app.provider_bridges.home_assistant.request.urlopen")
     def test_home_assistant_without_session_does_not_persist_conversation_id(self, mock_urlopen) -> None:
         captured_request: dict[str, object] = {}
 
@@ -175,7 +175,7 @@ class ConversationTests(unittest.TestCase):
         self.assertNotIn("conversation_id", captured_request["body"])
         self.assertIsNone(get_home_assistant_conversation_id(None, None))
 
-    @patch("oracle_app.handlers.home_assistant.request.urlopen")
+    @patch("oracle_app.provider_bridges.home_assistant.request.urlopen")
     def test_home_assistant_reuses_and_updates_conversation_id(self, mock_urlopen) -> None:
         source = "test_satellite_bravo"
         session_id = "session-2"

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 import oracle_app.alerts as alerts_module
 from oracle_app.alerts import create_alert_batch, list_due_alerts
 from oracle_app.memory.alerts import list_alert_records
-from oracle_app.config import get_notification_settings
+from oracle_app.memory.schema import ensure_schema
+from oracle_app.memory.store import DB_PATH, transaction
 from oracle_app.notifications.receipts import (
     NotificationDeliveryQuery,
     list_notification_deliveries,
@@ -16,6 +18,58 @@ from oracle_app.notifications.receipts import (
 
 from ..audit import record_notification_event
 from ..policy import SuppressionStatus, evaluate_notification_suppression
+
+
+def satellite_alert_claim_needs_work(
+    source_id: str,
+    *,
+    now: datetime,
+    db_path: Path | None = None,
+) -> bool:
+    """Return whether a satellite claim needs the durable delivery path.
+
+    Authentication remains at the route. This preflight only avoids repeated
+    reconciliation and claim scans when there is no eligible alert work and no
+    recoverable satellite receipt. Active notification alerts are always work
+    because they may need crash repair before they become due.
+    """
+
+    clean_source = str(source_id or "").strip()
+    if not clean_source:
+        raise ValueError("source_id is required")
+    if now.tzinfo is None:
+        raise ValueError("now must include a timezone")
+    clock = now.astimezone(timezone.utc).isoformat()
+    path = db_path or DB_PATH
+    ensure_schema(path)
+    with transaction(path) as conn:
+        source = conn.execute(
+            "SELECT status FROM memory_sources WHERE source_id=?", (clean_source,)
+        ).fetchone()
+        if source is None or str(source["status"]) != "active":
+            raise ValueError(
+                f"Alert source {clean_source!r} is not an active canonical identity."
+            )
+        alert_work = conn.execute(
+            """SELECT 1 FROM memory_alerts
+               WHERE source_id=? AND kind!='sleep_timer' AND (
+                   (kind='notification' AND status IN ('pending', 'leased'))
+                   OR (status='pending' AND due_at<=?)
+                   OR (status='leased' AND lease_expires_at<=?)
+               )
+               LIMIT 1""",
+            (clean_source, clock, clock),
+        ).fetchone()
+        if alert_work is not None:
+            return True
+        receipt_work = conn.execute(
+            """SELECT 1 FROM memory_notification_deliveries
+               WHERE channel='satellite_announcement' AND destination_id=?
+                 AND status IN ('pending', 'retry_wait')
+               LIMIT 1""",
+            (clean_source,),
+        ).fetchone()
+    return receipt_work is not None
 
 
 def dispatch_satellite_announcement(
@@ -214,16 +268,14 @@ def build_satellite_delivery_decisions(
     source: str | None,
     *,
     now: datetime,
-    settings: dict[str, Any] | None = None,
-    suppression_evaluator: Callable[..., SuppressionStatus] | None = None,
+    settings: dict[str, Any],
+    suppression_evaluator: Callable[..., SuppressionStatus],
 ) -> dict[str, str]:
     due = list_due_alerts(source, kind="notification")
     if not due:
         return {}
 
-    resolved_settings = settings or get_notification_settings()
-    resolved_suppression_evaluator = suppression_evaluator or evaluate_notification_suppression
-    definitions = resolved_settings.get("notifications") or {}
+    definitions = settings.get("notifications") or {}
     status_by_notification: dict[str, SuppressionStatus] = {}
     decisions: dict[str, str] = {}
     for alert in due:
@@ -245,9 +297,9 @@ def build_satellite_delivery_decisions(
             decisions[alert.alert_id] = "suppress"
             continue
         if notification_type not in status_by_notification:
-            status_by_notification[notification_type] = resolved_suppression_evaluator(
+            status_by_notification[notification_type] = suppression_evaluator(
                 definition,
-                settings=resolved_settings,
+                settings=settings,
             )
         suppression = status_by_notification[notification_type]
         if suppression == "active":

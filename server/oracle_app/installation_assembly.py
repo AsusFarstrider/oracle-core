@@ -24,10 +24,10 @@ from .installation import (
     select_activation,
 )
 from .installation_identity import environment_directory_name
-from .configuration.projections import (
+from .configuration.projections import generate_satellite_projection
+from .configuration.runtime_compatibility_store import (
     AcceptedSatelliteRuntimeCompatibility,
     SatelliteRuntimeCompatibilityStore,
-    generate_satellite_projection,
 )
 
 

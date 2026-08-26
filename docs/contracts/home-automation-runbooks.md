@@ -45,7 +45,10 @@ ordinal, preserving notification idempotency across scheduler replay.
 
 The controller currently uses compatibility storage `kind=routine` with
 `definition_domain=home_automation`. The composite scheduler excludes that
-domain; only the home-automation scheduler resumes these runs.
+domain; only the home-automation scheduler resumes these runs. The scheduler is
+dormant when no automation is enabled and no durable waiting run exists. A
+waiting run still starts it even after configuration changes, preserving the
+restart and bounded-failure behavior above.
 
 `notification_delivery_enabled` is an explicit fail-closed gate. When false,
 the controller records a `notification_simulation` operation with the stable

@@ -5,7 +5,6 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
-from .config import get_facts_settings
 from .inference import InferenceClient
 from .schemas import FactsProviderResult
 from .information_runtime import CanonicalFactsExecution
@@ -19,13 +18,12 @@ def admin_facts_lookup(
     summarize: bool | None = None,
     *,
     canonical_execution: CanonicalFactsExecution | None = None,
-    canonical_authority: bool = False,
 ) -> dict[str, object]:
     normalized_query = str(query or "").strip()
     if not normalized_query:
         raise HTTPException(status_code=400, detail="query cannot be empty")
 
-    from .facts import build_facts_request, facts_result_to_dispatch_payload, lookup_facts
+    from .facts import build_facts_request, facts_result_to_dispatch_payload
 
     request = build_facts_request(
         query=normalized_query,
@@ -36,15 +34,11 @@ def admin_facts_lookup(
     if canonical_execution is not None:
         result = canonical_execution.lookup(request)
         configured = canonical_execution.settings.summarizer_enabled
-    elif canonical_authority:
+    else:
         from .handlers.facts import _disabled_result
 
         result = _disabled_result(normalized_query)
         configured = False
-    else:
-        settings = get_facts_settings()
-        result = lookup_facts(request, settings=settings)
-        configured = bool(settings.get("summarizer_enabled", False))
     summary, summarizer = _run_admin_summarizer(
         result,
         summarizer_configured=configured,
@@ -164,5 +158,4 @@ def admin_facts_lookup_http(
         query,
         summarize,
         canonical_execution=composition.facts_execution,
-        canonical_authority=True,
     )

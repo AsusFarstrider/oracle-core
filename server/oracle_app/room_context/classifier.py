@@ -16,7 +16,7 @@ _DEICTIC_PATTERNS = (
 def _has_explicit_room_or_entity(
     text: str,
     *,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> bool:
     normalized = f" {text.strip().lower()} "
     if extract_room_phrase(text, household_settings=household_settings):
@@ -45,7 +45,7 @@ def _contains_deictic_room(text: str) -> bool:
 def classify_room_sensitive_home_command(
     text: str,
     *,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str | None:
     normalized = " ".join(str(text).strip().lower().split())
     if not normalized:

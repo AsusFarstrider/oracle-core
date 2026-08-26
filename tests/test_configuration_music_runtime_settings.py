@@ -89,14 +89,6 @@ class MusicRuntimeSettingsTests(unittest.TestCase):
                 "oracle_app.music_runtime.canonical.fetch_satellite_playback_authority",
                 return_value={"sessions": [], "active_sessions": []},
             ) as authority,
-            patch(
-                "oracle_app.provider_bridges.plex_music.get_music_settings",
-                side_effect=AssertionError("canonical music used V1 settings"),
-            ),
-            patch(
-                "oracle_app.music_runtime.control.get_satellite_control_target",
-                side_effect=AssertionError("canonical music used a V1 control target"),
-            ),
         ):
             self.assertEqual(execution.search(intent), [{"title": "Test Song"}])
             self.assertEqual(execution.backend_hint("living_room_voice"), "oracle_native_music")

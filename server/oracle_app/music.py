@@ -3,11 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 from .music_runtime.canonical import CanonicalMusicExecution
-from .music_runtime.client import (
-    fetch_xml as _fetch_xml_via_client,
-    search_plex as _search_plex_via_client,
-    search_track_from_album_fallback as _search_track_from_album_fallback_via_client,
-)
 from .music_runtime.matching import (
     choose_music_match,
     dedupe_music_candidates,
@@ -55,21 +50,3 @@ def check_music_health(
         "configured_satellites": [] if music_execution is None else sorted(music_execution.settings.playback_targets),
         "detail": "Music routing configured" if configured else "Music is disabled in canonical configuration",
     }
-
-
-def search_music_catalog(intent: MusicIntent) -> list[dict[str, Any]]:
-    return dedupe_music_candidates(
-        _search_plex_via_client(intent),
-        preserve_album_variants=bool(intent.album),
-    )
-
-
-def search_plex(intent: MusicIntent) -> list[dict[str, Any]]:
-    return search_music_catalog(intent)
-
-
-def _search_track_from_album_fallback(intent: MusicIntent, settings: dict[str, Any]) -> list[dict[str, Any]]:
-    return _search_track_from_album_fallback_via_client(intent, settings)
-
-def _fetch_xml(endpoint: str, settings: dict[str, Any]) -> str:
-    return _fetch_xml_via_client(endpoint, settings)

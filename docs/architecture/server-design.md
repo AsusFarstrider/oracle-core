@@ -17,9 +17,18 @@ The core server package lives under `server/oracle_app/`.
 
 Current top-level structure:
 
-- `api.py`: FastAPI routes and app surface
+- `api.py`: visible middleware and semantic route-family assembly
+- `application_runtime.py`: FastAPI construction, lifespan/startup ordering,
+  cache lifecycle, capability-owned background-worker activation, and the one
+  installed application composition
+- `application_command.py`: command, request identity, session, and Memory
+  orchestration
+- `application_speech.py`: composition-backed STT/TTS execution and transcript
+  observation
+- `application_ui.py`: composition-backed UI snapshots/actions and routine
+  adapters
+- `application_playback.py`: authenticated deferred-playback execution adapter
 - `schemas.py`: request and response models
-- `command_processing.py`: command-path orchestration helpers
 - `routing.py`: route selection entrypoint
 - `route_refinement.py`: post-route refinement helpers
 - `dispatch.py`: dispatch-plan construction and dispatch execution entrypoints

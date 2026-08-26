@@ -8,7 +8,6 @@ from fastapi import HTTPException
 
 from oracle_app import audiobook_state, state
 from oracle_app.audiobook_runtime.canonical import CanonicalAudiobookExecution
-from oracle_app.config import get_satellite_music_backend_hint
 from oracle_app.inference import InferenceClient
 from oracle_app.music_runtime.policy import (
     apply_ultra_generic_single_word_music_guard as apply_ultra_generic_single_word_music_guard_runtime,
@@ -34,18 +33,9 @@ from oracle_app.music_runtime.policy import (
 from oracle_app.music_runtime.pending import build_clarification_prompt as build_music_clarification_prompt
 from oracle_app.music_runtime.transport import (
     execute_transport as execute_music_transport,
-    maybe_transport_longform as maybe_music_transport_longform,
-    maybe_transport_reply_audio as maybe_music_transport_reply_audio,
-    should_send_music_transport as should_send_music_transport_runtime,
 )
-from oracle_app.music import search_music_catalog
 from oracle_app.music_runtime.control import (
     build_control_plane_failure,
-    fetch_satellite_audiobook_session,
-    fetch_satellite_music_session,
-    fetch_satellite_reply_audio_session,
-    execute_satellite_command,
-    fetch_satellite_playback_authority,
 )
 from oracle_app.music_runtime.matching import (
     choose_music_match,
@@ -59,7 +49,6 @@ from oracle_app.music_runtime.ollama import (
     parse_ollama_decision,
 )
 from oracle_app.music_runtime.parsing import parse_music_intent
-from oracle_app.music_runtime.client import build_native_queue_manifest
 from oracle_app.music_runtime.canonical import CanonicalMusicExecution
 from oracle_app.music_runtime.playback import build_music_play_media_args, music_playback_selection
 from oracle_app.music_runtime.pending import (
@@ -101,13 +90,11 @@ Rules:
 def execute_music(
     dispatch: DispatchPlan,
     *,
-    canonical_playback_target: bool = False,
     canonical_execution: CanonicalMusicExecution | None = None,
     audiobook_execution: CanonicalAudiobookExecution | None = None,
     inference: InferenceClient | None = None,
-    canonical_authority: bool = False,
 ) -> DispatchPlan:
-    if canonical_authority and canonical_execution is None:
+    if canonical_execution is None:
         dispatch.status = "failed"
         dispatch.result = {
             "action": "music_failed",
@@ -115,13 +102,10 @@ def execute_music(
             "detail": "Music is not enabled in the selected canonical configuration.",
         }
         return dispatch
-    search = search_music_catalog if canonical_execution is None else canonical_execution.search
+    search = canonical_execution.search
     payload = dispatch.payload
     try:
-        execution = MediaExecutionContext.from_dispatch(
-            dispatch,
-            canonical_playback_target=canonical_playback_target,
-        )
+        execution = MediaExecutionContext.from_dispatch(dispatch)
     except MediaExecutionContextError as exc:
         return fail_media_execution_context(dispatch, exc)
     request_source = execution.request_source_id
@@ -139,7 +123,7 @@ def execute_music(
         if route_target == "audiobook":
             from oracle_app.handlers.audiobook import play_selected_dispatch
 
-            if canonical_authority and audiobook_execution is None:
+            if audiobook_execution is None:
                 dispatch.status = "failed"
                 dispatch.result = {
                     "action": "play",
@@ -182,8 +166,7 @@ def execute_music(
             if defer_audible_start:
                 command_result = {"ok": True, "state": "deferred"}
             else:
-                command = execute_satellite_command if canonical_execution is None else canonical_execution.execute_satellite_command
-                command_result = command(
+                command_result = canonical_execution.execute_satellite_command(
                     playback_source,
                     "play_media",
                     play_media_args,
@@ -312,9 +295,7 @@ def execute_music(
         intent=intent,
         decision=decision,
         selected=selected,
-        canonical_playback_target=canonical_playback_target,
         audiobook_execution=audiobook_execution,
-        canonical_authority=canonical_authority,
     )
     if audiobook_fallback is not None:
         log_fallback_event(
@@ -367,9 +348,7 @@ def execute_music(
         intent=intent,
         decision=decision,
         selected=selected,
-        canonical_playback_target=canonical_playback_target,
         audiobook_execution=audiobook_execution,
-        canonical_authority=canonical_authority,
     )
     if audiobook_fallback is not None:
         log_fallback_event(
@@ -386,9 +365,7 @@ def execute_music(
         intent=intent,
         decision=decision,
         selected=selected,
-        canonical_playback_target=canonical_playback_target,
         audiobook_execution=audiobook_execution,
-        canonical_authority=canonical_authority,
     )
     if audiobook_preference is not None:
         log_fallback_event(
@@ -409,7 +386,6 @@ def execute_music(
             session_id=session_id,
             music_candidates=scored[:5],
             audiobook_execution=audiobook_execution,
-            canonical_authority=canonical_authority,
             inference=inference,
         )
         if ollama_guess is not None:
@@ -499,8 +475,7 @@ def execute_music(
         if defer_audible_start:
             command_result = {"ok": True, "state": "deferred"}
         else:
-            command = execute_satellite_command if canonical_execution is None else canonical_execution.execute_satellite_command
-            command_result = command(
+            command_result = canonical_execution.execute_satellite_command(
                 playback_source,
                 "play_media",
                 play_media_args,
@@ -541,7 +516,7 @@ def _lookup_track_album(
     dispatch: DispatchPlan,
     *,
     intent,
-    search_music=search_music_catalog,
+    search_music,
     inference: InferenceClient | None = None,
 ) -> DispatchPlan:
     try:
@@ -634,23 +609,18 @@ def _execute_transport(
     action: str,
     args: dict[str, Any] | None = None,
     normalized_text: str = "",
-    canonical_execution: CanonicalMusicExecution | None = None,
+    canonical_execution: CanonicalMusicExecution,
 ) -> DispatchPlan:
-    command = execute_satellite_command if canonical_execution is None else canonical_execution.execute_satellite_command
-    authority = fetch_satellite_playback_authority if canonical_execution is None else canonical_execution.fetch_playback_authority
-    music_session = fetch_satellite_music_session if canonical_execution is None else canonical_execution.fetch_satellite_music_session
-    audiobook_session = fetch_satellite_audiobook_session if canonical_execution is None else canonical_execution.fetch_satellite_audiobook_session
-    reply_session = fetch_satellite_reply_audio_session if canonical_execution is None else canonical_execution.fetch_satellite_reply_audio_session
     status, result = execute_music_transport(
         source=source,
         action=action,
         args=args,
         normalized_text=normalized_text,
-        execute_satellite_command=command,
-        fetch_satellite_playback_authority=authority,
-        fetch_satellite_music_session=music_session,
-        fetch_satellite_audiobook_session=audiobook_session,
-        fetch_satellite_reply_audio_session=reply_session,
+        execute_satellite_command=canonical_execution.execute_satellite_command,
+        fetch_satellite_playback_authority=canonical_execution.fetch_playback_authority,
+        fetch_satellite_music_session=canonical_execution.fetch_satellite_music_session,
+        fetch_satellite_audiobook_session=canonical_execution.fetch_satellite_audiobook_session,
+        fetch_satellite_reply_audio_session=canonical_execution.fetch_satellite_reply_audio_session,
     )
     dispatch.status = status
     dispatch.result = result
@@ -663,9 +633,7 @@ def _try_audiobook_fallback(
     intent,
     decision: str,
     selected: list[dict[str, Any]],
-    canonical_playback_target: bool = False,
     audiobook_execution: CanonicalAudiobookExecution | None = None,
-    canonical_authority: bool = False,
 ) -> DispatchPlan | None:
     from oracle_app.handlers.audiobook import execute_audiobook
     return try_audiobook_fallback_runtime(
@@ -675,9 +643,7 @@ def _try_audiobook_fallback(
         selected=selected,
         execute_audiobook=lambda next_dispatch: execute_audiobook(
             next_dispatch,
-            canonical_playback_target=canonical_playback_target,
             canonical_execution=audiobook_execution,
-            canonical_authority=canonical_authority,
         ),
     )
 
@@ -691,7 +657,6 @@ def _try_ollama_best_guess(
     session_id: str | None,
     music_candidates: list[dict[str, Any]],
     audiobook_execution: CanonicalAudiobookExecution | None = None,
-    canonical_authority: bool = False,
     inference: InferenceClient | None = None,
 ) -> DispatchPlan | None:
     return try_ollama_best_guess_runtime(
@@ -704,7 +669,6 @@ def _try_ollama_best_guess(
         load_audiobook_guess_candidates=lambda title: _load_audiobook_guess_candidates(
             title,
             audiobook_execution=audiobook_execution,
-            canonical_authority=canonical_authority,
         ),
         choose_best_guess_with_ollama=lambda text, candidates: choose_best_guess_with_ollama(
             text,
@@ -721,9 +685,7 @@ def _try_prefer_strong_audiobook_match(
     intent,
     decision: str,
     selected: list[dict[str, Any]],
-    canonical_playback_target: bool = False,
     audiobook_execution: CanonicalAudiobookExecution | None = None,
-    canonical_authority: bool = False,
 ) -> DispatchPlan | None:
     from oracle_app.handlers.audiobook import execute_audiobook
 
@@ -735,13 +697,10 @@ def _try_prefer_strong_audiobook_match(
         load_audiobook_guess_candidates=lambda title: _load_audiobook_guess_candidates(
             title,
             audiobook_execution=audiobook_execution,
-            canonical_authority=canonical_authority,
         ),
         execute_audiobook=lambda next_dispatch: execute_audiobook(
             next_dispatch,
-            canonical_playback_target=canonical_playback_target,
             canonical_execution=audiobook_execution,
-            canonical_authority=canonical_authority,
         ),
     )
 
@@ -795,13 +754,11 @@ def _load_audiobook_guess_candidates(
     title: str,
     *,
     audiobook_execution: CanonicalAudiobookExecution | None = None,
-    canonical_authority: bool = False,
 ) -> list[dict[str, Any]]:
-    from oracle_app.audiobook import score_audiobook_candidates, search_audiobooks
-    if canonical_authority and audiobook_execution is None:
+    from oracle_app.audiobook import score_audiobook_candidates
+    if audiobook_execution is None:
         return []
-    search = search_audiobooks if audiobook_execution is None else audiobook_execution.search_audiobooks
-    return load_audiobook_guess_candidates_for_music(title, search, score_audiobook_candidates)
+    return load_audiobook_guess_candidates_for_music(title, audiobook_execution.search_audiobooks, score_audiobook_candidates)
 
 
 def _build_best_guess_candidates(
@@ -849,48 +806,6 @@ def _music_intents_equivalent(left, right) -> bool:
     return music_intents_equivalent_runtime(left, right)
 
 
-def _should_send_music_transport(*, source: str | None, action: str, bare_transport: bool) -> bool:
-    return should_send_music_transport_runtime(
-        action=action,
-        bare_transport=bare_transport,
-        authority_state=None,
-        fetch_satellite_music_session=fetch_satellite_music_session,
-        source=source,
-    )
-
-
-def _maybe_transport_longform(
-    *,
-    source: str | None,
-    action: str,
-    normalized_text: str,
-) -> dict[str, Any] | None:
-    return maybe_music_transport_longform(
-        source=source,
-        action=action,
-        normalized_text=normalized_text,
-        authority_state=None,
-        execute_satellite_command=execute_satellite_command,
-        fetch_satellite_audiobook_session=fetch_satellite_audiobook_session,
-    )
-
-
-def _maybe_transport_reply_audio(
-    *,
-    source: str | None,
-    action: str,
-    normalized_text: str,
-) -> dict[str, Any] | None:
-    return maybe_music_transport_reply_audio(
-        source=source,
-        action=action,
-        normalized_text=normalized_text,
-        authority_state=None,
-        execute_satellite_command=execute_satellite_command,
-        fetch_satellite_reply_audio_session=fetch_satellite_reply_audio_session,
-    )
-
-
 def _build_clarification_prompt(options: list[dict[str, Any]]) -> str:
     return build_music_clarification_prompt(options)
 
@@ -900,7 +815,7 @@ def _try_explicit_artist_album_fallback(
     decision: str,
     selected: list[dict[str, Any]],
     *,
-    search_music=search_music_catalog,
+    search_music,
 ):
     if getattr(intent, "intent", None) != "play":
         return None
@@ -1027,14 +942,9 @@ def _refresh_playback_ack(
 def _fetch_music_now_playing(
     source: str | None,
     *,
-    canonical_execution: CanonicalMusicExecution | None = None,
+    canonical_execution: CanonicalMusicExecution,
 ) -> dict[str, Any]:
-    fetch_session = (
-        fetch_satellite_music_session
-        if canonical_execution is None
-        else canonical_execution.fetch_satellite_music_session
-    )
-    session = fetch_session(source)
+    session = canonical_execution.fetch_satellite_music_session(source)
     if not isinstance(session, dict):
         return {"ok": True, "playing": False, "state": "stopped"}
     return {
@@ -1052,39 +962,26 @@ def _build_play_media_args(
     source: str | None,
     selection: dict[str, Any],
     *,
-    canonical_execution: CanonicalMusicExecution | None = None,
+    canonical_execution: CanonicalMusicExecution,
 ) -> dict[str, Any]:
     return build_music_play_media_args(
         source,
         selection,
-        get_backend_hint=(
-            get_satellite_music_backend_hint
-            if canonical_execution is None
-            else canonical_execution.backend_hint
-        ),
-        build_manifest=(
-            build_native_queue_manifest
-            if canonical_execution is None
-            else canonical_execution.build_native_queue_manifest
-        ),
+        get_backend_hint=canonical_execution.backend_hint,
+        build_manifest=canonical_execution.build_native_queue_manifest,
     )
 
 
 def _interrupt_active_audiobook_for_music(
     source: str | None,
     *,
-    canonical_execution: CanonicalMusicExecution | None = None,
+    canonical_execution: CanonicalMusicExecution,
     audiobook_execution: CanonicalAudiobookExecution | None = None,
 ) -> dict[str, Any] | None:
     if not source:
         return None
     try:
-        fetch_session = (
-            fetch_satellite_audiobook_session
-            if canonical_execution is None
-            else canonical_execution.fetch_satellite_audiobook_session
-        )
-        authority_session = fetch_session(source)
+        authority_session = canonical_execution.fetch_satellite_audiobook_session(source)
     except HTTPException:
         return None
     except RuntimeError as exc:
@@ -1099,10 +996,9 @@ def _interrupt_active_audiobook_for_music(
     authority_state = str((authority_session or {}).get("state", "")).strip().lower()
     if authority_state not in {"playing", "starting", "buffering", "stopping"}:
         return None
-    if active is None or (canonical_execution is not None and audiobook_execution is None):
+    if active is None or audiobook_execution is None:
         try:
-            command = execute_satellite_command if canonical_execution is None else canonical_execution.execute_satellite_command
-            pause_result = command(source, "pause_longform_audio", None)
+            pause_result = canonical_execution.execute_satellite_command(source, "pause_longform_audio", None)
         except RuntimeError as exc:
             return build_control_plane_failure(
                 action="pause",
@@ -1119,12 +1015,8 @@ def _interrupt_active_audiobook_for_music(
             "audiobook": authority_session,
         }
     if active is not None:
-        from oracle_app.audiobook import close_audiobook_session, sync_audiobook_session
         from oracle_app.audiobook_runtime.playback import sync_then_control as sync_then_control_audiobook
 
-        command = execute_satellite_command if canonical_execution is None else canonical_execution.execute_satellite_command
-        close_session = close_audiobook_session if audiobook_execution is None else audiobook_execution.close_session
-        sync_session = sync_audiobook_session if audiobook_execution is None else audiobook_execution.sync_session
         status, result = sync_then_control_audiobook(
             source=source,
             action="pause_longform_audio",
@@ -1132,9 +1024,9 @@ def _interrupt_active_audiobook_for_music(
             require_sync_success=False,
             defer_sync=True,
             get_active_playback_for_source=audiobook_state.get_active_audiobook_playback_for_source,
-            execute_satellite_command=command,
-            close_audiobook_session=close_session,
-            sync_audiobook_session=sync_session,
+            execute_satellite_command=canonical_execution.execute_satellite_command,
+            close_audiobook_session=audiobook_execution.close_session,
+            sync_audiobook_session=audiobook_execution.sync_session,
             clear_active_playback=audiobook_state.clear_active_audiobook_playback,
         )
         merged = {"status": status, **result}
@@ -1199,24 +1091,18 @@ class MusicHandler:
     def __init__(
         self,
         *,
-        canonical_playback_target: bool = False,
         canonical_execution: CanonicalMusicExecution | None = None,
         audiobook_execution: CanonicalAudiobookExecution | None = None,
         inference: InferenceClient | None = None,
-        canonical_authority: bool = False,
     ) -> None:
-        self.canonical_playback_target = canonical_playback_target
         self.canonical_execution = canonical_execution
         self.audiobook_execution = audiobook_execution
         self.inference = inference
-        self.canonical_authority = canonical_authority
 
     def handle(self, dispatch: DispatchPlan, registry: Any) -> DispatchPlan:
         return execute_music(
             dispatch,
-            canonical_playback_target=self.canonical_playback_target,
             canonical_execution=self.canonical_execution,
             audiobook_execution=self.audiobook_execution,
             inference=self.inference,
-            canonical_authority=self.canonical_authority,
         )

@@ -59,10 +59,13 @@ The read path remains brain-owned and deterministic.
 The current read implementation is split across:
 
 - `server/oracle_app/calendar.py`
+- `server/oracle_app/calendar_runtime/canonical.py`
 - `server/oracle_app/provider_bridges/nextcloud_calendar.py`
 - `server/oracle_app/handlers/calendar.py`
 
-`server/oracle_app/calendar.py` contains core calendar query support.
+`server/oracle_app/calendar.py` contains core calendar query support, while
+`server/oracle_app/calendar_runtime/canonical.py` owns the applied read cache
+and invalidates its event entries after a successful canonical write.
 
 `server/oracle_app/provider_bridges/nextcloud_calendar.py` contains the active calendar provider bridge and owns Nextcloud-specific fetch, auth, parse, and write mechanics.
 
@@ -278,6 +281,7 @@ The calendar domain continues to own:
 - query parsing
 - event matching
 - clarification and confirmation flow
+- read-cache invalidation after a successful write
 - spoken response shaping
 
 The bridge owns:

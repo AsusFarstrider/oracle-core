@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import ANY, Mock, patch
 
 from oracle_app.alert_scheduler import process_due_audiobook_sleep_timers
-from oracle_app.api import _apply_canonical_alert_target
+from oracle_app.application_command import _apply_canonical_alert_target
 from oracle_app.brain_application_composition import CanonicalBrainApplicationComposition
 from oracle_app.configuration.request_source_resolution import ResolvedRequestSource
 from oracle_app.memory.alerts import AlertRecord
@@ -31,7 +31,7 @@ class _Fleet:
 
 
 class Stage5Slice7AlertDeliveryTests(unittest.TestCase):
-    @patch("oracle_app.api.brain_application_composition")
+    @patch("oracle_app.application_command.brain_application_composition")
     def test_alert_target_authority_rejects_ephemeral_and_validates_explicit_target(
         self, composition
     ) -> None:
@@ -70,7 +70,7 @@ class Stage5Slice7AlertDeliveryTests(unittest.TestCase):
         )
         self.assertEqual(error, "invalid_alert_delivery_target")
 
-    @patch("oracle_app.api.brain_application_composition")
+    @patch("oracle_app.application_command.brain_application_composition")
     def test_authenticated_satellite_defaults_alert_target_to_itself(self, composition) -> None:
         composition.return_value.runtime.satellites = _Fleet()
         payload = CommandRequest(text="set an alarm for 6 am", source="satellite-source")
@@ -86,7 +86,7 @@ class Stage5Slice7AlertDeliveryTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(resolved.alert_delivery_target_source_id, "satellite-source")
 
-    @patch("oracle_app.api.brain_application_composition")
+    @patch("oracle_app.application_command.brain_application_composition")
     def test_ephemeral_audiobook_sleep_timer_is_rejected_even_with_explicit_playback_target(
         self, composition
     ) -> None:
@@ -105,10 +105,11 @@ class Stage5Slice7AlertDeliveryTests(unittest.TestCase):
         )
         self.assertEqual(error, "ephemeral_alert_creation_forbidden")
 
+    @patch("oracle_app.satellite_alert_routes.satellite_alert_claim_needs_work", return_value=True)
     @patch("oracle_app.satellite_alert_routes.reconcile_satellite_receipts")
     @patch("oracle_app.satellite_alert_routes.claim_due_alerts", return_value=[])
     def test_claim_derives_source_from_bearer_credential(
-        self, claim_due, reconcile
+        self, claim_due, reconcile, needs_work
     ) -> None:
         resolver = Mock()
         resolver.resolve.return_value = ResolvedRequestSource(
@@ -136,10 +137,32 @@ class Stage5Slice7AlertDeliveryTests(unittest.TestCase):
         )
         self.assertEqual(response.alerts, [])
         self.assertEqual(claim_due.call_args.kwargs["source_id"], "satellite-source")
+        self.assertEqual(needs_work.call_args.args, ("satellite-source",))
         resolver.resolve.assert_called_once_with(
             claimed_source_id="claimed-value", credential="secret", peer_address="192.0.2.4"
         )
         reconcile.assert_called_once_with("satellite-source")
+
+    @patch("oracle_app.satellite_alert_routes.ensure_active_satellite_receipts")
+    @patch("oracle_app.satellite_alert_routes.reconcile_satellite_receipts")
+    @patch("oracle_app.satellite_alert_routes.claim_due_alerts")
+    @patch("oracle_app.satellite_alert_routes.satellite_alert_claim_needs_work", return_value=False)
+    @patch("oracle_app.satellite_alert_routes._authenticated_alert_source")
+    def test_empty_claim_authenticates_then_skips_durable_delivery_passes(
+        self, authenticated, needs_work, claim_due, reconcile, ensure_receipts
+    ) -> None:
+        authenticated.return_value = (object(), "satellite-source")
+
+        response = satellite_alert_claim(
+            SatelliteAlertClaimRequest(source_id="claimed-value"), SimpleNamespace()
+        )
+
+        self.assertEqual(response.alerts, [])
+        authenticated.assert_called_once()
+        self.assertEqual(needs_work.call_args.args, ("satellite-source",))
+        ensure_receipts.assert_not_called()
+        claim_due.assert_not_called()
+        reconcile.assert_not_called()
 
     @patch("oracle_app.alert_scheduler.acknowledge_alert")
     @patch("oracle_app.alert_scheduler.sync_then_control", return_value=("executed", {}))

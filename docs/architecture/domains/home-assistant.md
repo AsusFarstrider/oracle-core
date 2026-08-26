@@ -12,8 +12,9 @@ which consumes HA event evidence and owns delayed workflows.
   adjustments, provider error normalization, and verified action outcomes.
 - `provider_bridges/home_assistant.py` owns HA conversation, service, entity
   state, polling, authentication, and payload translation mechanics.
-- `api.py` exposes Oracle request/response contracts and delegates interactive
-  HA work; it does not own HA service names or entity-action mappings.
+- `api.py` assembles the public route families; `application_command.py` and
+  `application_ui.py` delegate interactive HA work. None owns HA service names
+  or entity-action mappings.
 
 `POST /api/ui/action` remains action-ID based. Browser clients never submit HA
 entity IDs, service names, credentials, or provider-native payloads. Task

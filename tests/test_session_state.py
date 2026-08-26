@@ -21,7 +21,7 @@ python_multipart_multipart_stub.parse_options_header = lambda value: (value, {})
 sys.modules.setdefault("python_multipart", python_multipart_stub)
 sys.modules.setdefault("python_multipart.multipart", python_multipart_multipart_stub)
 
-from oracle_app.api import session_lookup
+from oracle_app.application_command import session_lookup
 from oracle_app import state
 from oracle_app.command_events import append_command_interim_event, list_command_interim_events
 from oracle_app.conversation import append_turn, get_conversation

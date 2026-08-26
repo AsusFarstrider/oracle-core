@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from oracle_app.config import get_satellite_music_backend_hint as default_get_satellite_music_backend_hint
-from oracle_app.music_runtime.client import build_native_queue_manifest as default_build_native_queue_manifest
 from oracle_app.music_runtime.selection import (
     music_provider_ref,
     music_selection_id,
@@ -30,8 +28,8 @@ def build_music_play_media_args(
     source: str | None,
     selection: dict[str, Any],
     *,
-    get_backend_hint=default_get_satellite_music_backend_hint,
-    build_manifest=default_build_native_queue_manifest,
+    get_backend_hint,
+    build_manifest,
 ) -> dict[str, Any]:
     provider_selection = music_selection_with_provider_fields(selection)
     media_type = str(provider_selection.get("media_type") or provider_selection.get("type") or "").strip()

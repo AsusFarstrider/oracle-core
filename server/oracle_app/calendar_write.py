@@ -7,9 +7,6 @@ from typing import Any
 
 from zoneinfo import ZoneInfo
 
-from .provider_bridges import CalendarBridgeError, get_calendar_bridge
-
-
 WEEKDAY_NAMES = {
     "monday": 0,
     "tuesday": 1,
@@ -158,18 +155,6 @@ def build_confirmation_prompt(event_draft: dict[str, Any]) -> str:
         f"{_format_confirmation_time(start_time)} to {_format_confirmation_time(end_time)}. "
         "Do you want me to add it?"
     )
-
-
-def commit_calendar_event(event_draft: dict[str, Any], *, settings: dict[str, Any]) -> dict[str, Any]:
-    try:
-        bridge = get_calendar_bridge(settings)
-        committed = bridge.commit_event(event_draft, settings=settings)
-        from .calendar import invalidate_calendar_cache
-
-        invalidate_calendar_cache()
-        return committed
-    except CalendarBridgeError as exc:
-        raise RuntimeError(exc.detail) from exc
 
 
 def build_event_draft_from_collected(collected: dict[str, Any]) -> dict[str, Any] | None:

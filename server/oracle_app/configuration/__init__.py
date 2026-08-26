@@ -164,14 +164,16 @@ from .projections import (
     PROJECTION_SCHEMA_VERSION,
     GeneratedSatelliteProjection,
     InteractionRuntimeCompatibility,
-    AcceptedSatelliteRuntimeCompatibility,
     ProjectedMusicConfiguration,
     ProjectionGenerationError,
     SatelliteProjectedConfiguration,
     SatelliteProjection,
     SatelliteRuntimeCompatibility,
-    SatelliteRuntimeCompatibilityStore,
     generate_satellite_projection,
+)
+from .runtime_compatibility_store import (
+    AcceptedSatelliteRuntimeCompatibility,
+    SatelliteRuntimeCompatibilityStore,
 )
 from .projection_generations import (
     PROJECTION_ACTIVATION_FORMAT,

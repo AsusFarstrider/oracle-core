@@ -10,12 +10,21 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
 from oracle_app.weather_models import ForecastPeriod, ResolvedRemoteLocation
+from oracle_app.configuration.weather_runtime_settings import RemoteWeatherRuntimeSettings
 from oracle_app.weather_remote import (
     RemoteWeatherLocationError,
     build_remote_current_weather_response,
     build_remote_forecast_response,
     parse_remote_current_weather_query,
     parse_remote_forecast_query,
+)
+
+
+REMOTE_SETTINGS = RemoteWeatherRuntimeSettings(
+    enabled=True,
+    provider_id="nws",
+    user_agent="Oracle test weather",
+    timeout_seconds=8,
 )
 
 
@@ -184,7 +193,10 @@ class RemoteWeatherTests(unittest.TestCase):
             },
         )
 
-        speech, details = build_remote_current_weather_response("what is the weather in boston")
+        speech, details = build_remote_current_weather_response(
+            "what is the weather in boston",
+            runtime_settings=REMOTE_SETTINGS,
+        )
 
         self.assertTrue(speech.startswith("In Boston, MA, "))
         self.assertEqual(details["location"], "Boston, MA")
@@ -200,11 +212,17 @@ class RemoteWeatherTests(unittest.TestCase):
         mock_resolve_remote_location.side_effect = RemoteWeatherLocationError("I couldn't resolve that location.")
 
         with self.assertRaises(RemoteWeatherLocationError):
-            build_remote_current_weather_response("what is the weather in nowhere")
+            build_remote_current_weather_response(
+                "what is the weather in nowhere",
+                runtime_settings=REMOTE_SETTINGS,
+            )
 
     def test_build_remote_current_weather_response_rejects_short_ambiguous_location(self) -> None:
         with self.assertRaises(RemoteWeatherLocationError):
-            build_remote_current_weather_response("what is the weather in la")
+            build_remote_current_weather_response(
+                "what is the weather in la",
+                runtime_settings=REMOTE_SETTINGS,
+            )
 
     @patch("oracle_app.weather_remote._fetch_remote_forecast")
     @patch("oracle_app.weather_remote._resolve_remote_location")
@@ -263,7 +281,10 @@ class RemoteWeatherTests(unittest.TestCase):
             ],
         }
 
-        speech, details = build_remote_forecast_response("what is the weather tomorrow in boston")
+        speech, details = build_remote_forecast_response(
+            "what is the weather tomorrow in boston",
+            runtime_settings=REMOTE_SETTINGS,
+        )
 
         self.assertTrue(speech.startswith("In Boston, MA, "))
         self.assertIn("Tomorrow will be sunny", speech)

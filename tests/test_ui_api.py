@@ -4,7 +4,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
@@ -22,17 +22,18 @@ sys.modules.setdefault("python_multipart.multipart", python_multipart_multipart_
 
 from fastapi import HTTPException
 
-from oracle_app.api import (
-    admin_facts_lookup,
+from oracle_app.admin_diagnostics_routes import (
     admin_memory_diagnostics_summary,
-    app,
-    health_librenms,
     ui_log_targets,
     ui_logs,
     ui_playback_authority,
     ui_sources,
 )
+from oracle_app.admin_facts_routes import admin_facts_lookup
+from oracle_app.api import app
+from oracle_app.health_routes import health_librenms
 from oracle_app.command_events import clear_command_interim_events, list_command_interim_events
+from oracle_app.facts import lookup_facts
 from oracle_app.memory.diagnostics import DiagnosticsSummaryQuery
 from oracle_app.music_runtime.control import ControlPlaneError
 from oracle_app.schemas import LibreNmsHealthResponse
@@ -74,14 +75,42 @@ FACTS_ADMIN_CONFIG = {
 }
 
 
+def _facts_execution():
+    return SimpleNamespace(
+        settings=SimpleNamespace(summarizer_enabled=True),
+        inference=object(),
+        lookup=lambda request: lookup_facts(request, settings=FACTS_ADMIN_CONFIG),
+    )
+
+
+def _fleet(*source_ids: str):
+    return SimpleNamespace(
+        satellites={
+            source_id: SimpleNamespace(
+                enabled=True,
+                playback_capable=True,
+                source_id=source_id,
+            )
+            for source_id in source_ids
+        }
+    )
+
+
+def _music_execution(fetch):
+    admitted = object()
+    return SimpleNamespace(
+        settings=SimpleNamespace(playback_target=lambda source_id: admitted),
+        fetch_playback_authority=fetch,
+    )
+
+
 class UiApiTests(unittest.TestCase):
     def tearDown(self) -> None:
         clear_command_interim_events()
 
-    @patch("oracle_app.admin_facts_routes.get_facts_settings", return_value=FACTS_ADMIN_CONFIG)
     @patch("oracle_app.admin_facts_routes.summarize_facts_result", return_value="The largest animal is the blue whale.")
-    def test_admin_facts_lookup_returns_normalized_payload_with_summary(self, mock_summary, _mock_config) -> None:
-        payload = admin_facts_lookup("What is the largest animal")
+    def test_admin_facts_lookup_returns_normalized_payload_with_summary(self, mock_summary) -> None:
+        payload = admin_facts_lookup("What is the largest animal", canonical_execution=_facts_execution())
 
         self.assertTrue(payload["ok"])
         facts = payload["facts"]
@@ -95,10 +124,13 @@ class UiApiTests(unittest.TestCase):
         self.assertEqual(list_command_interim_events(source=None, session_id=None), [])
         mock_summary.assert_called_once()
 
-    @patch("oracle_app.admin_facts_routes.get_facts_settings", return_value=FACTS_ADMIN_CONFIG)
     @patch("oracle_app.admin_facts_routes.summarize_facts_result")
-    def test_admin_facts_lookup_can_skip_summarizer(self, mock_summary, _mock_config) -> None:
-        payload = admin_facts_lookup("What is the largest animal", summarize=False)
+    def test_admin_facts_lookup_can_skip_summarizer(self, mock_summary) -> None:
+        payload = admin_facts_lookup(
+            "What is the largest animal",
+            summarize=False,
+            canonical_execution=_facts_execution(),
+        )
 
         self.assertTrue(payload["ok"])
         self.assertFalse(payload["facts"]["summarized_by_model"])
@@ -106,26 +138,23 @@ class UiApiTests(unittest.TestCase):
         self.assertEqual(payload["summarizer"]["reason"], "not_requested")
         mock_summary.assert_not_called()
 
-    @patch("oracle_app.admin_facts_routes.get_facts_settings", return_value=FACTS_ADMIN_CONFIG)
-    def test_admin_facts_lookup_reports_no_result_without_summarizer(self, _mock_config) -> None:
-        payload = admin_facts_lookup("What is flurble dust")
+    def test_admin_facts_lookup_reports_no_result_without_summarizer(self) -> None:
+        payload = admin_facts_lookup("What is flurble dust", canonical_execution=_facts_execution())
 
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["facts"]["facts_status"], "no_result")
         self.assertEqual(payload["summarizer"]["reason"], "unsupported_status")
 
-    @patch("oracle_app.admin_facts_routes.get_facts_settings", return_value=FACTS_ADMIN_CONFIG)
-    def test_admin_facts_lookup_reports_provider_error(self, _mock_config) -> None:
-        payload = admin_facts_lookup("Trigger static facts error")
+    def test_admin_facts_lookup_reports_provider_error(self) -> None:
+        payload = admin_facts_lookup("Trigger static facts error", canonical_execution=_facts_execution())
 
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["facts"]["facts_status"], "provider_error")
         self.assertEqual(payload["facts"]["detail"], "Static provider failed.")
 
-    @patch("oracle_app.admin_facts_routes.get_facts_settings", return_value=FACTS_ADMIN_CONFIG)
     @patch("oracle_app.admin_facts_routes.summarize_facts_result", return_value="The largest animal is the blue whale.")
-    def test_admin_facts_lookup_redacts_secret_like_fields(self, _mock_summary, _mock_config) -> None:
-        payload = admin_facts_lookup("What is the largest animal")
+    def test_admin_facts_lookup_redacts_secret_like_fields(self, _mock_summary) -> None:
+        payload = admin_facts_lookup("What is the largest animal", canonical_execution=_facts_execution())
 
         provenance = payload["facts"]["evidence"][0]["provenance"]
         self.assertEqual(provenance["api_token"], "[redacted]")
@@ -230,22 +259,13 @@ class UiApiTests(unittest.TestCase):
         mock_health.assert_called_once_with()
         mock_observe.assert_called_once_with("librenms", response)
 
-    @patch(
-        "oracle_app.admin_diagnostics_routes.get_music_settings",
-        return_value={
-            "satellites": {
-                "pi-satellite-102": {"playback_capable": True},
-                "pi-satellite-101": {"playback_capable": True},
-            }
-        },
-    )
-    def test_ui_log_targets_marks_only_brain_available(self, _mock_settings) -> None:
+    def test_ui_log_targets_marks_only_brain_available(self) -> None:
         payload = ui_log_targets()
 
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["targets"][0]["available"])
         self.assertEqual(payload["targets"][0]["target"], "brain")
-        self.assertFalse(payload["targets"][1]["available"])
+        self.assertEqual(len(payload["targets"]), 1)
 
     @patch("oracle_app.admin_diagnostics_routes.subprocess.run")
     def test_ui_logs_returns_brain_journal_tail(self, mock_run) -> None:
@@ -260,36 +280,19 @@ class UiApiTests(unittest.TestCase):
         self.assertIn("line-a", payload["content"])
         mock_run.assert_called_once()
 
-    @patch(
-        "oracle_app.admin_diagnostics_routes.get_music_settings",
-        return_value={"satellites": {"pi-satellite-102": {"playback_capable": True}}},
-    )
-    def test_ui_logs_reports_unavailable_remote_target(self, _mock_settings) -> None:
-        payload = ui_logs("satellite:pi-satellite-102", 120)
+    def test_ui_logs_reports_unavailable_remote_target(self) -> None:
+        payload = ui_logs(
+            "satellite:pi-satellite-102",
+            120,
+            fleet_settings=_fleet("pi-satellite-102"),
+        )
 
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["target"], "satellite:pi-satellite-102")
         self.assertIn("not available", payload["detail"])
 
-    @patch(
-        "oracle_app.admin_diagnostics_routes.get_music_settings",
-        return_value={
-            "satellites": {
-                "pi-satellite-102": {
-                    "playback_capable": True,
-                    "supports_oracle_native_music": False,
-                    "supports_plexamp": True,
-                },
-                "server-satellite-105": {
-                    "playback_capable": True,
-                    "supports_oracle_native_music": True,
-                    "supports_plexamp": False,
-                },
-            }
-        },
-    )
-    def test_ui_sources_returns_sorted_configured_sources(self, _mock_settings) -> None:
-        payload = ui_sources()
+    def test_ui_sources_returns_sorted_configured_sources(self) -> None:
+        payload = ui_sources(fleet_settings=_fleet("server-satellite-105", "pi-satellite-102"))
 
         self.assertTrue(payload["ok"])
         self.assertEqual(
@@ -298,8 +301,8 @@ class UiApiTests(unittest.TestCase):
                 {
                     "source": "pi-satellite-102",
                     "playback_capable": True,
-                    "supports_oracle_native_music": False,
-                    "supports_plexamp": True,
+                    "supports_oracle_native_music": True,
+                    "supports_plexamp": False,
                 },
                 {
                     "source": "server-satellite-105",
@@ -310,11 +313,7 @@ class UiApiTests(unittest.TestCase):
             ],
         )
 
-    @patch(
-        "oracle_app.admin_diagnostics_routes.get_music_settings",
-        side_effect=AssertionError("canonical diagnostics used V1 music settings"),
-    )
-    def test_canonical_sources_use_typed_fleet(self, _legacy_settings) -> None:
+    def test_canonical_sources_use_typed_fleet(self) -> None:
         from oracle_app.admin_diagnostics_routes import ui_sources as build_sources
 
         fleet = SimpleNamespace(
@@ -327,45 +326,29 @@ class UiApiTests(unittest.TestCase):
             }
         )
 
-        payload = build_sources(fleet_settings=fleet, canonical_authority=True)
+        payload = build_sources(fleet_settings=fleet)
 
         self.assertEqual(payload["sources"][0]["source"], "living_room_voice")
         self.assertTrue(payload["sources"][0]["supports_oracle_native_music"])
         self.assertFalse(payload["sources"][0]["supports_plexamp"])
 
-    @patch(
-        "oracle_app.admin_diagnostics_routes.get_music_settings",
-        return_value={
-            "satellites": {
-                "pi-satellite-102": {"playback_capable": True},
-                "pi-satellite-101": {"playback_capable": True},
-                "desk": {"playback_capable": False},
-            }
-        },
-    )
-    @patch("oracle_app.admin_diagnostics_routes.fetch_satellite_playback_authority")
-    def test_ui_playback_authority_returns_single_source(self, mock_fetch, _mock_settings) -> None:
-        mock_fetch.return_value = {"ok": True, "output_owner": {"backend_type": "reply_audio"}}
+    def test_ui_playback_authority_returns_single_source(self) -> None:
+        mock_fetch = Mock(
+            return_value={"ok": True, "output_owner": {"backend_type": "reply_audio"}}
+        )
 
-        payload = ui_playback_authority("pi-satellite-102")
+        payload = ui_playback_authority(
+            "pi-satellite-102",
+            music_execution=_music_execution(mock_fetch),
+            fleet_settings=_fleet("pi-satellite-101", "pi-satellite-102"),
+        )
 
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["source"], "pi-satellite-102")
         self.assertEqual(payload["authority"]["output_owner"]["backend_type"], "reply_audio")
         mock_fetch.assert_called_once_with("pi-satellite-102")
 
-    @patch(
-        "oracle_app.admin_diagnostics_routes.get_music_settings",
-        return_value={
-            "satellites": {
-                "pi-satellite-102": {"playback_capable": True},
-                "pi-satellite-101": {"playback_capable": True},
-                "desk": {"playback_capable": False},
-            }
-        },
-    )
-    @patch("oracle_app.admin_diagnostics_routes.fetch_satellite_playback_authority")
-    def test_ui_playback_authority_aggregates_errors(self, mock_fetch, _mock_settings) -> None:
+    def test_ui_playback_authority_aggregates_errors(self) -> None:
         def fake_fetch(source: str):
             if source == "pi-satellite-101":
                 raise ControlPlaneError(
@@ -376,9 +359,10 @@ class UiApiTests(unittest.TestCase):
                 )
             return {"ok": True, "playback_active": False}
 
-        mock_fetch.side_effect = fake_fetch
-
-        payload = ui_playback_authority()
+        payload = ui_playback_authority(
+            music_execution=_music_execution(fake_fetch),
+            fleet_settings=_fleet("pi-satellite-101", "pi-satellite-102"),
+        )
 
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["configured_sources"], ["pi-satellite-101", "pi-satellite-102"])
@@ -388,15 +372,11 @@ class UiApiTests(unittest.TestCase):
         self.assertEqual(failed["failure_class"], "transport_failure")
         self.assertEqual(failed["control_error"], "control_unreachable")
 
-    @patch(
-        "oracle_app.admin_diagnostics_routes.get_music_settings",
-        return_value={"satellites": {"desk": {"playback_capable": False}}},
-    )
-    def test_ui_playback_authority_rejects_non_playback_source(self, _mock_settings) -> None:
+    def test_ui_playback_authority_rejects_non_playback_source(self) -> None:
         with self.assertRaises(HTTPException) as captured:
-            ui_playback_authority("desk")
+            ui_playback_authority("desk", fleet_settings=_fleet())
 
-        self.assertEqual(captured.exception.status_code, 400)
+        self.assertEqual(captured.exception.status_code, 404)
 
 
 if __name__ == "__main__":

@@ -10,10 +10,23 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
 from oracle_app.provider_bridges.audiobookshelf_audiobook import (
+    AudiobookProviderConnection,
     AudiobookshelfAudiobookBridge,
     normalize_audiobook_item,
     normalize_audiobook_playback_session,
 )
+
+
+def _bridge() -> AudiobookshelfAudiobookBridge:
+    return AudiobookshelfAudiobookBridge(
+        lambda user_id: AudiobookProviderConnection(
+            base_url="https://abs.example",
+            api_key="token",
+            library_id="library-1",
+            timeout_seconds=8,
+            user_id=user_id,
+        )
+    )
 
 
 class _FakeResponse:
@@ -59,21 +72,11 @@ class AudiobookshelfAudiobookBridgeTests(unittest.TestCase):
         self.assertEqual(item["progress"]["current_time_seconds"], 125.0)
         self.assertNotIn("userMediaProgress", item)
 
-    @patch(
-        "oracle_app.provider_bridges.audiobookshelf_audiobook.get_audiobook_connection_settings",
-        return_value={
-            "base_url": "https://abs.example",
-            "api_key": "token",
-            "library_id": "library-1",
-            "timeout_seconds": 8,
-            "configured": True,
-        },
-    )
     @patch("oracle_app.provider_bridges.audiobookshelf_audiobook.request.urlopen")
-    def test_sync_session_preserves_position_reporting_payload(self, mock_urlopen, _mock_settings) -> None:
+    def test_sync_session_preserves_position_reporting_payload(self, mock_urlopen) -> None:
         mock_urlopen.return_value = _FakeResponse("")
 
-        AudiobookshelfAudiobookBridge().sync_session(
+        _bridge().sync_session(
             "session-1",
             current_time=123.45,
             time_listened=-7.0,
@@ -94,18 +97,8 @@ class AudiobookshelfAudiobookBridgeTests(unittest.TestCase):
             },
         )
 
-    @patch(
-        "oracle_app.provider_bridges.audiobookshelf_audiobook.get_audiobook_connection_settings",
-        return_value={
-            "base_url": "https://abs.example",
-            "api_key": "token",
-            "library_id": "library-1",
-            "timeout_seconds": 8,
-            "configured": True,
-        },
-    )
     @patch("oracle_app.provider_bridges.audiobookshelf_audiobook.request.urlopen")
-    def test_fetch_current_progress_keeps_latest_unfinished_book_progress(self, mock_urlopen, _mock_settings) -> None:
+    def test_fetch_current_progress_keeps_latest_unfinished_book_progress(self, mock_urlopen) -> None:
         mock_urlopen.return_value = _FakeResponse(
             {
                 "mediaProgress": [
@@ -132,25 +125,15 @@ class AudiobookshelfAudiobookBridgeTests(unittest.TestCase):
             }
         )
 
-        progress = AudiobookshelfAudiobookBridge().fetch_current_progress(user_id="reader_one")
+        progress = _bridge().fetch_current_progress(user_id="reader_one")
 
         self.assertIsNotNone(progress)
         self.assertEqual(progress["library_item_id"], "latest")
         self.assertEqual(progress["current_time_seconds"], 200.0)
         self.assertNotIn("libraryItemId", progress)
 
-    @patch(
-        "oracle_app.provider_bridges.audiobookshelf_audiobook.get_audiobook_connection_settings",
-        return_value={
-            "base_url": "https://abs.example",
-            "api_key": "token",
-            "library_id": "library-1",
-            "timeout_seconds": 8,
-            "configured": True,
-        },
-    )
     @patch("oracle_app.provider_bridges.audiobookshelf_audiobook.request.urlopen")
-    def test_search_titles_normalizes_audiobookshelf_results(self, mock_urlopen, _mock_settings) -> None:
+    def test_search_titles_normalizes_audiobookshelf_results(self, mock_urlopen) -> None:
         mock_urlopen.return_value = _FakeResponse(
             {
                 "book": [
@@ -173,7 +156,7 @@ class AudiobookshelfAudiobookBridgeTests(unittest.TestCase):
             }
         )
 
-        candidates = AudiobookshelfAudiobookBridge().search_titles("dune", user_id="reader_one")
+        candidates = _bridge().search_titles("dune", user_id="reader_one")
 
         self.assertEqual(
             candidates,

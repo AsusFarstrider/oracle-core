@@ -15,11 +15,8 @@ class CalendarHandler:
     def __init__(
         self,
         canonical_execution: CanonicalCalendarExecution | None = None,
-        *,
-        canonical_authority: bool = False,
     ) -> None:
         self.canonical_execution = canonical_execution
-        self.canonical_authority = canonical_authority
 
     def handle(self, dispatch: DispatchPlan, registry: Any) -> DispatchPlan:
         action = str(dispatch.payload.get("action") or "").strip()

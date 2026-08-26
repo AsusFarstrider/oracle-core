@@ -42,7 +42,7 @@ Primary coverage:
 
 ### Handler / Domain Tests
 
-- `tests/test_dispatch_handlers.py`
+- `tests/test_dispatch_reply_characterization.py`
 - `tests/test_music_matching.py`
 - `tests/test_audiobook_matching.py`
 - `tests/test_ollama_handler.py`
@@ -90,7 +90,7 @@ Primary coverage:
 - `tests/test_control_service_plexamp_queue_transport.py`
 - `tests/test_control_service_volume.py`
 - `tests/test_control_service_logging.py`
-- `tests/test_satellite_cli.py`
+- `tests/test_satellite_audio_config.py`
 - `tests/test_satellite_foreground_handoff.py`
 - `tests/test_satellite_capture_request_pipeline.py`
 - `tests/test_satellite_reply_followup_runtime.py`
@@ -126,9 +126,9 @@ Primary coverage:
 
 ### Smoke / Regression Tests
 
-- `tests/test_api_command.py`
-- `tests/test_smoke_flows.py`
-- `tests/test_phase_a_failures.py`
+- `tests/test_configuration_brain_application_composition.py`
+- `tests/test_conversation_result_contract.py`
+- `tests/test_utterance_ledger_execution.py`
 - `tests/test_utterance_ledger_schema.py`
 - `tests/test_utterance_ledger_execution.py`
 
@@ -170,22 +170,22 @@ The current regression priorities include:
    - currently covered mainly in `tests/test_routing_capabilities.py`
 2. music clarification follow-ups
    - short follow-ups such as `the second one` and differentiator phrases should remain scoped by `source + session_id`
-   - currently covered in `tests/test_routing_capabilities.py` and `tests/test_dispatch_handlers.py`
+   - currently covered in `tests/test_routing_capabilities.py` and `tests/test_music_matching.py`
 3. audiobook clarification follow-ups
    - short follow-ups such as `the first one` and differentiator phrases should remain scoped by `source + session_id`
-   - currently covered in `tests/test_routing_capabilities.py` and `tests/test_dispatch_handlers.py`
+   - currently covered in `tests/test_routing_capabilities.py` and `tests/test_audiobook_matching.py`
 4. `play dune`
    - weak Plex hits must not win over the intended audiobook clarification path
-   - currently covered in `tests/test_dispatch_handlers.py`
+   - currently covered in `tests/test_routing_capabilities.py`, `tests/test_media_rescue_policy.py`, and the utterance ledger
 5. same-session `yes` after pending prompt
    - same-session pending confirmation / clarification flow must remain functional
-   - currently covered explicitly in `tests/test_smoke_flows.py` and in deeper handler/routing tests
+   - currently covered by the utterance ledger and deeper handler/routing tests
 6. audiobook range streaming behavior
    - byte-range passthrough and partial-content behavior must remain intact
-   - currently covered in `tests/test_smoke_flows.py` and `tests/test_audiobook_stream_api.py`
+   - currently covered in `tests/test_audiobook_stream_api.py` and `tests/test_media_routes.py`
 7. canonical `reply_text`
    - the brain must remain the normal owner of spoken reply shaping, and the production Pi runtime must not rebuild domain replies locally
-   - currently covered in `tests/test_smoke_flows.py`, `tests/test_reply_text.py`, and `tests/test_satellite_reply_fallback.py`
+   - currently covered in `tests/test_dispatch_reply_characterization.py`, `tests/test_reply_text.py`, and `tests/test_satellite_reply_fallback.py`
 
 ## V2 Configuration Coverage
 

@@ -234,6 +234,15 @@ Acknowledgement supplies the same `source_id` and `lease_id` plus status
 `acknowledged` or `completed`. Constructing a claim response never completes a
 record, and an expired lease returns it to pending.
 
+Deferred resume also requires `Authorization: Bearer <projection-credential>`
+and the request's claimed `source`; the credential-bound managed-satellite
+source is authoritative and is the only source passed to playback execution.
+The continuation is opaque transport/encapsulation, not an integrity or
+security token: clients must not interpret it, but Oracle does not promise that
+an authenticated holder cannot alter it. The Brain strictly validates the
+finite action-specific continuation shape before execution. The token has no
+signature, expiry, single-use guarantee, or Brain-owned registry.
+
 Conversational satellite commands still use `/api/conversation`; satellite STT
 and TTS still use `/api/speech`.
 

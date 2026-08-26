@@ -181,18 +181,14 @@ class CanonicalBrainApplicationComposition:
                 runtime.household,
                 facts_enabled=False if facts_execution is None else facts_execution.settings.enabled,
                 news_settings=None if news_execution is None else news_execution.settings,
-                canonical_information=True,
                 calendar_settings=(
                     None if calendar_execution is None else calendar_execution.settings
                 ),
-                canonical_calendar=True,
             ),
             dispatch_registry=build_dispatch_registry(
                 inference_client=core_consumers.inference,
                 household_settings=runtime.household,
                 home_assistant_settings=runtime.home_assistant,
-                canonical_configuration=True,
-                canonical_media_targets=True,
                 audiobook_execution=audiobook_execution,
                 music_execution=music_execution,
                 facts_execution=facts_execution,

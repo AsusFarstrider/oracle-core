@@ -13,8 +13,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import HTTPException, Request
 from tts import TtsResult
 
-from oracle_app.brain_application_composition import CanonicalBrainApplicationComposition
+from oracle_app.brain_application_composition import (
+    BRAIN_APPLICATION_COMPOSITION_STATE_KEY,
+    CanonicalBrainApplicationComposition,
+)
 from oracle_app import api
+from oracle_app import application_command as command_application
+from oracle_app import application_runtime
+from oracle_app import application_speech as speech_application
+from oracle_app.health_routes import health_config
 from oracle_app.configuration import EffectiveConfig, GenerationStore, inspect_candidate
 from oracle_app.configuration.bootstrap import (
     BrainConfigurationStartup,
@@ -34,7 +41,7 @@ EXAMPLE_ROOT = Path(__file__).resolve().parents[1] / "examples" / "config"
 class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
     def test_fastapi_has_no_import_time_v1_composition(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "not installed"):
-            api.brain_application_composition()
+            application_runtime.brain_application_composition(api.app)
 
     def test_canonical_startup_builds_complete_dependencies_without_starting_them(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -71,9 +78,6 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                 composition.dispatch_registry.get("home_assistant").home_assistant_settings,  # type: ignore[union-attr]
                 composition.runtime.home_assistant,
             )
-            self.assertTrue(
-                composition.dispatch_registry.get("home_assistant").canonical_authority  # type: ignore[union-attr]
-            )
             self.assertIs(
                 composition.dispatch_registry.get("system").household_settings,  # type: ignore[union-attr]
                 composition.runtime.household,
@@ -81,12 +85,6 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
             self.assertIs(
                 composition.dispatch_registry.get("audiobook").household_settings,  # type: ignore[union-attr]
                 composition.runtime.household,
-            )
-            self.assertTrue(
-                composition.dispatch_registry.get("audiobook").canonical_playback_target  # type: ignore[union-attr]
-            )
-            self.assertTrue(
-                composition.dispatch_registry.get("music").canonical_playback_target  # type: ignore[union-attr]
             )
             self.assertEqual(composition.projection_resolver.store.root, store_root)
             self.assertIs(
@@ -120,14 +118,14 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
             self.assertIn("living room", canonical_route.normalized_text)
             self.assertFalse((root / "configuration.sock").exists())
 
-            previous = getattr(api.app.state, api.BRAIN_APPLICATION_COMPOSITION_STATE_KEY, None)
+            previous = getattr(api.app.state, BRAIN_APPLICATION_COMPOSITION_STATE_KEY, None)
             try:
                 with patch.dict(
                     "os.environ",
                     {"ORACLE_WAKE_CAPTURE_ARCHIVE_ROOT": str(root / "wake-capture")},
                     clear=False,
                 ):
-                    api.install_brain_application_composition(api.app, composition)
+                    application_runtime.install_brain_application_composition(api.app, composition)
                 self.assertIs(
                     api.app.state.wake_capture_upload_service.resolver,
                     composition.projection_resolver,
@@ -141,7 +139,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                     ),
                 ):
                     targeted_payload, target_resolution, target_error = (
-                        api._apply_canonical_playback_target(
+                        command_application._apply_resolved_playback_target(
                             CommandRequest(
                                 text="play music",
                                 source="ephemeral_http",
@@ -173,17 +171,15 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                     status="planned",
                 )
                 with (
-                    patch("oracle_app.user_context.get_source_registry") as legacy_context_sources,
-                    patch("oracle_app.user_context.get_user_registry") as legacy_context_users,
                     patch.object(
                         composition.core_consumers.tts_provider,
                         "synthesize",
                         return_value=TtsResult(b"audio", "audio/wav", "disabled-test"),
                     ),
                 ):
-                    response = api.synthesize_speech(TtsRequest(text="Hello"))
-                    result = api._execute_application_dispatch(dispatch)
-                    command_response = api.command_http_request(
+                    response = speech_application.synthesize_speech(TtsRequest(text="Hello"))
+                    result = command_application._execute_application_dispatch(dispatch)
+                    command_response = command_application.command_http_request(
                         CommandRequest(
                             text="what time is it",
                             source="claimed_stable_source",
@@ -201,7 +197,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                         ),
                     )
                     with self.assertRaisesRegex(HTTPException, "authentication failed") as invalid_source:
-                        api.command_http_request(
+                        command_application.command_http_request(
                             CommandRequest(
                                 text="what time is it",
                                 source="claimed_stable_source",
@@ -219,7 +215,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                             ),
                         )
                     with self.assertRaises(HTTPException) as malformed_credential:
-                        api.command_http_request(
+                        command_application.command_http_request(
                             CommandRequest(
                                 text="what time is it",
                                 source="claimed_stable_source",
@@ -236,7 +232,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                                 }
                             ),
                         )
-                    health_response = api.health_config(
+                    health_response = health_config(
                         Request(
                             {
                                 "type": "http",
@@ -248,7 +244,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                             }
                         )
                     )
-                    health_text_response = api.health_config(
+                    health_text_response = health_config(
                         Request(
                             {
                                 "type": "http",
@@ -282,7 +278,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                             ),
                         )
 
-                self.assertIs(api.brain_application_composition(), composition)
+                self.assertIs(application_runtime.brain_application_composition(api.app), composition)
                 self.assertEqual(response.body, b"audio")
                 self.assertEqual(result.status, "failed")
                 self.assertEqual(result.result["error"], "fallback_router_disabled")
@@ -308,13 +304,11 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                 self.assertIn("Applied configuration:", health_text_response.body.decode("utf-8"))
                 self.assertIn(effective.config_revision, health_text_response.body.decode("utf-8"))
                 self.assertEqual(projection_response.body, b'{"projection":"ok"}')
-                legacy_context_sources.assert_not_called()
-                legacy_context_users.assert_not_called()
             finally:
                 if previous is not None:
-                    api.install_brain_application_composition(api.app, previous)
-                elif hasattr(api.app.state, api.BRAIN_APPLICATION_COMPOSITION_STATE_KEY):
-                    delattr(api.app.state, api.BRAIN_APPLICATION_COMPOSITION_STATE_KEY)
+                    application_runtime.install_brain_application_composition(api.app, previous)
+                elif hasattr(api.app.state, BRAIN_APPLICATION_COMPOSITION_STATE_KEY):
+                    delattr(api.app.state, BRAIN_APPLICATION_COMPOSITION_STATE_KEY)
 
     def test_noncanonical_or_incomplete_startup_is_rejected(self) -> None:
         for startup in (
@@ -342,35 +336,37 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                 ),
                 effective_config=self._effective_config(bundle),
             )
-            previous = getattr(api.app.state, api.BRAIN_APPLICATION_COMPOSITION_STATE_KEY, None)
+            previous = getattr(api.app.state, BRAIN_APPLICATION_COMPOSITION_STATE_KEY, None)
 
             async def run_lifespan() -> None:
-                async with api.lifespan(api.app):
-                    composition = api.brain_application_composition()
+                async with application_runtime.lifespan(api.app):
+                    composition = application_runtime.brain_application_composition(api.app)
                     self.assertIsInstance(composition, CanonicalBrainApplicationComposition)
 
             try:
                 with ExitStack() as stack:
                     resolve_startup = stack.enter_context(patch(
-                        "oracle_app.api.resolve_brain_configuration_startup",
+                        "oracle_app.application_runtime.resolve_brain_configuration_startup",
                         return_value=startup,
                     ))
-                    stack.enter_context(patch("oracle_app.api.safe_record_event", return_value=True))
-                    seed_sources = stack.enter_context(patch("oracle_app.api.safe_seed_memory_sources", return_value=True))
-                    stack.enter_context(patch("oracle_app.api.safe_reconcile_interrupted_orchestration_runs", return_value=0))
-                    stack.enter_context(patch("oracle_app.api.safe_reconcile_interrupted_network_controls", return_value=0))
-                    stack.enter_context(patch("oracle_app.api.safe_restore_network_control_results_from_memory", return_value=0))
-                    complete_host_restart = stack.enter_context(patch("oracle_app.api.safe_complete_pending_local_host_restart", return_value={"status": "none"}))
-                    stack.enter_context(patch("oracle_app.api.safe_complete_pending_local_service_restart", return_value={"status": "none"}))
-                    stt_warmup = stack.enter_context(patch("oracle_app.api.attempt_stt_provider_warmup"))
-                    inference_warmup = stack.enter_context(patch("oracle_app.api.attempt_fallback_router_warmup"))
-                    host_local = stack.enter_context(patch("oracle_app.api.start_brain_configuration_host_local_runtime"))
-                    routine_worker = stack.enter_context(patch("oracle_app.api.routine_scheduler_loop", new_callable=AsyncMock))
-                    home_worker = stack.enter_context(patch("oracle_app.api.home_automation_scheduler_loop", new_callable=AsyncMock))
-                    delivery_worker = stack.enter_context(patch("oracle_app.api.external_delivery_worker_loop", new_callable=AsyncMock))
+                    stack.enter_context(patch("oracle_app.application_runtime.safe_record_event", return_value=True))
+                    seed_sources = stack.enter_context(patch("oracle_app.application_runtime.safe_seed_memory_sources", return_value=True))
+                    stack.enter_context(patch("oracle_app.application_runtime.safe_reconcile_interrupted_orchestration_runs", return_value=0))
+                    stack.enter_context(patch("oracle_app.application_runtime.safe_reconcile_interrupted_network_controls", return_value=0))
+                    stack.enter_context(patch("oracle_app.application_runtime.safe_restore_network_control_results_from_memory", return_value=0))
+                    complete_host_restart = stack.enter_context(patch("oracle_app.application_runtime.safe_complete_pending_local_host_restart", return_value={"status": "none"}))
+                    stack.enter_context(patch("oracle_app.application_runtime.safe_complete_pending_local_service_restart", return_value={"status": "none"}))
+                    stt_warmup = stack.enter_context(patch("oracle_app.application_runtime.attempt_stt_provider_warmup"))
+                    inference_warmup = stack.enter_context(patch("oracle_app.application_runtime.attempt_fallback_router_warmup"))
+                    host_local = stack.enter_context(patch("oracle_app.application_runtime.start_brain_configuration_host_local_runtime"))
+                    routine_worker = stack.enter_context(patch("oracle_app.application_runtime.routine_scheduler_loop", new_callable=AsyncMock))
+                    home_worker = stack.enter_context(patch("oracle_app.application_runtime.home_automation_scheduler_loop", new_callable=AsyncMock))
+                    delivery_worker = stack.enter_context(patch("oracle_app.application_runtime.external_delivery_worker_loop", new_callable=AsyncMock))
+                    home_required = stack.enter_context(patch("oracle_app.application_runtime.home_automation_scheduler_required", return_value=False))
+                    delivery_required = stack.enter_context(patch("oracle_app.application_runtime.external_delivery_worker_required", return_value=False))
                     asyncio.run(run_lifespan())
 
-                composition = api.brain_application_composition()
+                composition = application_runtime.brain_application_composition(api.app)
                 self.assertIsInstance(composition, CanonicalBrainApplicationComposition)
                 resolve_startup.assert_called_once_with()
                 seed_sources.assert_called_once_with(
@@ -379,24 +375,20 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                 )
                 complete_host_restart.assert_called_once_with(
                     canonical_execution=composition.network_execution,
-                    canonical_authority=True,
                 )
                 stt_warmup.assert_called_once_with(composition.core_consumers.stt_provider)
                 inference_warmup.assert_called_once_with(composition.core_consumers.inference)
                 host_local.assert_called_once_with(startup=startup)
                 routine_worker.assert_not_called()
-                home_worker.assert_called_once_with(
-                    home_assistant_settings=composition.runtime.home_assistant,
-                    notification_submitter=composition.notification_execution.submit,
-                )
-                delivery_worker.assert_called_once_with(
-                    canonical_execution=composition.notification_execution,
-                )
+                home_required.assert_called_once_with(composition.runtime.home_assistant)
+                delivery_required.assert_called_once_with(composition.notification_execution)
+                home_worker.assert_not_called()
+                delivery_worker.assert_not_called()
             finally:
                 if previous is not None:
-                    api.install_brain_application_composition(api.app, previous)
-                elif hasattr(api.app.state, api.BRAIN_APPLICATION_COMPOSITION_STATE_KEY):
-                    delattr(api.app.state, api.BRAIN_APPLICATION_COMPOSITION_STATE_KEY)
+                    application_runtime.install_brain_application_composition(api.app, previous)
+                elif hasattr(api.app.state, BRAIN_APPLICATION_COMPOSITION_STATE_KEY):
+                    delattr(api.app.state, BRAIN_APPLICATION_COMPOSITION_STATE_KEY)
 
     def _effective_config(self, bundle: Path) -> EffectiveConfig:
         inspection = inspect_candidate(bundle)

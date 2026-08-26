@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
@@ -11,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 from oracle_app.calendar_write import (
     build_confirmation_prompt,
     build_or_continue_event_draft,
-    commit_calendar_event,
     parse_calendar_write_request,
 )
 
@@ -91,40 +89,3 @@ class CalendarWriteTests(unittest.TestCase):
             prompt,
             "I've got 'Dentist appointment' on Tuesday, April 7, 2026 from 2:00 PM to 3:00 PM. Do you want me to add it?",
         )
-
-    @patch("oracle_app.calendar.invalidate_calendar_cache")
-    @patch("oracle_app.provider_bridges.nextcloud_calendar.request.urlopen")
-    def test_commit_calendar_event_puts_ics_to_configured_calendar(
-        self,
-        mock_urlopen,
-        mock_invalidate_calendar_cache,
-    ) -> None:
-        mock_response = mock_urlopen.return_value.__enter__.return_value
-        mock_response.headers = {"ETag": '"etag-1"'}
-
-        result = commit_calendar_event(
-            {
-                "title": "Dentist appointment",
-                "date": "2026-04-07",
-                "start_time": "14:00",
-                "end_time": "15:00",
-            },
-            settings={
-                "calendar_write_configured": True,
-                "write_base_url": "https://calendar.example",
-                "write_user": "ExampleUser",
-                "write_app_password": "secret",
-                "write_calendar_uri": "Joint",
-                "timezone": "America/New_York",
-                "timeout_seconds": 8,
-            },
-        )
-
-        self.assertEqual(result["calendar_uri"], "Joint")
-        req = mock_urlopen.call_args.args[0]
-        self.assertIn("/remote.php/dav/calendars/ExampleUser/Joint/", req.full_url)
-        self.assertEqual(req.get_method(), "PUT")
-        payload = req.data.decode("utf-8")
-        self.assertIn("SUMMARY:Dentist appointment", payload)
-        self.assertIn("BEGIN:VEVENT", payload)
-        mock_invalidate_calendar_cache.assert_called_once_with()

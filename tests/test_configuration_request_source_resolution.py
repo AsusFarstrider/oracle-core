@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 from starlette.requests import Request
 
 from oracle_app import api, state
+from oracle_app import application_ui
+from oracle_app.ui_context import handle_pending_ui_context
 
 from oracle_app.configuration.request_source_resolution import (
     EPHEMERAL_HTTP_SOURCE_ID,
@@ -131,7 +133,7 @@ class CanonicalRequestSourceResolverTests(unittest.TestCase):
         try:
             with (
                 patch(
-                    "oracle_app.api._canonical_http_request_source",
+                    "oracle_app.application_ui._canonical_http_request_source",
                     return_value=ResolvedRequestSource(
                         request_source_id=EPHEMERAL_HTTP_SOURCE_ID,
                         kind="ephemeral",
@@ -139,11 +141,11 @@ class CanonicalRequestSourceResolverTests(unittest.TestCase):
                     ),
                 ),
                 patch(
-                    "oracle_app.api._resolve_ui_audio_source",
+                    "oracle_app.application_ui._resolve_ui_audio_source",
                     return_value=("living_room_satellite", ["living_room_satellite"]),
                 ),
             ):
-                response = api._ui_context_start_impl(payload, request)
+                response = application_ui._ui_context_start_impl(payload, request)
 
             pending = state.load_pending_ui_context(EPHEMERAL_HTTP_SOURCE_ID, session_id)
             self.assertIsNotNone(pending)
@@ -154,7 +156,7 @@ class CanonicalRequestSourceResolverTests(unittest.TestCase):
             self.assertEqual(response["target_source_id"], "living_room_satellite")
 
             with patch(
-                "oracle_app.api._ui_audio_search_impl",
+                "oracle_app.application_ui._ui_audio_search_impl",
                 return_value={
                     "ok": True,
                     "kind": "music",
@@ -163,11 +165,11 @@ class CanonicalRequestSourceResolverTests(unittest.TestCase):
                     "result_count": 0,
                 },
             ) as search:
-                command_response = api._handle_pending_ui_context(
+                command_response = handle_pending_ui_context(
                     "black magic",
                     EPHEMERAL_HTTP_SOURCE_ID,
                     session_id,
-                    audio_search=api._ui_audio_search_impl,
+                    audio_search=application_ui._ui_audio_search_impl,
                 )
 
             self.assertIsNotNone(command_response)

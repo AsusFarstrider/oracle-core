@@ -190,36 +190,30 @@ def _match_cached_alias(
 
 
 def _room_vocabulary(
-    household_settings: HouseholdRuntimeSettings | None,
+    household_settings: HouseholdRuntimeSettings,
     *,
     cache: dict[str, object] | None = None,
 ) -> list[dict[str, object]]:
-    if household_settings is not None:
-        return [
-            {
-                "spoken_name": str(room.display_name).strip().lower(),
-                "aliases": sorted(
-                    {
-                        str(room.id).replace("_", " ").strip().lower(),
-                        str(room.display_name).strip().lower(),
-                        *(str(alias).strip().lower() for alias in room.aliases),
-                    }
-                ),
-            }
-            for room in household_settings.rooms.values()
-            if room.enabled
-        ]
-    effective_cache = load_home_assistant_cache() if cache is None else cache
-    rooms = effective_cache.get("rooms", [])
-    if not isinstance(rooms, list):
-        return []
-    return [room for room in rooms if isinstance(room, dict)]
+    return [
+        {
+            "spoken_name": str(room.display_name).strip().lower(),
+            "aliases": sorted(
+                {
+                    str(room.id).replace("_", " ").strip().lower(),
+                    str(room.display_name).strip().lower(),
+                    *(str(alias).strip().lower() for alias in room.aliases),
+                }
+            ),
+        }
+        for room in household_settings.rooms.values()
+        if room.enabled
+    ]
 
 
 def match_cached_room(
     text: str,
     *,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str | None:
     rooms = _room_vocabulary(household_settings)
     matched = _match_cached_alias(text, rooms, spoken_key="spoken_name")
@@ -280,7 +274,7 @@ def _is_generic_room_reference(value: str) -> bool:
 def extract_room_phrase(
     text: str,
     *,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str | None:
     cached_room = match_cached_room(text, household_settings=household_settings)
     if cached_room is not None:
@@ -351,7 +345,7 @@ def _build_entity_brightness_command(entity_name: str, percent: int) -> str:
 def canonicalize_home_command(
     text: str,
     *,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str:
     cache = load_home_assistant_cache()
     rooms = _room_vocabulary(household_settings, cache=cache)
@@ -389,13 +383,13 @@ def canonicalize_home_command(
             aliases = entity.get("aliases", [])
             if not spoken_name or not isinstance(aliases, list):
                 continue
-            if household_settings is None or spoken_name not in canonical_room_terms:
+            if spoken_name not in canonical_room_terms:
                 entity_replacements.add((len(spoken_name), spoken_name, spoken_name))
             for alias in aliases:
                 alias_text = str(alias).strip().lower()
                 if not alias_text:
                     continue
-                if household_settings is not None and alias_text in canonical_room_terms:
+                if alias_text in canonical_room_terms:
                     continue
                 entity_replacements.add((len(alias_text), alias_text, spoken_name))
         for _, alias_text, spoken_name in sorted(entity_replacements, reverse=True):
@@ -408,29 +402,25 @@ def canonicalize_home_command(
 def detect_implied_home_command(
     text: str,
     *,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> tuple[str, str] | None:
     room = extract_room_phrase(text, household_settings=household_settings)
     make_subject = extract_make_subject_phrase(text)
-    room_aliases = (
-        {
-            str(alias).strip().lower()
-            for item in _room_vocabulary(household_settings)
-            for alias in item.get("aliases", [])
-            if str(alias).strip()
-        }
-        if household_settings is not None
-        else set()
-    )
+    room_aliases = {
+        str(alias).strip().lower()
+        for item in _room_vocabulary(household_settings)
+        for alias in item.get("aliases", [])
+        if str(alias).strip()
+    }
     light_entity = match_cached_entity(
         text,
         domains={"light", "switch"},
-        excluded_aliases=room_aliases if household_settings is not None else None,
+        excluded_aliases=room_aliases,
     )
     climate_entity = match_cached_entity(
         text,
         domains={"climate", "fan"},
-        excluded_aliases=room_aliases if household_settings is not None else None,
+        excluded_aliases=room_aliases,
     )
     normalized_text = f" {text} "
     has_light_subject = any(

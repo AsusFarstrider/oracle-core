@@ -30,6 +30,7 @@ from oracle_app.configuration.home_assistant_runtime_settings import (
 )
 from oracle_app.home_automation import (
     handle_home_assistant_event,
+    home_automation_scheduler_required,
     resume_due_home_automation_runbooks,
 )
 from oracle_app.home_automation_routes import (
@@ -129,6 +130,32 @@ class HomeAutomationRunbookTests(unittest.TestCase):
             occurred_at=self.started,
             home_assistant_settings=settings or _canonical_settings(),
             db_path=self.db_path,
+        )
+
+    def test_scheduler_is_dormant_without_configuration_or_recovery_work(self) -> None:
+        self.assertFalse(
+            home_automation_scheduler_required(None, db_path=self.db_path)
+        )
+        started = self._event("on", "event-1")
+        self.assertTrue(
+            home_automation_scheduler_required(None, db_path=self.db_path)
+        )
+        RunbookRepository(db_path=self.db_path).transition_run(
+            started["run_id"],
+            status="canceled",
+            summary="test cleanup",
+            cancellation_reason="test_cleanup",
+            cancellation_requester="test",
+        )
+        self.assertFalse(
+            home_automation_scheduler_required(None, db_path=self.db_path)
+        )
+
+    def test_scheduler_starts_for_configured_automation(self) -> None:
+        self.assertTrue(
+            home_automation_scheduler_required(
+                _canonical_settings(), db_path=self.db_path
+            )
         )
 
     def test_direct_notification_migration_mode_does_not_start_run(self) -> None:

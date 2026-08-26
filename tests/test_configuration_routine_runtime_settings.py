@@ -134,25 +134,21 @@ class RoutineRuntimeSettingsTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as temporary:
             db_path = Path(temporary) / "memory.sqlite3"
-            with patch(
-                "oracle_app.orchestration_routines.get_orchestration_settings",
-                side_effect=AssertionError("canonical routine used V1 configuration"),
-            ):
-                run = execution.start(
-                    "bedtime",
-                    client_id="canonical-test",
-                    inputs={"sleep_minutes": 1},
-                    db_path=db_path,
-                )
-                self.assertEqual(run["status"], "waiting")
-                self.assertEqual(
-                    run["payload"]["config_revision"],
-                    routine_settings.config_revision,
-                )
-                resumed = execution.resume_due(
-                    now=datetime.now(timezone.utc) + timedelta(minutes=2),
-                    db_path=db_path,
-                )
+            run = execution.start(
+                "bedtime",
+                client_id="canonical-test",
+                inputs={"sleep_minutes": 1},
+                db_path=db_path,
+            )
+            self.assertEqual(run["status"], "waiting")
+            self.assertEqual(
+                run["payload"]["config_revision"],
+                routine_settings.config_revision,
+            )
+            resumed = execution.resume_due(
+                now=datetime.now(timezone.utc) + timedelta(minutes=2),
+                db_path=db_path,
+            )
 
         self.assertEqual(resumed[0]["status"], "completed")
         self.assertEqual(

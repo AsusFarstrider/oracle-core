@@ -38,9 +38,9 @@ from .projection_generations import SatelliteProjectionGenerationStore
 from .projections import (
     ProjectionGenerationError,
     SatelliteRuntimeCompatibility,
-    SatelliteRuntimeCompatibilityStore,
     generate_satellite_projection,
 )
+from .runtime_compatibility_store import SatelliteRuntimeCompatibilityStore
 from .runtime_cutover import RuntimeCutoverMarker, arm_runtime_cutover, runtime_cutover_required
 from .secret_transactions import (
     SecretAlreadyExists,

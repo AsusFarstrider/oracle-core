@@ -22,9 +22,11 @@ from oracle_app.inference import InferenceClient, InferenceExecutionSettings
 from oracle_app.news import check_news_health
 from oracle_app.routing import build_route_capability_registry, choose_route
 from oracle_app.schemas import CommandRequest, RouteResponse
+from canonical_test_support import neutral_brain_runtime_settings
 
 
 EXAMPLE_ROOT = Path(__file__).resolve().parents[1] / "examples" / "config"
+NEUTRAL_HOUSEHOLD = neutral_brain_runtime_settings().household
 
 
 class InformationRuntimeSettingsTests(unittest.TestCase):
@@ -208,22 +210,16 @@ class InformationRuntimeSettingsTests(unittest.TestCase):
             ),
         )
 
-        with patch(
-            "oracle_app.config.get_facts_settings",
-            side_effect=AssertionError("canonical route used V1 facts settings"),
-        ), patch(
-            "oracle_app.admin_facts_routes.get_facts_settings",
-            side_effect=AssertionError("canonical admin lookup used V1 facts settings"),
-        ):
+        with patch.object(execution, "lookup", wraps=execution.lookup):
             route = choose_route(
                 "What is Oracle?",
                 registry=build_route_capability_registry(
+                    NEUTRAL_HOUSEHOLD,
                     facts_enabled=True,
                     news_settings=information.news,
-                    canonical_information=True,
                     calendar_settings=None,
-                    canonical_calendar=True,
                 ),
+                household_settings=NEUTRAL_HOUSEHOLD,
             )
             dispatched = execute_dispatch(
                 build_dispatch_plan(
@@ -235,16 +231,9 @@ class InformationRuntimeSettingsTests(unittest.TestCase):
                         normalized_text="what is oracle",
                     ),
                 ),
-                registry=build_dispatch_registry(
-                    canonical_configuration=True,
-                    facts_execution=execution,
-                ),
+                registry=build_dispatch_registry(facts_execution=execution),
             )
-            admin = admin_facts_lookup(
-                "What is Oracle?",
-                canonical_execution=execution,
-                canonical_authority=True,
-            )
+            admin = admin_facts_lookup("What is Oracle?", canonical_execution=execution)
 
         self.assertEqual(route.target, "facts")
         self.assertEqual(dispatched.result["answer"]["text"], "A household assistant.")
@@ -280,30 +269,24 @@ class InformationRuntimeSettingsTests(unittest.TestCase):
         headlines = [{"title": "Typed headline", "link": "https://example.invalid/story"}]
 
         with patch(
-            "oracle_app.news.get_news_settings",
-            side_effect=AssertionError("canonical news used V1 settings"),
-        ), patch(
             "oracle_app.provider_bridges.rss_news.RssNewsBridge.fetch_typed_headlines",
             return_value=headlines,
         ) as fetch:
             route = choose_route(
                 "give me local headlines",
                 registry=build_route_capability_registry(
+                    NEUTRAL_HOUSEHOLD,
                     news_settings=information.news,
-                    canonical_information=True,
                     calendar_settings=None,
-                    canonical_calendar=True,
                 ),
+                household_settings=NEUTRAL_HOUSEHOLD,
             )
             dispatched = execute_dispatch(
                 build_dispatch_plan(
                     CommandRequest(text="give me local headlines", source="test"),
                     route,
                 ),
-                registry=build_dispatch_registry(
-                    canonical_configuration=True,
-                    news_execution=execution,
-                ),
+                registry=build_dispatch_registry(news_execution=execution),
             )
             health = check_news_health(
                 canonical_execution=execution,

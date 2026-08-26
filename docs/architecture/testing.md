@@ -76,7 +76,8 @@ Representative modules by area include:
 
 ### API and Command Path
 
-- `tests/test_api_command.py`
+- `tests/test_configuration_brain_application_composition.py`
+- `tests/test_stage5_api_family_runtime.py`
 
 ### Routing
 
@@ -85,7 +86,7 @@ Representative modules by area include:
 
 ### Dispatch and Handlers
 
-- `tests/test_dispatch_handlers.py`
+- `tests/test_dispatch_reply_characterization.py`
 - `tests/test_ollama_handler.py`
 
 ### State, Session, and Context
@@ -117,7 +118,7 @@ Representative modules by area include:
 - `tests/test_control_service_plexamp_queue_transport.py`
 - `tests/test_control_service_volume.py`
 - `tests/test_control_service_logging.py`
-- `tests/test_satellite_cli.py`
+- `tests/test_satellite_audio_config.py`
 - `tests/test_satellite_foreground_handoff.py`
 - `tests/test_satellite_capture_request_pipeline.py`
 - `tests/test_satellite_reply_followup_runtime.py`
@@ -136,13 +137,15 @@ Representative modules by area include:
 
 ### Smoke and Regression
 
-- `tests/test_smoke_flows.py`
-- `tests/test_phase_a_failures.py`
+- `tests/test_conversation_result_contract.py`
+- `tests/test_dispatch_reply_characterization.py`
+- `tests/test_utterance_ledger_execution.py`
 - `tests/test_utterance_ledger_schema.py`
 - `tests/test_utterance_ledger_execution.py`
 
 ## Cross-Surface Smoke Coverage
 
-Some smoke tests span both server and satellite surfaces within a single test module.
-
-`tests/test_smoke_flows.py` is the clearest example of this cross-surface structure.
+Representative traces are split across the canonical Brain command/result
+characterization and the satellite capture/reply pipeline rather than retained
+in a catch-all smoke module. The utterance ledger provides the cross-domain
+regression corpus.

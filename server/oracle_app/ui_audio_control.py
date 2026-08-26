@@ -4,14 +4,6 @@ from fastapi import HTTPException
 
 from . import audiobook_state
 from .alerts import cancel_alerts, create_alert, format_duration, list_alerts
-from .audiobook import (
-    build_longform_payload,
-    close_audiobook_session,
-    fetch_audiobook_item,
-    fetch_current_audiobook_progress,
-    open_audiobook_playback_session,
-    sync_audiobook_session,
-)
 from .audiobook_runtime.playback import (
     play_selected as play_selected_audiobook,
     sync_then_control as sync_then_control_audiobook,
@@ -27,8 +19,6 @@ from .provider_bridges.audiobookshelf_audiobook import normalize_audiobook_progr
 from .music_runtime.control import (
     ControlPlaneError,
     build_control_plane_failure,
-    execute_satellite_command,
-    fetch_satellite_playback_authority,
 )
 from .music_runtime.playback import music_playback_selection
 from .music_runtime.canonical import CanonicalMusicExecution
@@ -75,7 +65,7 @@ def _execute_ui_audiobook_play(
     result: dict[str, object],
     user_id: str | None,
     sleep_timer_minutes: int | None,
-    audiobook_execution: CanonicalAudiobookExecution | None = None,
+    audiobook_execution: CanonicalAudiobookExecution,
 ) -> tuple[str, dict[str, object]]:
     library_item_id = str(result.get("library_item_id") or "").strip()
     if not library_item_id:
@@ -89,9 +79,9 @@ def _execute_ui_audiobook_play(
         user_id=user_id,
         selection={"library_item_id": library_item_id},
         sleep_timer_seconds=sleep_timer_seconds,
-        fetch_audiobook_item=fetch_audiobook_item if audiobook_execution is None else audiobook_execution.fetch_item,
-        open_audiobook_playback_session=open_audiobook_playback_session if audiobook_execution is None else audiobook_execution.open_playback_session,
-        build_longform_payload=lambda session: (build_longform_payload if audiobook_execution is None else audiobook_execution.build_longform_payload)(
+        fetch_audiobook_item=audiobook_execution.fetch_item,
+        open_audiobook_playback_session=audiobook_execution.open_playback_session,
+        build_longform_payload=lambda session: audiobook_execution.build_longform_payload(
             session,
             source=target,
             user_id=user_id,
@@ -99,8 +89,8 @@ def _execute_ui_audiobook_play(
         ),
         register_active_playback=audiobook_state.register_active_audiobook_playback,
         clear_active_playback=audiobook_state.clear_active_audiobook_playback,
-        execute_satellite_command=execute_satellite_command if audiobook_execution is None else audiobook_execution.execute_satellite_command,
-        close_audiobook_session=close_audiobook_session if audiobook_execution is None else audiobook_execution.close_session,
+        execute_satellite_command=audiobook_execution.execute_satellite_command,
+        close_audiobook_session=audiobook_execution.close_session,
         create_sleep_timer=lambda current_source, current_session_id, duration: _create_ui_audiobook_sleep_timer(
             source=current_source,
             session_id=current_session_id,
@@ -135,9 +125,9 @@ def _stop_active_audiobook_before_ui_music(
         action="stop_longform_audio",
         close_session=True,
         get_active_playback_for_source=audiobook_state.get_active_audiobook_playback_for_source,
-        execute_satellite_command=execute_satellite_command if music_execution is None else music_execution.execute_satellite_command,
-        close_audiobook_session=close_audiobook_session if audiobook_execution is None else audiobook_execution.close_session,
-        sync_audiobook_session=sync_audiobook_session if audiobook_execution is None else audiobook_execution.sync_session,
+        execute_satellite_command=music_execution.execute_satellite_command,
+        close_audiobook_session=audiobook_execution.close_session,
+        sync_audiobook_session=audiobook_execution.sync_session,
         clear_active_playback=audiobook_state.clear_active_audiobook_playback,
     )
 
@@ -146,7 +136,7 @@ def _execute_ui_music_play(
     *,
     target: str,
     result: dict[str, object],
-    music_execution: CanonicalMusicExecution | None = None,
+    music_execution: CanonicalMusicExecution,
     audiobook_execution: CanonicalAudiobookExecution | None = None,
 ) -> tuple[str, dict[str, object]]:
     media_type = str(result.get("media_type") or "").strip().lower()
@@ -168,8 +158,7 @@ def _execute_ui_music_play(
                 "audiobook_stop": stop_payload,
             }
     try:
-        command = execute_satellite_command if music_execution is None else music_execution.execute_satellite_command
-        satellite = command(target, "play_media", args)
+        satellite = music_execution.execute_satellite_command(target, "play_media", args)
     except ControlPlaneError as exc:
         return "failed", build_control_plane_failure(action="play", exc=exc, selected=selection)
     return "executed", {
@@ -198,14 +187,16 @@ def _execute_ui_audio_control(
         raise HTTPException(status_code=400, detail="Audio control operation must be pause, resume, stop, volume_up, or volume_down")
 
     normalized_kind = str(media_kind or "").strip().lower()
+    control_execution = music_execution or audiobook_execution
+    if control_execution is None:
+        return "failed", {
+            "action": normalized_operation,
+            "error": "audio_not_configured",
+            "detail": "Audio control is disabled in canonical configuration.",
+        }
     if normalized_kind not in {"audiobook", "music"}:
         try:
-            fetch_authority = fetch_satellite_playback_authority
-            if music_execution is not None and music_execution.settings.playback_target(target) is not None:
-                fetch_authority = music_execution.fetch_playback_authority
-            elif audiobook_execution is not None:
-                fetch_authority = audiobook_execution.fetch_playback_authority
-            authority = fetch_authority(target)
+            authority = control_execution.fetch_playback_authority(target)
         except ControlPlaneError as exc:
             return "failed", build_control_plane_failure(action=normalized_operation, exc=exc)
         owner = summarize_ui_playback_session(authority.get("output_owner"))
@@ -214,8 +205,7 @@ def _execute_ui_audio_control(
     if normalized_kind == "audiobook":
         if normalized_operation in {"volume_up", "volume_down"}:
             try:
-                command = audiobook_execution.execute_satellite_command if audiobook_execution is not None else execute_satellite_command
-                satellite = command(target, normalized_operation, None)
+                satellite = control_execution.execute_satellite_command(target, normalized_operation, None)
             except ControlPlaneError as exc:
                 return "failed", build_control_plane_failure(action=normalized_operation, exc=exc)
             return "executed", {
@@ -225,8 +215,7 @@ def _execute_ui_audio_control(
             }
         if normalized_operation == "resume":
             try:
-                command = audiobook_execution.execute_satellite_command if audiobook_execution is not None else execute_satellite_command
-                satellite = command(target, "resume_longform_audio", None)
+                satellite = control_execution.execute_satellite_command(target, "resume_longform_audio", None)
             except ControlPlaneError as exc:
                 return "failed", build_control_plane_failure(action=normalized_operation, exc=exc)
             return "executed", {
@@ -235,14 +224,25 @@ def _execute_ui_audio_control(
                 "satellite": satellite,
             }
         action = "pause_longform_audio" if normalized_operation == "pause" else "stop_longform_audio"
+        if audiobook_execution is None:
+            try:
+                satellite = control_execution.execute_satellite_command(target, action, None)
+            except ControlPlaneError as exc:
+                return "failed", build_control_plane_failure(action=normalized_operation, exc=exc)
+            return "executed", {
+                "action": normalized_operation,
+                "media_kind": "audiobook",
+                "satellite": satellite,
+                "warning": "audiobook_sync_context_missing",
+            }
         status, result = sync_then_control_audiobook(
             source=target,
             action=action,
             close_session=normalized_operation == "stop",
             get_active_playback_for_source=audiobook_state.get_active_audiobook_playback_for_source,
-            execute_satellite_command=audiobook_execution.execute_satellite_command if audiobook_execution is not None else execute_satellite_command,
-            close_audiobook_session=audiobook_execution.close_session if audiobook_execution is not None else close_audiobook_session,
-            sync_audiobook_session=audiobook_execution.sync_session if audiobook_execution is not None else sync_audiobook_session,
+            execute_satellite_command=audiobook_execution.execute_satellite_command,
+            close_audiobook_session=audiobook_execution.close_session,
+            sync_audiobook_session=audiobook_execution.sync_session,
             clear_active_playback=audiobook_state.clear_active_audiobook_playback,
         )
         if status == "executed" and normalized_operation == "stop":
@@ -253,8 +253,7 @@ def _execute_ui_audio_control(
 
     if normalized_kind == "music":
         try:
-            command = music_execution.execute_satellite_command if music_execution is not None else execute_satellite_command
-            satellite = command(target, normalized_operation, None)
+            satellite = control_execution.execute_satellite_command(target, normalized_operation, None)
         except ControlPlaneError as exc:
             return "failed", build_control_plane_failure(action=normalized_operation, exc=exc)
         return "executed", {

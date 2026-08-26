@@ -7,7 +7,7 @@ Calculations and unit conversions are part of the system route and system-handle
 The current subsystem is split across:
 
 - `server/oracle_app/calculations.py` for unit normalization, conversion, expression evaluation, query parsing, and result construction
-- system-intent classification in `server/oracle_app/system_intents.py` plus capability routing in `server/oracle_app/capabilities/plugins.py`
+- system-intent classification in `server/oracle_app/system_intents.py` plus capability routing in `server/oracle_app/capabilities/system.py`
 - `server/oracle_app/handlers/system.py` for system-target execution
 
 ## Responsibilities

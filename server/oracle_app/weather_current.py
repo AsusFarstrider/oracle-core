@@ -1,22 +1,8 @@
 from __future__ import annotations
 
-from contextvars import ContextVar
 from datetime import datetime
 
-from .config import get_weather_current_settings
-from .provider_bridges.weewx_weather_station import get_weather_station_bridge
-from .read_cache import BoundedReadCache, CachedRead
-from .weather_forecast import fetch_weather_forecast
 from .weather_models import CurrentWeatherQuery, ForecastPeriod, WeatherObservation
-
-
-_CURRENT_WEATHER_CACHE: BoundedReadCache[WeatherObservation] = BoundedReadCache()
-CURRENT_WEATHER_TTL_SECONDS = 30
-CURRENT_WEATHER_STALE_MAX_SECONDS = 15 * 60
-_LAST_CURRENT_READ: ContextVar[CachedRead[WeatherObservation] | None] = ContextVar(
-    "last_current_weather_read",
-    default=None,
-)
 
 
 def parse_current_weather_query(text: str) -> CurrentWeatherQuery:
@@ -181,8 +167,10 @@ def _current_salience(details: dict) -> list[tuple[int, str]]:
 
 
 def _forecast_hint(details: dict, *, forecast_loader=None) -> str | None:
+    if forecast_loader is None:
+        return None
     try:
-        forecast = (forecast_loader or fetch_weather_forecast)()
+        forecast = forecast_loader()
     except Exception:
         return None
 
@@ -214,23 +202,6 @@ def _forecast_hint(details: dict, *, forecast_loader=None) -> str | None:
     if forecast_condition:
         return f"Expect {forecast_condition.lower()} conditions {label}."
     return None
-
-
-def fetch_weather_observation() -> WeatherObservation:
-    cached = _fetch_weather_observation_cached()
-    _LAST_CURRENT_READ.set(cached)
-    return cached.value
-
-
-def _fetch_weather_observation_cached() -> CachedRead[WeatherObservation]:
-    settings = get_weather_current_settings()
-    cache_key = f"current:{settings.get('provider')}:{settings.get('url')}"
-    return _CURRENT_WEATHER_CACHE.read(
-        cache_key,
-        ttl_seconds=CURRENT_WEATHER_TTL_SECONDS,
-        stale_max_seconds=CURRENT_WEATHER_STALE_MAX_SECONDS,
-        loader=lambda: get_weather_station_bridge(settings).fetch_current_observation(settings=settings),
-    )
 
 
 def _build_current_summary(details: dict) -> str:
@@ -376,25 +347,23 @@ def build_current_weather_speech_from_details(
     return speech, query
 
 
-def build_weather_response(query_text: str = "") -> tuple[str, dict]:
-    _LAST_CURRENT_READ.set(None)
-    observation = fetch_weather_observation()
-    cached = _LAST_CURRENT_READ.get() or CachedRead(observation, "fresh", 0.0)
+def build_weather_response(
+    query_text: str,
+    *,
+    observation: WeatherObservation,
+    forecast_loader=None,
+) -> tuple[str, dict]:
+    """Format an explicitly supplied canonical weather observation."""
     details = _format_current_details(observation)
     speech, query = build_current_weather_speech_from_details(
         query_text,
         details,
-        include_forecast_hint=True,
+        include_forecast_hint=forecast_loader is not None,
+        forecast_loader=forecast_loader,
     )
-    if cached.freshness == "stale":
-        speech = f"I couldn't refresh the weather, so this is the latest saved update. {speech}"
-
     return speech, {
         **details,
         "mode": query.mode,
         "field": query.field,
         "stale": observation.freshness_class == "stale",
-        "freshness": cached.freshness,
-        "cache_age_seconds": round(cached.age_seconds, 3),
-        "stale_reason": cached.stale_reason,
     }

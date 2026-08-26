@@ -2,9 +2,14 @@
 
 Oracle exposes an HTTP API for satellites, CLI tools, and future UI clients.
 
-The FastAPI application composition lives in `server/oracle_app/api.py`.
-Purpose-owned route registration lives in conversation, speech, UI, admin,
-satellite, and integration family modules.
+`server/oracle_app/api.py` is the visible application assembly root. It groups
+the six semantic route families and installs the correlation middleware.
+`application_runtime.py` owns FastAPI construction, lifespan ordering, and the
+single application-state composition; `application_command.py`,
+`application_speech.py`, `application_ui.py`, and `application_playback.py`
+own the composition-backed execution adapters. Purpose-owned route declaration
+remains in conversation, speech, UI, admin, satellite, and integration family
+modules.
 
 The API surface is the boundary between thin clients and the brain's internal routing, dispatch, and domain layers.
 
@@ -79,6 +84,11 @@ At a high level, the current command path is:
 5. build reply
 6. shape the finite public `ConversationResult`
 
+The HTTP route is assembled in `api.py`, the semantic conversation wrapper is
+declared in `conversation_routes.py`, and the complete command/session/Memory
+orchestration lives in `application_command.py`. Domain routing, dispatch, and
+reply owners remain below that application boundary.
+
 Request example:
 
 ```json
@@ -123,6 +133,13 @@ The root pending route is a temporary Slice 9 compatibility surface.
 
 The canonical satellite media route exposes prepared audiobook track streaming
 through the Brain. The old root stream remains only for Slice 9 migration.
+
+### Deferred Playback Resume
+
+`POST /api/satellite/deferred-resume` authenticates the satellite projection
+Bearer credential and uses the credential-bound managed source for playback.
+Its continuation is strictly action-typed but is opaque encapsulation rather
+than a signed, expiring, single-use, or server-registered integrity token.
 
 ### TTS
 

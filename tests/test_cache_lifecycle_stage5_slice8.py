@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 import tts
-from oracle_app import api
+from oracle_app import application_runtime
 from oracle_app import facts_cache
 from oracle_app.schemas import (
     FactsAnswer,
@@ -183,13 +183,13 @@ def test_admin_cache_diagnostics_is_read_only_and_v2_native() -> None:
     )
     composition = SimpleNamespace(runtime=SimpleNamespace(information=None))
     with (
-        patch("oracle_app.api.brain_application_composition", return_value=composition),
-        patch("oracle_app.api.facts_cache_diagnostics", return_value=facts),
-        patch("oracle_app.api.tts_cache_diagnostics", return_value=speech),
-        patch("oracle_app.api.maintain_facts_cache") as facts_maintenance,
-        patch("oracle_app.api.maintain_tts_cache") as tts_maintenance,
+        patch("oracle_app.application_runtime.brain_application_composition", return_value=composition),
+        patch("oracle_app.application_runtime.facts_cache_diagnostics", return_value=facts),
+        patch("oracle_app.application_runtime.tts_cache_diagnostics", return_value=speech),
+        patch("oracle_app.application_runtime.maintain_facts_cache") as facts_maintenance,
+        patch("oracle_app.application_runtime.maintain_tts_cache") as tts_maintenance,
     ):
-        payload = api.admin_cache_diagnostics()
+        payload = application_runtime.admin_cache_diagnostics()
 
     assert payload["status"] == "degraded"
     assert payload["caches"]["tts"]["legacy_entries"] == 853

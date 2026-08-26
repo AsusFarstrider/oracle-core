@@ -13,6 +13,7 @@ This remains a structured `/api/ui` surface. It is not a chat prompt, Plex repla
 Implemented now:
 
 - page snapshot at `GET /api/ui/audio`
+- lightweight playback status at `GET /api/ui/audio/status`
 - structured search at `POST /api/ui/audio/search`
 - structured playback launch at `POST /api/ui/audio/play`
 - structured playback controls at `POST /api/ui/audio/control`
@@ -57,6 +58,25 @@ Important distinction:
 - UI music playback must stop and sync any active Oracle audiobook on the selected target before starting music, so playback authority does not enter a dual-active music/audiobook state
 
 This is an internal call-mode difference, not a change to the public playback authority contract.
+
+## Lightweight Playback Status
+
+`GET /api/ui/audio/status` is the passive-polling read model for playback
+headers and home cards. It resolves the same canonical target as the full Audio
+snapshot and returns only target labels plus the app-safe `playback` and
+`now_playing` summaries.
+
+Its progress fields are direct observations from the selected satellite's
+runtime playback authority. `progress_observation.basis` is
+`runtime_playback_authority` and `estimated` is `false`: the Brain does not
+advance position between observations. Clients refresh this status at most
+every five seconds, so useful visible progress remains bounded by that polling
+interval without requiring Audiobookshelf current-progress or metadata reads.
+
+The full `GET /api/ui/audio` contract remains the owner of user-scoped
+Audiobookshelf resume progress, search/result context, capabilities, timers,
+and controls. A detailed Audio page may therefore perform provider-backed work
+that passive status polling must not perform.
 
 ## Request
 

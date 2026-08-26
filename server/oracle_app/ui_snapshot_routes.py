@@ -17,6 +17,7 @@ _build_satellite_ui_home_snapshot: BuildSatelliteSnapshot | None = None
 _build_ui_weather_snapshot: BuildNoArgSnapshot | None = None
 _build_ui_calendar_page_snapshot: BuildNoArgSnapshot | None = None
 _build_ui_audio_snapshot: BuildAudioSnapshot | None = None
+_build_ui_audio_status_snapshot: BuildSatelliteSnapshot | None = None
 _build_ui_house_snapshot: BuildNoArgSnapshot | None = None
 
 logger = logging.getLogger("oracle-brain.ui.snapshots")
@@ -30,6 +31,7 @@ def configure_ui_snapshot_routes(
     build_ui_weather_snapshot: BuildNoArgSnapshot,
     build_ui_calendar_page_snapshot: BuildNoArgSnapshot,
     build_ui_audio_snapshot: BuildAudioSnapshot,
+    build_ui_audio_status_snapshot: BuildSatelliteSnapshot,
     build_ui_house_snapshot: BuildNoArgSnapshot,
 ) -> None:
     global _build_ui_home_snapshot
@@ -38,6 +40,7 @@ def configure_ui_snapshot_routes(
     global _build_ui_weather_snapshot
     global _build_ui_calendar_page_snapshot
     global _build_ui_audio_snapshot
+    global _build_ui_audio_status_snapshot
     global _build_ui_house_snapshot
 
     _build_ui_home_snapshot = build_ui_home_snapshot
@@ -46,6 +49,7 @@ def configure_ui_snapshot_routes(
     _build_ui_weather_snapshot = build_ui_weather_snapshot
     _build_ui_calendar_page_snapshot = build_ui_calendar_page_snapshot
     _build_ui_audio_snapshot = build_ui_audio_snapshot
+    _build_ui_audio_status_snapshot = build_ui_audio_status_snapshot
     _build_ui_house_snapshot = build_ui_house_snapshot
 
 
@@ -99,6 +103,10 @@ def ui_audio(source: str | None = None, user_id: str | None = None) -> dict[str,
     return _timed_snapshot("audio", _require_builder(_build_ui_audio_snapshot), source, user_id)
 
 
+def ui_audio_status(source: str | None = None) -> dict[str, object]:
+    return _timed_snapshot("audio_status", _require_builder(_build_ui_audio_status_snapshot), source)
+
+
 def ui_house() -> dict[str, object]:
     return _timed_snapshot("house", _require_builder(_build_ui_house_snapshot))
 
@@ -110,4 +118,5 @@ def register_ui_snapshot_routes(app: FastAPI) -> None:
     app.get("/api/ui/weather")(ui_weather)
     app.get("/api/ui/calendar")(ui_calendar)
     app.get("/api/ui/audio")(ui_audio)
+    app.get("/api/ui/audio/status")(ui_audio_status)
     app.get("/api/ui/house")(ui_house)

@@ -13,7 +13,6 @@ from typing import Any, Callable, Mapping
 
 from fastapi import HTTPException
 
-from .config import get_orchestration_settings
 from .memory.runtime import safe_record_event
 from .runbook_kernel import RunbookActivation, RunbookDefinitionRef, RunbookRepository
 
@@ -659,7 +658,9 @@ def _finish_run(
 
 
 def _find_routine(orchestration_id: str, *, settings: dict[str, Any] | None) -> dict[str, Any]:
-    for definition in (settings or get_orchestration_settings()).get("routines") or []:
+    if settings is None:
+        raise ValueError("Routine lookup requires an explicit canonical definition or settings snapshot.")
+    for definition in settings.get("routines") or []:
         if str(definition.get("id") or "") == str(orchestration_id or "").strip():
             return dict(definition)
     raise HTTPException(status_code=404, detail="Routine definition was not found.")
@@ -669,13 +670,13 @@ def find_routine_trigger(
     text: str,
     *,
     source: str | None,
-    settings: dict[str, Any] | None = None,
+    settings: dict[str, Any],
 ) -> dict[str, Any] | None:
     normalized_text = _normalize_phrase(text)
     if not normalized_text:
         return None
     source_id = str(source or "").strip()
-    definitions = (settings or get_orchestration_settings()).get("routines") or []
+    definitions = settings.get("routines") or []
     for definition in definitions:
         if not isinstance(definition, dict) or definition.get("enabled") is not True:
             continue

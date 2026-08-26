@@ -89,7 +89,10 @@ def test_system_refresh_action_uses_injected_home_assistant_settings(monkeypatch
         status="planned",
     )
 
-    result = SystemHandler(home_assistant_settings=settings).handle(dispatch, object())
+    result = SystemHandler(
+        household_settings=object(),  # type: ignore[arg-type]
+        home_assistant_settings=settings,
+    ).handle(dispatch, object())
 
     assert calls == [settings]
     assert result.status == "executed"

@@ -74,7 +74,6 @@ def admin_openclaw_status_http(request: Request) -> dict[str, object]:
         raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
     return openclaw_status(
         canonical_execution=canonical.suggestions_execution,
-        canonical_authority=True,
     )
 
 
@@ -89,7 +88,6 @@ def admin_generate_suggestions_http(
         payload,
         canonical_execution=canonical.suggestions_execution,
         canonical_composition=canonical,
-        canonical_authority=True,
     )
 
 

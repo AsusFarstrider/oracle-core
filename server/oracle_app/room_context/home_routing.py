@@ -10,7 +10,6 @@ from oracle_app.session_state import get_active_context
 
 from .classifier import classify_room_sensitive_home_command
 from .resolver import resolve_room_context
-from .vocabulary import canonical_room_name
 
 
 def apply_room_context_to_home_text(
@@ -18,17 +17,13 @@ def apply_room_context_to_home_text(
     *,
     source: str | None = None,
     session_id: str | None = None,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> tuple[str, dict[str, Any]]:
     canonical_text = canonicalize_home_command(
         text,
         household_settings=household_settings,
     )
-    pending_room = (
-        household_settings.resolve_room_id(canonical_text)
-        if household_settings is not None
-        else canonical_room_name(canonical_text)
-    )
+    pending_room = household_settings.resolve_room_id(canonical_text)
     if state.load_pending_home_request(source, session_id) is not None and pending_room:
         return canonical_text, {
             "room_required": False,
@@ -65,10 +60,9 @@ def apply_room_context_to_home_text(
         and resolution.resolution_source != "explicit_room"
     ):
         command_room = resolution.resolved_room
-        if household_settings is not None:
-            configured_room = household_settings.room(resolution.resolved_room)
-            if configured_room is not None:
-                command_room = str(configured_room.display_name).strip().lower()
+        configured_room = household_settings.room(resolution.resolved_room)
+        if configured_room is not None:
+            command_room = str(configured_room.display_name).strip().lower()
         resolved_text = inject_room_into_home_command(
             canonical_text,
             room=command_room,
@@ -115,7 +109,7 @@ def inject_room_into_home_command(text: str, *, room: str, injection_kind: str) 
 def _resolve_injection_kind(
     text: str,
     *,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str:
     sensitivity = classify_room_sensitive_home_command(
         text,

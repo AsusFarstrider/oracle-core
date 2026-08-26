@@ -146,6 +146,12 @@ button {
   white-space: nowrap;
 }
 
+.header-player__progress {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
 .header-player__title {
   font-size: 0.95rem;
   font-weight: 900;

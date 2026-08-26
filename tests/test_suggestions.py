@@ -184,7 +184,6 @@ class SuggestionDomainTests(unittest.TestCase):
             sections, statuses = collect_sources(
                 "oracle",
                 canonical_composition=composition,
-                canonical_authority=True,
             )
 
         self.assertEqual(sections["oracle"]["configured_sources"], ["living_room_voice"])
@@ -197,21 +196,18 @@ class SuggestionDomainTests(unittest.TestCase):
         self.assertIs(news.call_args.kwargs["canonical_execution"], composition.news_execution)
         self.assertIsNotNone(tts.call_args.kwargs["provider"])
         self.assertIsNotNone(stt.call_args.kwargs["provider"])
-        self.assertTrue(network.call_args.kwargs["canonical_authority"])
+        self.assertIs(network.call_args.kwargs["canonical_execution"], composition.network_execution)
 
     def test_canonical_librenms_collector_uses_normalized_network_snapshot(self) -> None:
         network = SimpleNamespace(status_snapshot=lambda **_kwargs: {"status": "healthy"})
         composition = SimpleNamespace(network_execution=network)
-        with patch("oracle_app.config.get_librenms_settings") as legacy:
-            sections, statuses = collect_sources(
-                "librenms",
-                canonical_composition=composition,
-                canonical_authority=True,
-            )
+        sections, statuses = collect_sources(
+            "librenms",
+            canonical_composition=composition,
+        )
 
         self.assertTrue(statuses["librenms"]["ok"])
         self.assertEqual(sections["librenms"]["status"]["status"], "healthy")
-        legacy.assert_not_called()
 
     def test_canonical_ssh_execution_uses_typed_long_running_timeout(self) -> None:
         execution = CanonicalSuggestionsExecution(
@@ -279,10 +275,10 @@ class SuggestionDomainTests(unittest.TestCase):
         application.state.brain_application_composition = composition
         request = Request({"type": "http", "app": application})
 
-        with (
-            patch("oracle_app.suggestions.service.build_packet", return_value=({"run_id": "run"}, {"oracle": {"ok": True}})) as packet,
-            patch("oracle_app.suggestions.service.get_openclaw_settings") as legacy,
-        ):
+        with patch(
+            "oracle_app.suggestions.service.build_packet",
+            return_value=({"run_id": "run"}, {"oracle": {"ok": True}}),
+        ) as packet:
             status = admin_openclaw_status_http(request)
             result = admin_generate_suggestions_http(
                 request,
@@ -292,9 +288,7 @@ class SuggestionDomainTests(unittest.TestCase):
         self.assertTrue(status["configured"])
         self.assertTrue(result["ok"])
         self.assertIs(packet.call_args.kwargs["canonical_composition"], composition)
-        self.assertTrue(packet.call_args.kwargs["canonical_authority"])
         execution.generate.assert_called_once()
-        legacy.assert_not_called()
 
     @patch("oracle_app.provider_bridges.openclaw.adapters.ssh_cli.subprocess.run")
     def test_ssh_cli_adapter_parses_openclaw_agent_output(self, mock_run) -> None:
@@ -355,26 +349,25 @@ class SuggestionDomainTests(unittest.TestCase):
         self.assertIn("END_ORACLE_DIAGNOSTIC_PACKET", request["prompt"])
 
     def test_generate_saves_packet_and_failed_openclaw_response(self) -> None:
+        execution = Mock(enabled=True)
+        execution.max_suggestions.return_value = 10
+        execution.status.return_value = {"adapter": "http"}
+        execution.generate.return_value = {
+            "ok": False,
+            "provider": "openclaw",
+            "adapter": "http",
+            "raw_response": {},
+            "suggestions": [],
+            "errors": ["OpenClaw HTTP base URL is not configured."],
+            "mock": False,
+        }
         with (
             patch("oracle_app.suggestions.service.build_packet", return_value=({"run_id": "run", "token": "[REDACTED]"}, {"oracle": {"ok": True}})),
-            patch(
-                "oracle_app.suggestions.service.get_openclaw_settings",
-                return_value={"adapter": "http", "base_url": "", "endpoint_path": "", "timeout_seconds": 1, "max_suggestions": 10},
-            ),
-            patch(
-                "oracle_app.suggestions.service.openclaw_generate_suggestions",
-                return_value={
-                    "ok": False,
-                    "provider": "openclaw",
-                    "adapter": "http",
-                    "raw_response": {},
-                    "suggestions": [],
-                    "errors": ["OpenClaw HTTP base URL is not configured."],
-                    "mock": False,
-                },
-            ),
         ):
-            result = generate_suggestion_run(SuggestionGenerateRequest(run_type="oracle", wait_for_completion=True))
+            result = generate_suggestion_run(
+                SuggestionGenerateRequest(run_type="oracle", wait_for_completion=True),
+                canonical_execution=execution,
+            )
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["run"]["status"], "failed")
@@ -384,20 +377,17 @@ class SuggestionDomainTests(unittest.TestCase):
         self.assertEqual(exchange["response"]["adapter"], "http")
 
     def test_generate_queues_background_run_without_waiting_for_openclaw(self) -> None:
+        execution = Mock(enabled=True)
+        execution.max_suggestions.return_value = 10
+        execution.status.return_value = {"adapter": "ssh_cli"}
         with (
             patch("oracle_app.suggestions.service.build_packet", return_value=({"run_id": "run"}, {"oracle": {"ok": True}})),
-            patch(
-                "oracle_app.suggestions.service.get_openclaw_settings",
-                return_value={
-                    "adapter": "ssh_cli",
-                    "ssh_target": "oracle@advisor.invalid",
-                    "timeout_seconds": 14400,
-                    "max_suggestions": 10,
-                },
-            ),
             patch("oracle_app.suggestions.service.threading.Thread") as mock_thread,
         ):
-            result = generate_suggestion_run(SuggestionGenerateRequest(run_type="oracle"))
+            result = generate_suggestion_run(
+                SuggestionGenerateRequest(run_type="oracle"),
+                canonical_execution=execution,
+            )
 
         self.assertTrue(result["ok"])
         self.assertTrue(result["queued"])

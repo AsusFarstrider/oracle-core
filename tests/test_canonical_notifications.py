@@ -39,8 +39,6 @@ class CanonicalNotificationExecutionTests(unittest.TestCase):
                 },
             ) as dispatch,
             patch("oracle_app.notifications.canonical.record_notification_event"),
-            patch("oracle_app.notifications.catalog.get_notification_settings") as legacy_catalog,
-            patch("oracle_app.notifications.policy.get_home_assistant_settings") as legacy_ha,
         ):
             result = execution.submit("door_open", "event-1", caller="home_automation_runbook")
 
@@ -50,16 +48,14 @@ class CanonicalNotificationExecutionTests(unittest.TestCase):
             ("living_room_voice",),
         )
         self.assertEqual(dispatch.call_args.kwargs["message"], runtime.definition.message)
-        legacy_catalog.assert_not_called()
-        legacy_ha.assert_not_called()
 
     def test_suppression_uses_exact_canonical_mode_mapping(self) -> None:
         execution, runtime = self._execution(suppressed_by=["quiet"])
         bridge = SimpleNamespace(fetch_entity_state=lambda entity_id: {"state": "on"})
-        with (
-            patch("oracle_app.notifications.canonical.HomeAssistantBridge", return_value=bridge) as bridge_class,
-            patch("oracle_app.notifications.policy.get_home_assistant_settings") as legacy_ha,
-        ):
+        with patch(
+            "oracle_app.notifications.canonical.HomeAssistantBridge",
+            return_value=bridge,
+        ) as bridge_class:
             status = execution.evaluate_suppression(runtime)
 
         self.assertEqual(status, "active")
@@ -68,7 +64,6 @@ class CanonicalNotificationExecutionTests(unittest.TestCase):
             token="token",
             timeout_seconds=8,
         )
-        legacy_ha.assert_not_called()
 
     def test_external_worker_resolves_current_typed_definition_and_provider(self) -> None:
         execution, runtime = self._execution(external=True, suppressed_by=[])
@@ -90,23 +85,17 @@ class CanonicalNotificationExecutionTests(unittest.TestCase):
                 repeat_policy="first_per_correlation",
                 db_path=db_path,
             )
-            with (
-                patch("oracle_app.notifications.external_worker.get_notification_settings") as legacy_notifications,
-                patch("oracle_app.notifications.external_worker.get_apprise_settings") as legacy_apprise,
-            ):
-                outcomes = process_due_external_deliveries(
-                    now=now,
-                    db_path=db_path,
-                    bridge=bridge,  # type: ignore[arg-type]
-                    canonical_execution=execution,
-                )
+            outcomes = process_due_external_deliveries(
+                now=now,
+                db_path=db_path,
+                bridge=bridge,  # type: ignore[arg-type]
+                canonical_execution=execution,
+            )
 
         self.assertEqual(outcomes[0]["status"], "accepted")
         self.assertEqual(bridge.calls[0]["base_url"], "http://apprise.invalid")
         self.assertEqual(bridge.calls[0]["config_key"], "oracle")
         self.assertEqual(bridge.calls[0]["body"], runtime.definition.message)
-        legacy_notifications.assert_not_called()
-        legacy_apprise.assert_not_called()
 
     def test_external_worker_rejects_mixed_canonical_and_legacy_settings(self) -> None:
         execution, _runtime = self._execution(suppressed_by=[])

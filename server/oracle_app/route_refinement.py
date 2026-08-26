@@ -1,17 +1,11 @@
 from __future__ import annotations
 
 import re
+from typing import Protocol
 
 from .audiobook import parse_bare_audiobook_sleep_timer_intent
 from .configuration.household_runtime_settings import HouseholdRuntimeSettings
 from .conversation import get_conversation
-from .music_runtime.control import (
-    fetch_satellite_audiobook_context_session,
-    fetch_satellite_audiobook_session,
-    fetch_satellite_music_session,
-    fetch_satellite_playback_authority,
-    fetch_satellite_reply_audio_session,
-)
 from .music_runtime.transport import is_dual_active_music_audiobook_target, resolve_authority_transport_targets
 from .room_context import canonical_room_name
 from .routing_helpers import canonicalize_home_command, has_home_keyword
@@ -70,13 +64,66 @@ _HOME_FOLLOWUP_ACTION_PREFIXES = (
 )
 
 
+class PlaybackRouteState(Protocol):
+    def fetch_satellite_audiobook_context_session(self, source: str | None) -> dict[str, object] | None: ...
+    def fetch_satellite_audiobook_session(self, source: str | None) -> dict[str, object] | None: ...
+    def fetch_satellite_music_session(self, source: str | None) -> dict[str, object] | None: ...
+    def fetch_satellite_reply_audio_session(self, source: str | None) -> dict[str, object] | None: ...
+    def fetch_playback_authority(self, source: str | None) -> dict[str, object]: ...
+
+
+def fetch_satellite_audiobook_context_session(source: str | None):
+    del source
+    return None
+
+
+def fetch_satellite_audiobook_session(source: str | None):
+    del source
+    return None
+
+
+def fetch_satellite_music_session(source: str | None):
+    del source
+    return None
+
+
+def fetch_satellite_reply_audio_session(source: str | None):
+    del source
+    return None
+
+
+def fetch_satellite_playback_authority(source: str | None):
+    del source
+    raise RuntimeError("Characterized playback authority was not supplied.")
+
+
+class CharacterizedPlaybackRouteState:
+    """Test seam for legacy routing characterizations; production injects execution."""
+
+    def fetch_satellite_audiobook_context_session(self, source):
+        return fetch_satellite_audiobook_context_session(source)
+
+    def fetch_satellite_audiobook_session(self, source):
+        return fetch_satellite_audiobook_session(source)
+
+    def fetch_satellite_music_session(self, source):
+        return fetch_satellite_music_session(source)
+
+    def fetch_satellite_reply_audio_session(self, source):
+        return fetch_satellite_reply_audio_session(source)
+
+    def fetch_playback_authority(self, source):
+        return fetch_satellite_playback_authority(source)
+
+
 def refine_route(
     route: RouteResponse,
     *,
     normalized_text: str,
     source: str | None = None,
     session_id: str | None = None,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
+    playback_state: PlaybackRouteState | None = None,
 ) -> RouteResponse:
     if not source or not normalized_text:
         return route
@@ -94,7 +141,12 @@ def refine_route(
         )
         return route
 
-    refined = _refine_active_media_transport(route, normalized_text=normalized_text, source=source)
+    refined = _refine_active_media_transport(
+        route,
+        normalized_text=normalized_text,
+        source=source,
+        playback_state=playback_state,
+    )
     if refined is not None:
         log_followup_event(
             "followup_bound",
@@ -106,7 +158,12 @@ def refine_route(
         )
         return refined
 
-    refined = _refine_audiobook_sleep_timer(route, normalized_text=normalized_text, source=source)
+    refined = _refine_audiobook_sleep_timer(
+        route,
+        normalized_text=normalized_text,
+        source=source,
+        playback_state=playback_state,
+    )
     if refined is not None:
         log_followup_event(
             "followup_bound",
@@ -144,12 +201,13 @@ def _refine_active_media_transport(
     *,
     normalized_text: str,
     source: str,
+    playback_state: PlaybackRouteState | None,
 ) -> RouteResponse | None:
     action = _resolve_bare_transport_action(normalized_text)
     if action is None:
         return None
 
-    authority_state = _safe_playback_authority(source)
+    authority_state = _safe_playback_authority(source, playback_state)
     if isinstance(authority_state, dict):
         authority_targets = resolve_authority_transport_targets(action, authority_state)
         if authority_targets.get("ambiguous"):
@@ -161,9 +219,9 @@ def _refine_active_media_transport(
             str(reason).strip() for reason in (authority_state.get("degraded_reasons") or [])
         ]
     else:
-        longform_state = _safe_longform_state(source)
-        now_playing = _safe_now_playing(source)
-        reply_audio_state = _safe_reply_audio_state(source)
+        longform_state = _safe_longform_state(source, playback_state)
+        now_playing = _safe_now_playing(source, playback_state)
+        reply_audio_state = _safe_reply_audio_state(source, playback_state)
         longform_match = _longform_transport_matches(action, longform_state)
         music_match = _music_transport_matches(action, now_playing)
         reply_audio_match = _reply_audio_transport_matches(action, reply_audio_state)
@@ -217,6 +275,7 @@ def _refine_audiobook_sleep_timer(
     *,
     normalized_text: str,
     source: str,
+    playback_state: PlaybackRouteState | None,
 ) -> RouteResponse | None:
     if not _looks_like_audiobook_sleep_timer_request(normalized_text):
         return None
@@ -233,8 +292,10 @@ def _refine_audiobook_sleep_timer(
             normalized_text=normalized_text,
         )
 
+    if playback_state is None:
+        return route
     try:
-        session = fetch_satellite_audiobook_context_session(source)
+        session = playback_state.fetch_satellite_audiobook_context_session(source)
     except Exception:
         return route
     if not isinstance(session, dict):
@@ -288,7 +349,7 @@ def _refine_session_active_context(
     normalized_text: str,
     source: str,
     session_id: str | None,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> RouteResponse | None:
     active_context = get_active_context(source, session_id)
     if not isinstance(active_context, dict) or str(active_context.get("anchor_strength") or "") != "strong":
@@ -335,7 +396,7 @@ def _refine_home_assistant_followup(
     *,
     normalized_text: str,
     active_context: dict[str, object],
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> RouteResponse | None:
     route_target = str(active_context.get("route_target") or "").strip().lower()
     if route_target != "home_assistant":
@@ -413,7 +474,7 @@ def _normalize_home_conjunction_followup(
     context_text: str,
     *,
     brightness_context_text: str = "",
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str | None:
     if not normalized_text:
         return None
@@ -447,7 +508,7 @@ def _expand_home_followup_from_context(
     context_text: str,
     *,
     brightness_context_text: str = "",
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str:
     target_text = _extract_home_context_target(context_text)
     if target_text:
@@ -504,7 +565,7 @@ def _expand_home_room_followup_from_context(
     context_text: str,
     *,
     brightness_context_text: str = "",
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> str | None:
     room_match = re.fullmatch(r"what about (?:the )?(.+)", normalized_text)
     if room_match is None:
@@ -551,7 +612,7 @@ def _recover_home_followup_context_from_conversation(
     normalized_text: str,
     source: str,
     session_id: str | None,
-    household_settings: HouseholdRuntimeSettings | None = None,
+    household_settings: HouseholdRuntimeSettings,
 ) -> dict[str, object] | None:
     if not _looks_like_home_context_dependent_followup(normalized_text):
         return None
@@ -608,30 +669,38 @@ def _looks_like_home_anchor_text(text: str) -> bool:
     return bool(re.search(r"\b(light|lights|lamp|thermostat|temperature|fan|lock|door|blinds)\b", text))
 
 
-def _safe_longform_state(source: str) -> dict[str, object] | None:
+def _safe_longform_state(source: str, playback_state: PlaybackRouteState | None) -> dict[str, object] | None:
+    if playback_state is None:
+        return None
     try:
-        return fetch_satellite_audiobook_session(source)
+        return playback_state.fetch_satellite_audiobook_session(source)
     except Exception:
         return None
 
 
-def _safe_now_playing(source: str) -> dict[str, object] | None:
+def _safe_now_playing(source: str, playback_state: PlaybackRouteState | None) -> dict[str, object] | None:
+    if playback_state is None:
+        return None
     try:
-        return fetch_satellite_music_session(source)
+        return playback_state.fetch_satellite_music_session(source)
     except Exception:
         return None
 
 
-def _safe_reply_audio_state(source: str) -> dict[str, object] | None:
+def _safe_reply_audio_state(source: str, playback_state: PlaybackRouteState | None) -> dict[str, object] | None:
+    if playback_state is None:
+        return None
     try:
-        return fetch_satellite_reply_audio_session(source)
+        return playback_state.fetch_satellite_reply_audio_session(source)
     except Exception:
         return None
 
 
-def _safe_playback_authority(source: str) -> dict[str, object] | None:
+def _safe_playback_authority(source: str, playback_state: PlaybackRouteState | None) -> dict[str, object] | None:
+    if playback_state is None:
+        return None
     try:
-        return fetch_satellite_playback_authority(source)
+        return playback_state.fetch_playback_authority(source)
     except Exception:
         return None
 

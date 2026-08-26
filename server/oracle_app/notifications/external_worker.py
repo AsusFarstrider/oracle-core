@@ -6,10 +6,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from oracle_app.config import get_apprise_settings, get_notification_settings
 from oracle_app.provider_bridges.apprise import AppriseBridge, AppriseBridgeError
 
 from .receipts import (
+    has_active_notification_deliveries,
     list_due_notification_deliveries,
     list_expired_notification_deliveries,
     transition_notification_delivery,
@@ -21,6 +21,21 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("oracle-brain.notifications.external-worker")
+
+
+def external_delivery_worker_required(
+    canonical_execution: CanonicalNotificationExecution,
+    *,
+    db_path: Path | None = None,
+) -> bool:
+    """Keep external delivery dormant unless configured or recovering work."""
+
+    settings = canonical_execution.settings
+    configured = settings is not None and bool(settings.recipient_groups)
+    return configured or has_active_notification_deliveries(
+        channel="external",
+        db_path=db_path,
+    )
 
 
 def process_due_external_deliveries(
@@ -68,14 +83,12 @@ def process_due_external_deliveries(
     )
     if not due:
         return outcomes
-    resolved_notifications = (
-        None
-        if canonical_execution is not None
-        else (notification_settings or get_notification_settings())
-    )
-    resolved_apprise = (
-        None if canonical_execution is not None else (apprise_settings or get_apprise_settings())
-    )
+    resolved_notifications = None if canonical_execution is not None else notification_settings
+    resolved_apprise = None if canonical_execution is not None else apprise_settings
+    if canonical_execution is None and (
+        resolved_notifications is None or resolved_apprise is None
+    ):
+        raise ValueError("External delivery requires canonical execution or explicit settings.")
     resolved_bridge = bridge or AppriseBridge()
     for receipt in due:
         receipt_id = str(receipt["receipt_id"])

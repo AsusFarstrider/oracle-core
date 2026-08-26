@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import base64
+import json
+
+import pytest
+
 from oracle_app.conversation_results import (
     GENERIC_SAFETY_REPLY,
     build_conversation_result,
@@ -106,8 +111,15 @@ def test_alert_delivery_target_is_distinct_from_request_and_playback_sources() -
 
 def test_deferred_satellite_continuation_is_opaque_and_round_trips() -> None:
     deferred_session = {
+        "kind": "music",
+        "backend_type": "oracle_native_music",
+        "session_id": "plex:track:one",
         "resume_action": "play_media",
-        "resume_args": {"uri": "plex://track/one"},
+        "resume_args": {
+            "media_type": "track",
+            "plex_key": "/library/metadata/one",
+            "duration_seconds": 180.0,
+        },
     }
     response = _response(result={"action": "routine_start", "deferred_session": deferred_session})
     result = build_conversation_result(
@@ -119,3 +131,44 @@ def test_deferred_satellite_continuation_is_opaque_and_round_trips() -> None:
     assert effect is not None
     assert "resume_action" not in effect.continuation_token
     assert decode_deferred_satellite_playback(effect.continuation_token) == deferred_session
+
+
+def test_deferred_satellite_continuation_rejects_unknown_or_mistyped_fields() -> None:
+    invalid = {
+        "kind": "music",
+        "backend_type": "oracle_native_music",
+        "session_id": "plex:track:one",
+        "resume_action": "play_media",
+        "resume_args": {
+            "media_type": "track",
+            "plex_key": "/library/metadata/one",
+            "duration_seconds": "180",
+            "command": "stop",
+        },
+    }
+    serialized = json.dumps(invalid, sort_keys=True, separators=(",", ":"))
+    token = base64.urlsafe_b64encode(serialized.encode("utf-8")).decode("ascii").rstrip("=")
+
+    with pytest.raises(ValueError, match="Invalid deferred satellite playback"):
+        decode_deferred_satellite_playback(token)
+
+
+@pytest.mark.parametrize(
+    ("internal_result", "expected_kind"),
+    [
+        ({"action": "show", "ui_presentation": {"view": "weather"}}, "dto"),
+        ({"action": "show", "ui_presentation_ref": "weather:current"}, "reference"),
+    ],
+)
+def test_ui_presentation_effect_accepts_only_the_two_finite_forms(
+    internal_result: dict[str, object],
+    expected_kind: str,
+) -> None:
+    result = build_conversation_result(
+        request=CommandRequest(text="show it", source="satellite-one", session_id="requested-one"),
+        response=_response(result=internal_result),
+        trace_id="trace-ui",
+    )
+
+    assert result.effects.ui_presentation is not None
+    assert result.effects.ui_presentation.kind == expected_kind

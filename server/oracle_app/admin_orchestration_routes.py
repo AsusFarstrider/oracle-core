@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Request
 
-from .config import get_orchestration_settings
 from .memory.orchestrations import list_orchestration_runs
 
 
@@ -10,13 +9,8 @@ def admin_orchestrations(
     *,
     routine_execution=None,
     network_execution=None,
-    canonical_authority: bool = False,
 ) -> dict[str, object]:
-    settings = (
-        _canonical_orchestration_settings(routine_execution, network_execution)
-        if canonical_authority
-        else get_orchestration_settings()
-    )
+    settings = _canonical_orchestration_settings(routine_execution, network_execution)
     recent_runs = list_orchestration_runs(limit=100)
     runs_by_definition: dict[str, list[dict[str, object]]] = {}
     for run in recent_runs:
@@ -68,13 +62,8 @@ def admin_orchestration_detail(
     *,
     routine_execution=None,
     network_execution=None,
-    canonical_authority: bool = False,
 ) -> dict[str, object]:
-    settings = (
-        _canonical_orchestration_settings(routine_execution, network_execution)
-        if canonical_authority
-        else get_orchestration_settings()
-    )
+    settings = _canonical_orchestration_settings(routine_execution, network_execution)
     for kind, collection in (
         ("recovery", settings.get("recoveries") or []),
         ("routine", settings.get("routines") or []),
@@ -128,7 +117,6 @@ def admin_orchestrations_http(request: Request) -> dict[str, object]:
     return admin_orchestrations(
         routine_execution=routine,
         network_execution=network,
-        canonical_authority=True,
     )
 
 
@@ -143,7 +131,6 @@ def admin_orchestration_detail_http(
         orchestration_id,
         routine_execution=routine,
         network_execution=network,
-        canonical_authority=True,
     )
 
 

@@ -19,7 +19,6 @@ class MediaExecutionContextTests(unittest.TestCase):
                     payload={"source": "room_voice", "session_id": "request-1"},
                     status="planned",
                 ),
-                canonical_playback_target=False,
             )
 
         self.assertEqual(failure.exception.code, "playback_target_required")
@@ -37,7 +36,6 @@ class MediaExecutionContextTests(unittest.TestCase):
                 },
                 status="planned",
             ),
-            canonical_playback_target=True,
         )
 
         self.assertEqual(context.request_source_id, "ephemeral_http")
@@ -57,7 +55,6 @@ class MediaExecutionContextTests(unittest.TestCase):
                 },
                 status="planned",
             ),
-            canonical_playback_target=True,
         )
 
         self.assertTrue(context.defer_audible_start)
@@ -74,7 +71,6 @@ class MediaExecutionContextTests(unittest.TestCase):
                     },
                     status="planned",
                 ),
-                canonical_playback_target=True,
             )
 
         self.assertEqual(failure.exception.code, "playback_target_required")

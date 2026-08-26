@@ -11,13 +11,6 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
-from oracle_app.admin_network_routes import (
-    _with_power_target_host,
-    admin_network_control_actions,
-    admin_network_control_confirm,
-    admin_network_control_dry_run,
-    admin_network_status,
-)
 from oracle_app.dispatch import build_dispatch_plan, build_dispatch_registry, execute_dispatch
 from oracle_app.network import (
     build_ui_network_health_snapshot,
@@ -106,10 +99,31 @@ _NEUTRAL_ROUTE_REGISTRY = build_route_capability_registry(
     _NEUTRAL_RUNTIME.household,
     facts_enabled=False,
     news_settings=_NEUTRAL_RUNTIME.information.news if _NEUTRAL_RUNTIME.information else None,
-    canonical_information=True,
     calendar_settings=_NEUTRAL_RUNTIME.calendar,
-    canonical_calendar=True,
 )
+
+
+def _with_power_target_host(
+    *, target: dict[str, object] | None,
+    inventory: dict[str, object],
+) -> dict[str, object] | None:
+    if not isinstance(target, dict):
+        return target
+    host_id = str(target.get("host_id") or "").strip()
+    host = next(
+        (
+            item
+            for item in inventory.get("hosts") or []
+            if isinstance(item, dict) and str(item.get("id") or "").strip() == host_id
+        ),
+        {},
+    )
+    addresses = host.get("addresses") if isinstance(host.get("addresses"), list) else []
+    return {
+        **target,
+        "host_display_name": str(host.get("display_name") or host_id).strip(),
+        "host_address": next((str(item).strip() for item in addresses if str(item).strip()), ""),
+    }
 
 
 def _walk_payload(value, path: str = "$"):
@@ -156,29 +170,11 @@ class NetworkTestCase(unittest.TestCase):
             "os.environ", {"ORACLE_SSH_KNOWN_HOSTS_FILE": str(self.known_hosts_path)}
         )
         self._ssh_environment_patcher.start()
-        self._canonical_settings_patchers = [
-            patch("oracle_app.network.get_network_probe_settings", return_value=_NEUTRAL_NETWORK_PROBE_SETTINGS),
-            patch("oracle_app.network.get_librenms_settings", return_value=_NEUTRAL_LIBRENMS_SETTINGS),
-            patch("oracle_app.network.get_network_inventory_settings", return_value=_NEUTRAL_NETWORK_INVENTORY_SETTINGS),
-            patch("oracle_app.network.get_network_router_control_settings", return_value=_NEUTRAL_ROUTER_CONTROL_SETTINGS),
-            patch("oracle_app.network.get_network_service_control_settings", return_value=_NEUTRAL_SERVICE_CONTROL_SETTINGS),
-            patch("oracle_app.network.get_music_settings", return_value=_NEUTRAL_MUSIC_SETTINGS),
-            patch("oracle_app.admin_network_routes.get_network_probe_settings", return_value=_NEUTRAL_NETWORK_PROBE_SETTINGS),
-            patch("oracle_app.admin_network_routes.get_network_inventory_settings", return_value=_NEUTRAL_NETWORK_INVENTORY_SETTINGS),
-            patch("oracle_app.admin_network_routes.get_network_router_control_settings", return_value=_NEUTRAL_ROUTER_CONTROL_SETTINGS),
-            patch("oracle_app.admin_network_routes.get_network_service_control_settings", return_value=_NEUTRAL_SERVICE_CONTROL_SETTINGS),
-            patch("oracle_app.admin_network_routes.get_network_control_policy_settings", return_value=_NEUTRAL_NETWORK_CONTROL_POLICY_SETTINGS),
-            patch("oracle_app.admin_network_routes.get_music_settings", return_value=_NEUTRAL_MUSIC_SETTINGS),
-        ]
-        for settings_patcher in self._canonical_settings_patchers:
-            settings_patcher.start()
         clear_network_status_cache()
         clear_network_control_results()
         clear_network_control_guard()
 
     def tearDown(self) -> None:
-        for settings_patcher in reversed(self._canonical_settings_patchers):
-            settings_patcher.stop()
         self._ssh_environment_patcher.stop()
         self._ssh_tempdir.cleanup()
 

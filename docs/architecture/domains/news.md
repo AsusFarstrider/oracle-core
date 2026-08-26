@@ -9,7 +9,7 @@ The current domain is split across:
 - `server/oracle_app/news.py` for request parsing, source selection, and result construction
 - `server/oracle_app/provider_bridges/rss_news.py` for RSS fetch and parse mechanics
 - `server/oracle_app/handlers/news.py` for dispatch-target execution and error shaping
-- capability routing in `server/oracle_app/capabilities/plugins.py`, which recognizes news requests and routes them to the `news` target
+- capability routing in `server/oracle_app/capabilities/information.py`, which recognizes news requests and routes them to the `news` target
 
 ## Responsibilities
 
