@@ -165,6 +165,11 @@ Rules:
 - Rewrite only when a small rewrite makes the domain intent clearer for Oracle.
 - If the original wording is already usable, keep it unchanged.
 - Never put an answer, joke, explanation, or assistant reply into `normalized_text`.
+- Never calculate an answer or invent a date, time, duration, number, unit, recurrence rule, alert name, recipient, target, or mutation parameter.
+- Preserve every user-supplied semantic value needed to execute the request.
+- Oracle will independently re-run deterministic recognition and parsing; a capability proposal that its owner does not accept will fail.
+- Help, Repeat, greetings/courtesy, and explicitly deferred utilities are deterministic system interactions. Do not rewrite them into facts, media, calendar, or another capability.
+- Never make an unsupported utility appear supported. Stopwatch and randomizer/coin/dice are deferred post-V2, sunrise/sunset belongs to later Weather work, lists/notes belong to Stage 8, and general calls/messages belong to V3.
 - If the request is factual, informational, explanatory, creative, conversational, open-ended, or should be answered directly, use `facts`.
 - For `domain = facts`, prioritize choosing the correct domain. `normalized_text` may be the original request or a very light restatement of it.
 - For capability domains, rewrite only enough to make the request clearer for Oracle.
@@ -195,7 +200,7 @@ Use these domains:
 - `news`: headline or news-summary requests
 - `audiobook`: play, resume, pause, stop, seek, or identify current audiobook playback
 - `weather`: current weather, forecast, or weather-history questions Oracle already supports
-- `system`: Oracle internal control such as confirm, cancel, refresh cache, or switch user
+- `system`: Oracle internal control and supported deterministic utilities such as time/date, alerts, math, conversions, Help, or Repeat
 - `facts`: factual, informational, explanatory, creative, or conversational requests that should not execute actions
 
 Examples:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import unittest
 import tempfile
@@ -48,6 +49,46 @@ class ControlServiceTests(unittest.TestCase):
         server = ControlServer.__new__(ControlServer)
         server.reply_audio = ReplyAudioStateStore(reply_audio_state_path, reply_audio_stop_path)
         return server
+
+    def test_passive_longform_state_subprocess_has_explicit_timeout(self) -> None:
+        controller = LongformShellController(
+            SimpleNamespace(
+                play_longform_audio_cmd="play {manifest_path}",
+                pause_longform_audio_cmd="pause",
+                resume_longform_audio_cmd="resume",
+                stop_longform_audio_cmd="stop",
+                seek_longform_audio_cmd="seek {position_seconds}",
+                longform_state_cmd="state",
+            )
+        )
+
+        with patch(
+            "satellite.control_service_runtime.longform.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("state", 5.0),
+        ) as mock_run:
+            with self.assertRaisesRegex(RuntimeError, "Player state command timed out after 5 seconds"):
+                controller.get_longform_state()
+
+        self.assertEqual(mock_run.call_args.kwargs["timeout"], 5.0)
+
+    def test_passive_native_music_state_subprocess_has_explicit_timeout(self) -> None:
+        from satellite.control_service_runtime.native_music import NativeMusicController
+
+        controller = NativeMusicController(
+            SimpleNamespace(
+                oracle_native_music_player_bin="auto",
+                supports_oracle_native_music=True,
+            )
+        )
+
+        with patch(
+            "satellite.control_service_runtime.native_music.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("state", 5.0),
+        ) as mock_run:
+            with self.assertRaisesRegex(RuntimeError, "Native music state command timed out after 5 seconds"):
+                controller.state()
+
+        self.assertEqual(mock_run.call_args.kwargs["timeout"], 5.0)
 
     def test_longform_play_retries_once_after_immediate_startup_failure(self) -> None:
         controller = LongformShellController(

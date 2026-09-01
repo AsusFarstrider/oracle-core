@@ -180,6 +180,8 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
             fleet_settings=fleet,
             household_settings=household,
         )
+        self.assertIn("alerts", config["profile"]["pages"])
+        self.assertIn("alerts", [item["id"] for item in config["profile"]["bottom_nav"]])
         payload = build_satellite_room_controls_snapshot(
             "living_room_satellite",
             home_assistant_settings=self._settings(),
@@ -189,6 +191,10 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
 
         self.assertEqual(config["room_id"], "living_room")
         self.assertEqual(config["room"], "Living Room")
+        self.assertEqual(
+            config["capabilities"]["display_attention"],
+            {"required": True, "supported": True, "mechanism": "windows_native_runtime_and_browser_wake_lock"},
+        )
         self.assertEqual(payload["selection_source"], "canonical_view")
         self.assertEqual([item["entity_id"] for item in payload["items"]], ["light.second"])
 
@@ -242,6 +248,7 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
             satellite_id="living_room_satellite",
             enabled=True,
             source_id="living_room_source",
+            platform="windows",
             ui=ui,
             capabilities=SimpleNamespace(voice=True, music_playback=True, audiobook_playback=True, display=True),
         )
@@ -260,6 +267,18 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
 
 
 class HomeAssistantSnapshotReferenceTests(unittest.TestCase):
+    def test_alerts_page_projects_for_non_touch_alert_capable_display(self) -> None:
+        fleet, household = CanonicalHomeAssistantViewTests._fleet_and_household()
+        fleet.entries["living_room_satellite"].ui.touch = False
+
+        config = build_satellite_ui_config(
+            "living_room_satellite", fleet_settings=fleet, household_settings=household,
+        )
+
+        self.assertFalse(config["capabilities"]["touch"])
+        self.assertIn("alerts", config["profile"]["pages"])
+        self.assertIn("alerts", [item["id"] for item in config["profile"]["bottom_nav"]])
+
     def test_snapshot_reference_rejects_absolute_and_parent_paths(self) -> None:
         for value in ("/absolute.jpg", "../escape.jpg", "nested/../../escape.jpg"):
             with self.subTest(value=value), self.assertRaises(ValueError):

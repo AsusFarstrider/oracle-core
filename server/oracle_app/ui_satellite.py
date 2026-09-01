@@ -26,7 +26,7 @@ BuildNoArgSnapshot = Callable[[], dict[str, object]]
 BuildAudioStatusSnapshot = Callable[[str | None], dict[str, object]]
 BuildCalendarSnapshot = Callable[..., dict[str, object]]
 
-_SATELLITE_UI_PAGES = ["home", "weather", "calendar", "audio", "house"]
+_SATELLITE_UI_PAGES = ["home", "weather", "calendar", "audio", "house", "alerts"]
 _SATELLITE_UI_MODULES = {
     "home": {"label": "Home", "icon": "home"},
     "weather": {"label": "Weather", "icon": "cloud"},
@@ -35,6 +35,7 @@ _SATELLITE_UI_MODULES = {
     "music": {"label": "Music", "icon": "music_note"},
     "audiobooks": {"label": "Audiobooks", "icon": "book"},
     "house": {"label": "House", "icon": "house"},
+    "alerts": {"label": "Alerts", "icon": "alarm"},
 }
 
 def _build_ui_generated_at() -> str:
@@ -174,9 +175,14 @@ def _build_canonical_satellite_ui_config(
     source = household.source(satellite.source_id)
     room_id = household.configured_associated_room_id(satellite.source_id)
     room = household.room(room_id)
-    pages = list(ui.pages)
-    bottom_nav = _normalize_satellite_ui_nav(list(ui.bottom_nav or pages))
     capabilities = satellite.capabilities
+    alert_capable = bool(capabilities and (capabilities.voice or capabilities.display))
+    pages = list(dict.fromkeys([*ui.pages, *(["alerts"] if alert_capable else [])]))
+    configured_bottom_nav = list(ui.bottom_nav or pages)
+    if alert_capable and "alerts" not in configured_bottom_nav:
+        configured_bottom_nav.append("alerts")
+    bottom_nav = _normalize_satellite_ui_nav(configured_bottom_nav)
+    platform = str(getattr(satellite, "platform", "") or "").strip().lower()
     return {
         "satellite_id": satellite.satellite_id,
         "source_id": satellite.source_id,
@@ -192,6 +198,20 @@ def _build_canonical_satellite_ui_config(
             "audio_output": bool(capabilities and (capabilities.music_playback or capabilities.audiobook_playback)),
             "display": bool(capabilities and capabilities.display),
             "touch": bool(ui.touch),
+            "display_attention": {
+                "required": bool(capabilities and capabilities.display),
+                "supported": bool(
+                    not (capabilities and capabilities.display)
+                    or platform in {"windows", "linux"}
+                ),
+                "mechanism": (
+                    "windows_native_runtime_and_browser_wake_lock"
+                    if platform == "windows"
+                    else "continuous_linux_display"
+                    if platform == "linux"
+                    else "unsupported"
+                ),
+            },
         },
         "profile": {
             "profile_id": ui.profile,

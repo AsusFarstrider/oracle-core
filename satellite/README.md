@@ -539,7 +539,8 @@ that pattern instead of keeping a separate private runtime source fork.
 - Timers/reminders never speak:
 - confirm the satellite is running updated code with alert polling enabled
 - verify the satellite background runtime claims and acknowledges due items through
-  `/api/satellite/alerts/claim` and `/api/satellite/alerts/{alert_id}/acknowledge`
+  `/api/satellite/alerts/claim`, `/api/satellite/alerts/{alert_id}/acknowledge`,
+  `/api/satellite/alerts/state`, and the occurrence action surface
 
 - Follow-up questions lose context too quickly:
 - increase `--conversation-timeout-seconds`

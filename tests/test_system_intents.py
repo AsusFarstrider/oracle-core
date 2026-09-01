@@ -68,14 +68,14 @@ class SystemIntentTests(unittest.TestCase):
         self.assertEqual(intent.reason, "Matched unit conversion query")
         self.assertEqual(intent.confidence, 0.92)
 
-    def test_date_calculation_classifies_as_calculation(self) -> None:
+    def test_date_calculation_classifies_as_temporal(self) -> None:
         intent = classify_system_intent("how many days until christmas")
 
         self.assertIsNotNone(intent)
         assert intent is not None
-        self.assertEqual(intent.action, "calculation")
-        self.assertEqual(intent.reason, "Matched date calculation query")
-        self.assertEqual(intent.confidence, 0.91)
+        self.assertEqual(intent.action, "temporal")
+        self.assertEqual(intent.reason, "Matched deterministic time/date query")
+        self.assertEqual(intent.confidence, 0.94)
 
     def test_home_assistant_devices_and_rooms_cache_update_is_refresh_cache(self) -> None:
         intent = classify_system_intent("update your cache of devices and rooms from home assistant")
@@ -97,6 +97,7 @@ class SystemIntentTests(unittest.TestCase):
 
     def test_system_action_requires_text_only_for_textual_actions(self) -> None:
         self.assertTrue(system_action_requires_text("calculation"))
+        self.assertTrue(system_action_requires_text("temporal"))
         self.assertFalse(system_action_requires_text("confirm_pending"))
         self.assertFalse(system_action_requires_text("refresh_cache"))
 

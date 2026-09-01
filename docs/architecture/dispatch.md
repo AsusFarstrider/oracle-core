@@ -64,8 +64,17 @@ On the split path, `fallback_router` execution returns a proposal, not a direct 
 The brain then:
 
 - validates the proposed domain
-- takes the router failure path if the proposal is invalid
-- or dispatches to the selected domain
+- re-enters canonical capability evaluation and route refinement for every
+  deterministic proposal
+- requires the re-entered owner to agree with the proposed target
+- requires exact normalized-text preservation for `system` proposals
+- takes the `fallback_router_unvalidated_proposal` failure path when any of
+  those checks fail
+- or dispatches the owner-validated route
+
+`facts` remains the informational fallback destination and is not presented as
+a deterministic utility owner. Fallback cannot supply a Stage 6 answer,
+parameter, target, recipient, or mutation.
 
 This keeps the transition brain-mediated instead of allowing direct `fallback_router -> domain` execution.
 

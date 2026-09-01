@@ -65,6 +65,7 @@ Audio/runtime rules:
 | Satellite reply-audio state | `satellite/control_service_runtime/reply_audio.py` with mirrored local reply-audio file state from the Pi runtime playback path | Authority-owned in-memory reply session state plus mirrored file-backed transport state and stop-request file | Satellite audio playback layer | Local satellite only | Ephemeral | Authority-owned reply session lifecycle is primary; mirrored file state is transitional transport-facing state only. |
 | Satellite foreground-audio handoff state | `satellite/pi_runtime/models.py` plus `satellite/pi_runtime/local_control.py` coordinator helpers | Per-event handoff object created once for reply, cues, alerts, and sleep-expiry decisions | Satellite Pi runtime layer | Local satellite only | Ephemeral | This is not durable playback truth; it only normalizes one foreground borrowing or replacement decision at the local seam. |
 | Satellite playback authority session | Local runtime authority model over music, audiobook, reply, and external playback backends | Local runtime state surfaced through control-service snapshots; brain may inspect but must not own truth | Satellite audio/runtime layer | Local satellite only | Ephemeral; restart-safe locally desirable | Minimum fields: `backend_type`, `state`, `resumable`, media/source identity, and position where applicable. |
+| Satellite playback-authority snapshot cache | `satellite/control_service_runtime/cache.py` plus `ControlServer.runtime_lock` | One short-lived deep snapshot is built single-flight under the existing control-service lock; concurrent passive readers reuse it and every playback/reply mutation invalidates it | Satellite playback control layer | Local satellite only | Ephemeral/reconstructable; one-second maximum reuse | Performance cache only. It is never playback truth, never survives restart, and cannot authorize or route a command. Cold player-state subprocesses remain explicitly time-bounded. |
 | Satellite control command cache | `satellite/control_service_runtime/cache.py` plus the server-wide runtime boundary in `satellite/control_service_runtime/server.py` | Locked in-memory command idempotency cache keyed by `command_id`; duplicate in-flight IDs execute once through atomic get-or-store, while one re-entrant server lock serializes adapter and playback-authority operations across distinct commands | Satellite control-service layer | Local satellite only | Ephemeral | Deduplicates retries for a 60-second TTL window; reads return snapshots. The server lock, rather than the cache, protects shared mutable adapters across threaded requests. |
 | Satellite wake/session state | `satellite/pi_wake_satellite.py` | In-process local variables tracking wake cooldown, active conversation session, alert poll timing, and duck/restore state | Satellite wake/capture layer | Local satellite process only | Ephemeral | Includes `active_session_id`, `last_conversation_activity_at`, `next_wake_time`, `next_alert_poll_at`, and duck-volume restore state. |
 | Home Assistant cache | `data/home-assistant-cache.json` | File-backed cache loaded by HA routing helpers | Brain Home Assistant integration layer | Global brain cache | Restart-safe cache; not durable truth | Cache is operational convenience only, not source of truth. |
@@ -112,6 +113,29 @@ Audio/runtime rules:
   six-turn history bound. There is no independent conversation TTL.
 - Forbidden: callers must not mutate live internal session dictionaries directly.
 
+Stage 6 extends this same effective-session lifecycle with bounded typed utility
+context and pending utility clarification. Allowed content is stable scalar
+identifiers and immutable typed summaries for prior calculation/conversion/time
+results, a selected alert schedule/occurrence/timer, an explicitly established
+user, and the last repeat-eligible Oracle reply. It follows the existing
+source/session identity, synchronization, 90-second inactive expiry, 30-second
+pending expiry, reset, and snapshot rules.
+
+Forbidden Stage 6 session content includes live alert objects, global alert
+collections, durable schedule copies, credentials, provider payloads, service
+health, deployment/configuration truth, and playback-authority truth. Utility
+context is the sole follow-up authority; no parallel conversation memory or
+capability-specific global context store is allowed.
+
+The implemented Slice 2 slots are `calculation`, `conversion`, `temporal`,
+`alert_subject`, and `repeat_output`. Each slot has a closed field vocabulary,
+stores a defensive copy, and is returned only as a defensive copy. Utility
+clarification payloads have a closed field vocabulary and two to five bounded
+string choices. They use pending domain `utilities`, which resolves back to the
+`system` owner. Session expiry, explicit reset, and successful non-system topic
+changes clear utility context; source and effective-session keys prevent
+cross-device or cross-session reuse.
+
 ### Active audiobook playback registry
 
 - Create/update: `handlers/audiobook.py` when local longform playback starts.
@@ -148,6 +172,29 @@ Audio/runtime rules:
   local timer/alarm/reminder/sleep-timer records do not create receipts.
 - Brain audiobook sleep-timer expiry calls the typed internal stop operation.
 - Forbidden: callers must not mutate stored alert objects or metadata outside the alerts module.
+
+Stage 6 evolves the Brain alert domain into one semantic lifecycle shared by
+timers, alarms, and reminders:
+
+- a definition or schedule owns durable intent and recurrence;
+- an occurrence owns one due instance, exception, snooze lineage, and
+  missed/overdue/logical state;
+- a delivery projection owns one destination's retry-safe presentation work;
+  and
+- an acknowledgement records its actor and meaning.
+
+Runtime delivery acceptance, local display dismissal, person acknowledgement,
+and logical completion are distinct transitions. Existing `memory_alerts` rows
+may remain a compatible delivery projection, but cannot remain the semantic
+schedule or occurrence authority. One Brain coordinator owns recurrence and
+due-work projection; separate timer/alarm/reminder stores or schedulers are
+forbidden. Recurrence expansion is bounded and idempotent.
+
+Reminder schedules own semantic recipient IDs, not fixed hardware. Future
+occurrences resolve current eligible destinations from the applied canonical
+configuration and record sufficient configuration revision context. Historical
+occurrences and delivery transitions are not rewritten. Common-screen
+dismissal cannot create a person acknowledgement.
 
 ### Satellite playback authority session
 

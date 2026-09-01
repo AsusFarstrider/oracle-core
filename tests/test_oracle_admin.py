@@ -1002,6 +1002,108 @@ print(json.dumps({"status": "ready"}))
                 )
         identities.assert_not_called()
 
+    def test_staging_evidence_is_idempotent_when_exact_components_are_reused(self) -> None:
+        root = self.root / "oracle"
+        (root / "state" / "installation").mkdir(parents=True)
+        plan_identity = "oracle-operation-plan-v1:sha256:" + "1" * 64
+        base = {
+            "format": "oracle-admin-output-v1",
+            "command": "stage",
+            "status": "staged",
+            "mutation_performed": True,
+            "plan_identity": plan_identity,
+            "platform_support_status": "supported",
+            "dependency": {"disposition": "reused"},
+            "identities_created": [],
+            "operator_enrollment": {
+                "account": self.operator_account,
+                "uid": os.getuid(),
+                "group": "oracle-admin",
+                "disposition": "reused",
+            },
+            "layout_paths_created": [],
+            "components": {
+                "application_revision_identity": "core-" + "2" * 40,
+                "application_path": str(root / "revisions" / ("core-" + "2" * 40)),
+                "application_reused": False,
+                "household_deployment_revision": "oracle-household-deployment-v1:sha256:" + "3" * 64,
+                "deployment_path": str(root / "deployments" / ("deployment-" + "3" * 64)),
+                "deployment_reused": False,
+                "artifact_sha256": {"core": "4" * 64, "household": "5" * 64},
+            },
+            "environment": {
+                "environment_identity": "oracle-python-environment-v1:sha256:" + "6" * 64,
+                "path": str(root / "environments" / ("environment-" + "6" * 64)),
+                "environment_tree_sha256": "7" * 64,
+                "reused": False,
+            },
+            "activation_created": False,
+            "selection_changed": False,
+            "service_modified": False,
+        }
+        with (
+            mock.patch.object(oracle_admin.grp, "getgrnam", return_value=SimpleNamespace(gr_gid=os.getgid())),
+            mock.patch.object(oracle_admin.os, "chown"),
+        ):
+            evidence_path = oracle_admin._write_staging_evidence(root, plan_identity, base)
+            original = evidence_path.read_bytes()
+            retry = {
+                **base,
+                "components": {
+                    **base["components"],
+                    "application_reused": True,
+                    "deployment_reused": True,
+                },
+                "environment": {**base["environment"], "reused": True},
+            }
+            repeated_path = oracle_admin._write_staging_evidence(root, plan_identity, retry)
+
+        self.assertEqual(repeated_path, evidence_path)
+        self.assertEqual(evidence_path.read_bytes(), original)
+
+    def test_staging_evidence_retry_rejects_different_component_identity(self) -> None:
+        root = self.root / "oracle"
+        (root / "state" / "installation").mkdir(parents=True)
+        plan_identity = "oracle-operation-plan-v1:sha256:" + "8" * 64
+        base = {
+            "format": "oracle-admin-output-v1",
+            "command": "stage",
+            "status": "staged",
+            "plan_identity": plan_identity,
+            "platform_support_status": "supported",
+            "operator_enrollment": {
+                "account": self.operator_account,
+                "uid": os.getuid(),
+                "group": "oracle-admin",
+            },
+            "components": {
+                "application_revision_identity": "core-" + "9" * 40,
+                "application_reused": False,
+            },
+            "environment": {
+                "environment_identity": "oracle-python-environment-v1:sha256:" + "a" * 64,
+                "reused": False,
+            },
+            "activation_created": False,
+            "selection_changed": False,
+            "service_modified": False,
+        }
+        with (
+            mock.patch.object(oracle_admin.grp, "getgrnam", return_value=SimpleNamespace(gr_gid=os.getgid())),
+            mock.patch.object(oracle_admin.os, "chown"),
+        ):
+            oracle_admin._write_staging_evidence(root, plan_identity, base)
+            changed = {
+                **base,
+                "components": {
+                    **base["components"],
+                    "application_revision_identity": "core-" + "b" * 40,
+                    "application_reused": True,
+                },
+            }
+            with self.assertRaisesRegex(RuntimeError, "conflicts"):
+                oracle_admin._write_staging_evidence(root, plan_identity, changed)
+
     def test_operator_enrollment_is_explicit_bounded_and_verified(self) -> None:
         account = SimpleNamespace(pw_uid=1000, pw_gid=1000)
         primary = SimpleNamespace(gr_name="users", gr_gid=1000, gr_mem=[])

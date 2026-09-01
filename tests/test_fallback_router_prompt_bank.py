@@ -62,3 +62,14 @@ def test_fallback_router_prompt_keeps_bounded_normalization_guardrails() -> None
     assert "Do not change time words such as `today`, `tomorrow`, `tonight`, `yesterday`, or weekday names unless the user said them differently." in prompt
     assert "If the user says `tomorrow`, do not return `today`." in prompt
     assert "For `news`, prefer `headlines` over vague words like `updates` when the user is asking for a news summary." in prompt
+    assert "Never calculate an answer or invent a date, time, duration, number, unit, recurrence rule, alert name, recipient, target, or mutation parameter." in prompt
+    assert "Preserve every user-supplied semantic value needed to execute the request." in prompt
+    assert "independently re-run deterministic recognition and parsing" in prompt
+    assert "supported deterministic utilities such as time/date, alerts, math, conversions, Help, or Repeat" in prompt
+
+
+def test_fallback_router_prompt_preserves_slice11_system_boundaries() -> None:
+    prompt = FALLBACK_ROUTER_SYSTEM_PROMPT
+    assert "Help, Repeat, greetings/courtesy" in prompt
+    assert "Stopwatch and randomizer/coin/dice are deferred post-V2" in prompt
+    assert "lists/notes belong to Stage 8" in prompt

@@ -261,6 +261,80 @@ The boot ID must change. The service must be enabled and active, `status` must
 be healthy with no integrity findings, and the exact activation,
 configuration, secret-generation, and durable-state identities must remain.
 
+## Pre-Promotion Live Candidate Acceptance
+
+Every completed stage that is intended for clean-core, GitHub, or production
+promotion must pass one live candidate acceptance gate before protected core
+history, a release tag, or a GitHub Release is changed. This is a managed
+installation lifecycle operation, not permission to launch a private checkout
+against production state.
+
+The gate occurs in this order:
+
+1. Complete and commit the private stage. Pass its full private regression,
+   ownership classification with zero unclassified paths, and coverage gates.
+2. Materialize an exact disposable clean-core candidate and matching household
+   artifact, but do not update protected core history, create or move a release
+   tag, publish a GitHub Release, or claim production promotion.
+3. Pass clean-core CI, artifact round-trip and pair verification, supported-host
+   preflight, and copied-production upgrade/migration, interrupted-recovery,
+   rollback/downgrade, and re-upgrade rehearsal.
+4. Record the current complete production activation and the exact candidate
+   core, tree, household, environment, configuration, secret-generation, and
+   migration/recovery identities. Review a managed rollback plan before live
+   mutation. If candidate writes or schema changes make restoration of the
+   previous complete activation uncertain, stop and return the architecture or
+   migration decision to the operator.
+5. Stage and assemble the exact candidate through the managed lifecycle. Use
+   the managed `update` transaction to quiesce the current Brain and run the
+   candidate on the normal production port. Do not start `uvicorn`, a repository
+   virtual environment, or other checkout code directly against live stores.
+6. Run a bounded real-household acceptance matrix. Satellites must reconnect
+   through their normal paths. Exercise representative alert delivery and
+   acknowledgement, media interruption/restoration, a uniquely named disposable
+   calendar create/edit/delete cycle, one explicitly reversible safe device
+   action, and relevant authenticated read/write paths. Use the household's
+   designated disposable Windows lab mule first for disruptive Windows
+   runtime, audio, display, kiosk, service, or power work; add only the Linux, personal/common,
+   or integration representatives needed by the stage's actual changes.
+   Leave a working candidate runtime on that disposable lab mule after testing
+   unless rollback itself is under test, the candidate obstructs further work,
+   or an older known baseline is required. This exception does not apply to the
+   managed Brain rollback or to normal household satellites.
+7. Verify cleanup, idempotency, projection/configuration health, reconnect
+   behavior, no duplicate delivery, restored media/device state, and absence of
+   test calendar or alert residue. Record exact request, occurrence, audit, and
+   activation identities without exposing private payloads or secrets.
+8. Roll back through the managed lifecycle to the previously recorded complete
+   production activation. Verify installed status, configuration identity,
+   Brain health, representative satellite health, and the rollback-compatible
+   durable state before promotion. A failed acceptance or failed restoration
+   returns the candidate to development.
+9. Only after the gate passes may protected clean-core history, the immutable
+   tag, and the GitHub Release be promoted. The final managed production
+   activation of the exact released artifact is the re-upgrade/return leg and
+   must still pass independent status, health, fleet, integration, and soak
+   checks.
+
+Schedule the gate inside a bounded maintenance window. Account for alerts due
+before, during, and immediately after Brain downtime; do not create broad
+whole-house effects merely to increase coverage. Every external mutation needs
+a known initial state, a typed reversible action where available, verification,
+and explicit cleanup or restoration evidence.
+
+This gate reconciles existing evidence rather than duplicating or weakening it:
+
+- the copied-production migration/recovery/rollback rehearsal remains a
+  prerequisite and is not replaced by live success;
+- the temporary live candidate activation and rollback satisfy the existing
+  pre-promotion managed update/rollback exercise;
+- the final released activation supplies the existing return/re-upgrade proof;
+- clean-core CI, artifact verification, failed/interrupted recovery coverage,
+  final post-activation health, fleet checks, and soak remain mandatory; and
+- architectural changes that make live rollback, data restoration, exact
+  provenance, or bounded external cleanup questionable require fresh operator
+  approval rather than silent modification of this sequence.
+
 ## Update From New Local Artifacts
 
 Verify the new archive checksums first. The new household artifact must pin the

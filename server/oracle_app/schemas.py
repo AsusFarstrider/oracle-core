@@ -138,6 +138,30 @@ class UiAlarmCancelRequest(BaseModel):
     source: str = Field(..., min_length=1, description="Oracle source id that owns the alarm")
 
 
+class UiTimerActionRequest(BaseModel):
+    client_id: str = Field(..., min_length=1, description="Stable UI client identifier")
+    source_id: str = Field(..., min_length=1, description="Canonical satellite source")
+    occurrence_id: str = Field(..., min_length=1, description="Logical timer occurrence")
+    action: Literal["cancel", "dismiss"]
+
+
+class UiAlarmActionRequest(BaseModel):
+    client_id: str = Field(..., min_length=1, description="Stable UI client identifier")
+    source_id: str = Field(..., min_length=1, description="Canonical satellite source")
+    schedule_id: str | None = Field(default=None, min_length=1)
+    occurrence_id: str | None = Field(default=None, min_length=1)
+    action: Literal["enable", "disable", "delete", "skip", "snooze", "dismiss"]
+    snooze_minutes: int = Field(default=10, ge=1, le=120)
+
+
+class UiReminderActionRequest(BaseModel):
+    client_id: str = Field(..., min_length=1, description="Stable UI client identifier")
+    source_id: str = Field(..., min_length=1, description="Canonical satellite source")
+    occurrence_id: str = Field(..., min_length=1)
+    action: Literal["snooze", "dismiss"]
+    snooze_minutes: int = Field(default=10, ge=1, le=1440)
+
+
 class UiCalendarDraftRequest(BaseModel):
     client_id: str = Field(..., min_length=1, description="Stable UI client identifier")
     title: str = Field(..., description="Calendar event title")
@@ -492,8 +516,34 @@ class SatelliteAlertAcknowledgeRequest(BaseModel):
     source_id: str = Field(..., min_length=1)
     lease_id: str = Field(..., min_length=1)
     status: Literal["acknowledged", "completed"] = "acknowledged"
+    session_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class SatelliteAlertAcknowledgeResponse(BaseModel):
     alert_id: str
     status: Literal["acknowledged", "completed"]
+
+
+class SatelliteAlertStateResponse(BaseModel):
+    source_id: str
+    generated_at: str
+    count: int
+    timers: list[dict[str, Any]] = Field(default_factory=list)
+    alarms: list[dict[str, Any]] = Field(default_factory=list)
+    reminders: list[dict[str, Any]] = Field(default_factory=list)
+    outstanding: list[dict[str, Any]] = Field(default_factory=list)
+    ringing: list[dict[str, Any]] = Field(default_factory=list)
+    display_attention_required: bool = False
+
+
+class SatelliteAlertActionRequest(BaseModel):
+    source_id: str = Field(..., min_length=1)
+    action: Literal["dismiss", "snooze"]
+    snooze_minutes: int = Field(default=10, ge=1, le=120)
+    idempotency_key: str = Field(..., min_length=1, max_length=160)
+
+
+class SatelliteAlertActionResponse(BaseModel):
+    ok: bool
+    action: Literal["dismiss", "cancel", "snooze"]
+    occurrence_id: str | None = None

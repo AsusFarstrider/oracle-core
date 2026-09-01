@@ -12,6 +12,7 @@ from .longform import CommandResult
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_NATIVE_MUSIC_PLAYER = REPO_ROOT / "satellite" / "native_music_player.py"
+PASSIVE_STATE_COMMAND_TIMEOUT_SECONDS = 5.0
 
 
 class NativeMusicController:
@@ -94,21 +95,29 @@ class NativeMusicController:
         return self._run(["restart", "--player-bin", self._player_bin])
 
     def state(self) -> dict[str, Any]:
-        result = self._run(["state"])
+        result = self._run(["state"], timeout_seconds=PASSIVE_STATE_COMMAND_TIMEOUT_SECONDS)
         if not result.ok:
             raise RuntimeError(result.detail or "native music state command failed")
         payload = result.payload or {}
         payload.setdefault("ok", True)
         return payload
 
-    def _run(self, args: list[str]) -> CommandResult:
+    def _run(self, args: list[str], *, timeout_seconds: float | None = None) -> CommandResult:
         command = [sys.executable, str(DEFAULT_NATIVE_MUSIC_PLAYER), *args]
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            return CommandResult(
+                ok=False,
+                state="failed",
+                detail=f"Native music state command timed out after {timeout_seconds:g} seconds",
+            )
         stdout = completed.stdout.strip()
         stderr = completed.stderr.strip()
         if completed.returncode != 0:

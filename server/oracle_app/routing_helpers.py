@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import re
 
+from .math_calculator import is_math_query
+from .unit_converter import is_conversion_query
+
 from .config import load_home_assistant_cache
 from .configuration.household_runtime_settings import HouseholdRuntimeSettings
 from .constants import (
@@ -82,13 +85,7 @@ def detect_unit_conversion_query(text: str) -> bool:
         return False
     if normalized.startswith("remind me"):
         return False
-    if normalized.startswith("convert "):
-        return True
-    if normalized.startswith("how many ") and (" is " in normalized or " are " in normalized):
-        return True
-    return normalized.startswith(("what is ", "what's ")) and (" in " in normalized or " to " in normalized) and bool(
-        re.search(r"-?\d+(?:\.\d+)?", normalized)
-    )
+    return is_conversion_query(normalized)
 
 
 def detect_math_query(text: str) -> bool:
@@ -97,13 +94,7 @@ def detect_math_query(text: str) -> bool:
         return False
     if detect_unit_conversion_query(normalized):
         return False
-    if re.search(r"\d+\s*[\+\-\*\/]\s*\d+", normalized):
-        return True
-    if any(phrase in normalized for phrase in ("plus", "minus", "times", "divided by", "multiplied by")):
-        return True
-    return normalized.startswith(("what is ", "what's ", "calculate ", "compute ")) and bool(
-        re.search(r"\d", normalized)
-    )
+    return is_math_query(normalized)
 
 
 def detect_date_calculation_query(text: str) -> bool:
@@ -122,7 +113,7 @@ def detect_alert_query(text: str) -> bool:
     normalized = text.strip().lower()
     if not normalized:
         return False
-    return any(
+    return normalized.startswith("remind ") or any(
         phrase in normalized
         for phrase in (
             "timer",
@@ -130,6 +121,7 @@ def detect_alert_query(text: str) -> bool:
             "alarm",
             "remind me",
             "reminder",
+            "wake me up",
         )
     )
 

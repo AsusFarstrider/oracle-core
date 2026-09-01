@@ -78,6 +78,22 @@ from pi_runtime.local_control import DuckedMusicController
 
 
 class SatellitePlaybackResumeTests(unittest.TestCase):
+    def test_local_playback_authority_timeout_exceeds_cold_windows_refresh(self) -> None:
+        local_control = __import__("pi_runtime.local_control", fromlist=["fetch_local_playback_authority"])
+        response = types.SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"sessions": [], "active_sessions": [], "playback_active": False},
+        )
+        with patch.object(local_control.requests, "get", return_value=response, create=True) as mock_get:
+            payload = local_control.fetch_local_playback_authority("http://127.0.0.1:8021", "key")
+
+        self.assertFalse(payload["playback_active"])
+        self.assertEqual(
+            mock_get.call_args.kwargs["timeout"],
+            local_control.LOCAL_PLAYBACK_AUTHORITY_TIMEOUT_SECONDS,
+        )
+        self.assertGreater(local_control.LOCAL_PLAYBACK_AUTHORITY_TIMEOUT_SECONDS, 2.0)
+
     def test_foreground_audio_request_rejects_invalid_borrow_replace_combination(self) -> None:
         models = __import__("pi_runtime.models", fromlist=["ForegroundAudioRequest"])
 

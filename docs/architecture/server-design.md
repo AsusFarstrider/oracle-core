@@ -42,6 +42,7 @@ Current top-level structure:
   immutable runtime composition
 - `constants.py`: shared constants
 - `system_intents.py`: system-intent classification helpers
+- `system_help.py`: governed capability catalog and deterministic Help rendering
 - `routing_helpers.py`: shared routing helper functions
 - `conversation.py`: conversation-context helpers
 - `session_state.py`: session-state storage and lifecycle helpers

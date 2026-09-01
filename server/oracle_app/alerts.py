@@ -16,6 +16,11 @@ from .memory.alerts import (
     list_alert_records,
 )
 from .memory.store import DB_PATH
+from .configuration.household_runtime_settings import HouseholdRuntimeSettings
+from .configuration.satellite_fleet_runtime_settings import SatelliteFleetRuntimeSettings
+from .timers import execute_timer_command, looks_like_timer_followup
+from .alarms import execute_alarm_command, looks_like_alarm_followup
+from .reminders import execute_reminder_command, looks_like_reminder_followup
 
 
 ScheduledAlert = AlertRecord
@@ -675,12 +680,61 @@ def _build_reminder_response(text: str, source: str | None, session_id: str | No
     )
 
 
-def build_alert_response(text: str, source: str | None, session_id: str | None) -> tuple[str, dict]:
+def build_alert_response(
+    text: str,
+    source: str | None,
+    session_id: str | None,
+    *,
+    household_settings: HouseholdRuntimeSettings | None = None,
+    satellite_settings: SatelliteFleetRuntimeSettings | None = None,
+    timer_context: dict[str, Any] | None = None,
+    timer_cancel_all_confirmed: bool = False,
+) -> tuple[str, dict]:
     normalized = _normalize_text(text)
+    timer_followup = bool(timer_context and looks_like_timer_followup(normalized))
+    alarm_followup = bool(timer_context and looks_like_alarm_followup(normalized))
+    reminder_followup = bool(timer_context and looks_like_reminder_followup(normalized))
+    if ("timer" in normalized or "countdown" in normalized or timer_followup) and (
+        source is not None and household_settings is not None and satellite_settings is not None
+    ):
+        return execute_timer_command(
+            normalized,
+            source_id=source,
+            session_id=session_id,
+            household=household_settings,
+            satellites=satellite_settings,
+            context=timer_context,
+            confirmed=timer_cancel_all_confirmed,
+            db_path=ALERT_DB_PATH,
+        )
     if "timer" in normalized or "countdown" in normalized:
         return _build_timer_response(normalized, source, session_id)
+    if ("alarm" in normalized or "wake me up" in normalized or alarm_followup) and (
+        source is not None and household_settings is not None and satellite_settings is not None
+    ):
+        return execute_alarm_command(
+            normalized,
+            source_id=source,
+            session_id=session_id,
+            household=household_settings,
+            satellites=satellite_settings,
+            context=timer_context,
+            db_path=ALERT_DB_PATH,
+        )
     if "alarm" in normalized:
         return _build_alarm_response(normalized, source, session_id)
+    if ("remind " in normalized or "reminder" in normalized or reminder_followup) and (
+        source is not None and household_settings is not None and satellite_settings is not None
+    ):
+        return execute_reminder_command(
+            normalized,
+            source_id=source,
+            session_id=session_id,
+            household=household_settings,
+            satellites=satellite_settings,
+            context=timer_context,
+            db_path=ALERT_DB_PATH,
+        )
     if "remind me" in normalized or "reminder" in normalized:
         return _build_reminder_response(normalized, source, session_id)
     raise ValueError("I could not tell whether that was a timer, alarm, or reminder request.")
@@ -692,9 +746,9 @@ def classify_alert_operation(text: str) -> str | None:
         (item for item in ("timer", "alarm", "reminder") if item in normalized),
         None,
     )
-    if kind is None and "countdown" not in normalized and "remind me" not in normalized:
+    if kind is None and "countdown" not in normalized and "remind me" not in normalized and "wake me up" not in normalized:
         return None
-    resolved_kind = kind or ("timer" if "countdown" in normalized else "reminder")
+    resolved_kind = kind or ("timer" if "countdown" in normalized else "alarm" if "wake me up" in normalized else "reminder")
     if _is_cancel_query(normalized, resolved_kind):
         return "cancel"
     if (

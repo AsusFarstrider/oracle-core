@@ -360,6 +360,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                     inference_warmup = stack.enter_context(patch("oracle_app.application_runtime.attempt_fallback_router_warmup"))
                     host_local = stack.enter_context(patch("oracle_app.application_runtime.start_brain_configuration_host_local_runtime"))
                     routine_worker = stack.enter_context(patch("oracle_app.application_runtime.routine_scheduler_loop", new_callable=AsyncMock))
+                    alert_worker = stack.enter_context(patch("oracle_app.application_runtime.alert_scheduler_loop", new_callable=AsyncMock))
                     home_worker = stack.enter_context(patch("oracle_app.application_runtime.home_automation_scheduler_loop", new_callable=AsyncMock))
                     delivery_worker = stack.enter_context(patch("oracle_app.application_runtime.external_delivery_worker_loop", new_callable=AsyncMock))
                     home_required = stack.enter_context(patch("oracle_app.application_runtime.home_automation_scheduler_required", return_value=False))
@@ -380,6 +381,11 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                 inference_warmup.assert_called_once_with(composition.core_consumers.inference)
                 host_local.assert_called_once_with(startup=startup)
                 routine_worker.assert_not_called()
+                alert_worker.assert_called_once_with(
+                    household=composition.runtime.household,
+                    audiobook_execution=composition.audiobook_execution,
+                    satellites=composition.runtime.satellites,
+                )
                 home_required.assert_called_once_with(composition.runtime.home_assistant)
                 delivery_required.assert_called_once_with(composition.notification_execution)
                 home_worker.assert_not_called()

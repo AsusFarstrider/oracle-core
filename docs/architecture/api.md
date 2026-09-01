@@ -66,6 +66,8 @@ history. They cannot submit, retry, cancel, or configure notifications.
 
 - `POST /api/satellite/alerts/claim`
 - `POST /api/satellite/alerts/{alert_id}/acknowledge`
+- `GET /api/satellite/alerts/state`
+- `POST /api/satellite/alerts/{occurrence_id}/action`
 - `GET /api/satellite/media/audiobooks/{playback_id}/tracks/{track_index}`
 - `POST /api/satellite/deferred-resume`
 - `POST /api/speech/tts`
@@ -128,6 +130,10 @@ Authenticated satellite claim derives source identity from the Bearer
 projection credential, validates that the managed satellite is alert-capable,
 and returns bounded leases. Acknowledgement requires the same source and lease.
 The root pending route is a temporary Slice 9 compatibility surface.
+The browser-facing `GET /api/ui/alert/state` is the compact source-bound
+composition of canonical Timer, Alarm, and Reminder projections used by Home
+and the permanent Alerts page; mutations continue through the existing typed
+family action routes.
 
 ### Audiobook Stream
 

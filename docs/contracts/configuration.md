@@ -240,11 +240,27 @@ cannot override household semantics. Canonical source association fields are:
 - `associated_room_id`; and
 - `fixed`.
 
+For a satellite source, `associated_user_id` is also the canonical default-user
+relationship: the configured person who normally uses that satellite. A
+satellite has zero or one default user, and one user may be the default user for
+multiple satellites. Stage 6 personal-reminder destination resolution uses
+this existing relationship and must not introduce a reminder-specific identity
+or destination registry. The relationship still does not authenticate a
+person, prove the current speaker, grant authorization, or create permissions.
+
 Household timezone and locale are required authored values. Timezone uses an
 IANA identifier and locale uses a supported BCP 47 tag. Host OS, environment,
 browser, and inferred geography cannot default or override either value.
 Domain-specific provider/account timezone fields are allowed only at their
 owning edge and do not replace household semantic time.
+
+The selected canonical calendar provider may expose one or more feeds whose
+typed kind is `holidays`. Those configured holiday feeds are the sole authority
+for deterministic holiday questions and holiday-aware date arithmetic. Ordinary
+event feeds, hardcoded holiday tables, fallback output, inferred locale, and
+hidden external sources cannot supplement a missing configured holiday. When no
+configured holiday feed contains a requested holiday, Oracle reports that it
+cannot establish the holiday from its configured calendar authority.
 
 Household modes are definitions: IDs, names, aliases, and Oracle policy
 semantics. Provider mappings belong to the owning domain, and current mode
@@ -264,6 +280,12 @@ authorization.
 Oracle users are personalization and capability identities, never security
 principals. V2 does not introduce Oracle-owned accounts, roles, or per-user
 permissions.
+
+V2 `household.yaml:users` entries represent real household members. Guest-user
+modeling is outside V2, and service, technical, provider, or system identities
+belong to their owning actor/provider configuration rather than the household
+user registry. Therefore Stage 6 `everyone` means every enabled canonical user
+without adding a user-kind or guest-role schema.
 
 Every canonical request has a non-null internal `request_source_id`, serialized
 as `source_id`, established by its ingress adapter. A stable source must be
@@ -380,6 +402,14 @@ User resolution order is:
 3. authenticated stable source's associated user;
 4. enabled household default user; and
 5. safe failure.
+
+The general order above does not authorize household-default inference where a
+capability contract forbids it. Reminder recipient “me” resolves from an
+explicitly established session user, then an authenticated satellite's
+`associated_user_id`, then clarification. It never uses the household-wide
+default user. Reminder delivery projects a canonical person only to currently
+enabled and eligible satellites associated with that person; common satellites
+have no associated user and receive no private personal-reminder projection.
 
 Room resolution is branch-aware:
 

@@ -189,6 +189,7 @@ class CanonicalBrainApplicationComposition:
                 inference_client=core_consumers.inference,
                 household_settings=runtime.household,
                 home_assistant_settings=runtime.home_assistant,
+                satellite_settings=runtime.satellites,
                 audiobook_execution=audiobook_execution,
                 music_execution=music_execution,
                 facts_execution=facts_execution,

@@ -40,6 +40,13 @@ from .application_ui import (
     _ui_calendar_confirm_impl_cached,
     _ui_context_start_impl,
     _ui_house_camera_snapshot_impl,
+    _ui_timer_action_impl,
+    _ui_timer_state_impl,
+    _ui_alarm_action_impl,
+    _ui_alarm_state_impl,
+    _ui_reminder_action_impl,
+    _ui_reminder_state_impl,
+    _ui_alert_state_impl,
 )
 from .browser_routes import register_browser_routes
 from .conversation_routes import register_conversation_routes
@@ -121,6 +128,13 @@ configure_ui_routes(
     ui_action=_ui_action_impl,
     ui_context_start=_ui_context_start_impl,
     ui_alarm_cancel=_ui_alarm_cancel_impl,
+    ui_timer_action=_ui_timer_action_impl,
+    ui_timer_state=_ui_timer_state_impl,
+    ui_alarm_action=_ui_alarm_action_impl,
+    ui_alarm_state=_ui_alarm_state_impl,
+    ui_reminder_action=_ui_reminder_action_impl,
+    ui_reminder_state=_ui_reminder_state_impl,
+    ui_alert_state=_ui_alert_state_impl,
 )
 register_ui_routes(app)
 register_orchestration_recovery_routes(app)

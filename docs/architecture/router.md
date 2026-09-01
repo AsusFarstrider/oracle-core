@@ -57,6 +57,13 @@ Current registered capability surfaces in the implementation are:
 
 The fallback capability remains the last route surface.
 
+Stage 6 retains this ordered registry. Slice 2 added a canonical owner-validation
+step for fallback proposals and a shared strict value parser; later utility
+slices extend the individual owner probes and grammars. The work is
+consolidation, not a replacement router. A supported Stage 6 request is
+dispatchable only after its deterministic owner can parse it or return a
+bounded clarification.
+
 There is no top-level `chat` target or top-level `ollama` rollback route.
 Informational misses go through `fallback_router`, which may propose `facts`;
 Ollama remains a backend provider only.
@@ -67,9 +74,25 @@ After capability evaluation, routing applies a second refinement stage.
 
 Current route refinement covers:
 
+- typed active-alert context before ambiguous media transport words
 - active-media transport
 - audiobook sleep-timer refinement
 - strong session-context refinement
+
+An alert context is eligible only when the canonical session contains a typed
+stable alert, occurrence, or schedule identifier. This Slice 2 refinement
+selects the system owner; later alert slices own the actual occurrence-aware
+mutation and must fail honestly until they implement it. Absent typed alert
+state, existing media and domain precedence remains.
+
+Fallback-normalized deterministic text re-enters `choose_route()` and proceeds
+only when the canonical route target agrees with the proposed domain. System
+utility proposals are stricter: fallback must preserve the normalized request
+exactly, so it can classify but cannot rewrite numbers, dates, recurrence, or
+mutation parameters. A fallback audiobook user override is accepted only when
+that configured user's id, name, or alias occurs explicitly in the original
+request. Rejected proposals fail as `fallback_router_unvalidated_proposal` and
+never reach a domain handler.
 
 ## Current API
 

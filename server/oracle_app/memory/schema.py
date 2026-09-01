@@ -6,7 +6,7 @@ from pathlib import Path
 from .store import DB_PATH, transaction
 
 
-SCHEMA_VERSION = "0009_durable_alerts"
+SCHEMA_VERSION = "0010_alert_lifecycle"
 SCHEMA_VERSIONS = (
     "0001_core",
     "0002_sessions_transcripts",
@@ -16,6 +16,7 @@ SCHEMA_VERSIONS = (
     "0006_notification_delivery_retry_policy",
     "0007_notification_delivery_repeat_policy",
     "0008_current_state_and_retention",
+    "0009_durable_alerts",
     SCHEMA_VERSION,
 )
 
@@ -227,6 +228,10 @@ CREATE TABLE IF NOT EXISTS memory_alerts (
     acknowledged_at TEXT,
     completed_at TEXT,
     canceled_at TEXT,
+    occurrence_id TEXT,
+    delivery_role TEXT NOT NULL DEFAULT 'destination',
+    recipient_user_id TEXT,
+    config_revision TEXT,
     CHECK (status IN ('pending', 'leased', 'acknowledged', 'completed', 'canceled', 'expired')),
     CHECK ((status = 'leased') = (lease_id IS NOT NULL AND lease_expires_at IS NOT NULL)),
     FOREIGN KEY(source_id) REFERENCES memory_sources(source_id)
@@ -243,6 +248,81 @@ CREATE TABLE IF NOT EXISTS memory_alert_transitions (
     reason TEXT NOT NULL DEFAULT '',
     FOREIGN KEY(alert_id) REFERENCES memory_alerts(alert_id) ON DELETE CASCADE,
     FOREIGN KEY(source_id) REFERENCES memory_sources(source_id)
+);
+
+CREATE TABLE IF NOT EXISTS memory_alert_schedules (
+    schedule_id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    schedule_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    timezone TEXT NOT NULL,
+    start_at TEXT NOT NULL,
+    local_time TEXT,
+    recurrence_json TEXT NOT NULL DEFAULT '{}',
+    creator_source_id TEXT NOT NULL,
+    session_id TEXT,
+    message TEXT NOT NULL,
+    target_scope TEXT NOT NULL,
+    target_id TEXT,
+    recipients_json TEXT NOT NULL DEFAULT '[]',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    idempotency_key TEXT,
+    CHECK (kind IN ('timer', 'alarm', 'reminder')),
+    CHECK (schedule_type IN ('one_time', 'recurring')),
+    CHECK (status IN ('active', 'disabled', 'completed', 'canceled', 'deleted')),
+    CHECK (target_scope IN ('local', 'room', 'household', 'recipient')),
+    FOREIGN KEY(creator_source_id) REFERENCES memory_sources(source_id)
+);
+
+CREATE TABLE IF NOT EXISTS memory_alert_occurrences (
+    occurrence_id TEXT PRIMARY KEY,
+    schedule_id TEXT NOT NULL,
+    occurrence_key TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    due_at TEXT NOT NULL,
+    intended_local TEXT NOT NULL,
+    status TEXT NOT NULL,
+    parent_occurrence_id TEXT,
+    recipient_user_id TEXT,
+    config_revision TEXT,
+    completed_at TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(schedule_id, occurrence_key),
+    CHECK (status IN ('scheduled', 'due', 'ringing', 'outstanding', 'snoozed', 'completed', 'missed', 'overdue', 'canceled', 'skipped')),
+    FOREIGN KEY(schedule_id) REFERENCES memory_alert_schedules(schedule_id) ON DELETE CASCADE,
+    FOREIGN KEY(parent_occurrence_id) REFERENCES memory_alert_occurrences(occurrence_id)
+);
+
+CREATE TABLE IF NOT EXISTS memory_alert_occurrence_transitions (
+    transition_id TEXT PRIMARY KEY,
+    occurrence_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    from_status TEXT,
+    to_status TEXT NOT NULL,
+    actor_type TEXT NOT NULL,
+    actor_id TEXT,
+    reason TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY(occurrence_id) REFERENCES memory_alert_occurrences(occurrence_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS memory_alert_acknowledgements (
+    acknowledgement_id TEXT PRIMARY KEY,
+    occurrence_id TEXT NOT NULL,
+    alert_id TEXT,
+    created_at TEXT NOT NULL,
+    actor_type TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(occurrence_id, idempotency_key),
+    CHECK (actor_type IN ('runtime', 'destination', 'person', 'system')),
+    CHECK (action IN ('delivery_accepted', 'copy_dismissed', 'acknowledged', 'dismissed', 'snoozed', 'completed')),
+    FOREIGN KEY(occurrence_id) REFERENCES memory_alert_occurrences(occurrence_id) ON DELETE CASCADE,
+    FOREIGN KEY(alert_id) REFERENCES memory_alerts(alert_id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_memory_events_observed_at ON memory_events(observed_at);
@@ -303,6 +383,17 @@ CREATE INDEX IF NOT EXISTS idx_memory_alerts_terminal
 ON memory_alerts(status, completed_at, canceled_at, updated_at);
 CREATE INDEX IF NOT EXISTS idx_memory_alert_transitions_alert
 ON memory_alert_transitions(alert_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_alert_schedules_idempotency
+ON memory_alert_schedules(creator_source_id, idempotency_key)
+WHERE idempotency_key IS NOT NULL AND idempotency_key != '';
+CREATE INDEX IF NOT EXISTS idx_memory_alert_schedules_active
+ON memory_alert_schedules(status, kind, start_at);
+CREATE INDEX IF NOT EXISTS idx_memory_alert_occurrences_due
+ON memory_alert_occurrences(status, due_at);
+CREATE INDEX IF NOT EXISTS idx_memory_alert_occurrences_schedule
+ON memory_alert_occurrences(schedule_id, due_at);
+CREATE INDEX IF NOT EXISTS idx_memory_alert_acknowledgements_occurrence
+ON memory_alert_acknowledgements(occurrence_id, created_at);
 """
 
 
@@ -395,6 +486,17 @@ _NOTIFICATION_DELIVERY_COLUMNS = {
     "retry_seconds": "INTEGER NOT NULL DEFAULT 30",
 }
 
+_ALERT_LIFECYCLE_COLUMNS = {
+    "occurrence_id": "TEXT",
+    "delivery_role": "TEXT NOT NULL DEFAULT 'destination'",
+    "recipient_user_id": "TEXT",
+    "config_revision": "TEXT",
+}
+
+_ALERT_OCCURRENCE_COLUMNS = {
+    "recipient_user_id": "TEXT",
+}
+
 
 def ensure_schema(
     db_path: Path | None = None,
@@ -406,9 +508,86 @@ def ensure_schema(
         conn.executescript(SUGGESTIONS_SCHEMA)
         _ensure_runbook_kernel_schema(conn)
         _ensure_notification_delivery_schema(conn)
+        _ensure_alert_lifecycle_schema(conn)
         conn.executemany(
             "INSERT OR IGNORE INTO memory_schema_migrations(version) VALUES (?)",
             [(version,) for version in SCHEMA_VERSIONS],
+        )
+
+
+def _ensure_alert_lifecycle_schema(conn: sqlite3.Connection) -> None:
+    columns = {
+        str(row[1]) for row in conn.execute("PRAGMA table_info(memory_alerts)").fetchall()
+    }
+    for name, declaration in _ALERT_LIFECYCLE_COLUMNS.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE memory_alerts ADD COLUMN {name} {declaration}")
+    conn.execute(
+        """CREATE INDEX IF NOT EXISTS idx_memory_alerts_occurrence
+           ON memory_alerts(occurrence_id, source_id, status)"""
+    )
+    occurrence_columns = {
+        str(row[1])
+        for row in conn.execute("PRAGMA table_info(memory_alert_occurrences)").fetchall()
+    }
+    for name, declaration in _ALERT_OCCURRENCE_COLUMNS.items():
+        if name not in occurrence_columns:
+            conn.execute(
+                f"ALTER TABLE memory_alert_occurrences ADD COLUMN {name} {declaration}"
+            )
+
+    rows = conn.execute(
+        """SELECT * FROM memory_alerts
+           WHERE kind IN ('timer','alarm','reminder') AND occurrence_id IS NULL"""
+    ).fetchall()
+    for row in rows:
+        alert_id = str(row["alert_id"])
+        schedule_id = f"legacy-schedule-{alert_id}"
+        occurrence_id = f"legacy-occurrence-{alert_id}"
+        status = str(row["status"])
+        schedule_status = {
+            "canceled": "canceled",
+            "expired": "completed",
+            "acknowledged": "completed",
+            "completed": "completed",
+        }.get(status, "active")
+        occurrence_status = {
+            "canceled": "canceled",
+            "expired": "missed",
+            "acknowledged": "completed",
+            "completed": "completed",
+        }.get(status, "scheduled")
+        completed_at = None
+        if occurrence_status in {"completed", "missed", "canceled"}:
+            completed_at = row["completed_at"] or row["acknowledged_at"] or row["canceled_at"]
+        conn.execute(
+            """INSERT OR IGNORE INTO memory_alert_schedules (
+                   schedule_id, created_at, updated_at, kind, schedule_type, status,
+                   timezone, start_at, local_time, recurrence_json, creator_source_id,
+                   session_id, message, target_scope, target_id, recipients_json,
+                   metadata_json
+               ) VALUES (?, ?, ?, ?, 'one_time', ?, 'UTC', ?, NULL, '{}', ?, ?, ?,
+                         'local', ?, '[]', '{"migration":"legacy_delivery"}')""",
+            (
+                schedule_id, row["created_at"], row["updated_at"], row["kind"],
+                schedule_status, row["due_at"], row["source_id"], row["session_id"],
+                row["message"], row["source_id"],
+            ),
+        )
+        conn.execute(
+            """INSERT OR IGNORE INTO memory_alert_occurrences (
+                   occurrence_id, schedule_id, occurrence_key, created_at, updated_at,
+                   due_at, intended_local, status, completed_at, metadata_json
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '{"migration":"legacy_delivery"}')""",
+            (
+                occurrence_id, schedule_id, f"legacy:{alert_id}", row["created_at"],
+                row["updated_at"], row["due_at"], row["due_at"], occurrence_status,
+                completed_at,
+            ),
+        )
+        conn.execute(
+            "UPDATE memory_alerts SET occurrence_id=? WHERE alert_id=?",
+            (occurrence_id, alert_id),
         )
 
 

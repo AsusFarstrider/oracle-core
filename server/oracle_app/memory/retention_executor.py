@@ -67,6 +67,10 @@ _KNOWN_TABLES = {
     "memory_notification_deliveries",
     "memory_alerts",
     "memory_alert_transitions",
+    "memory_alert_schedules",
+    "memory_alert_occurrences",
+    "memory_alert_occurrence_transitions",
+    "memory_alert_acknowledgements",
     "suggestion_runs",
     "suggestions",
     "suggestion_reviews",
@@ -118,6 +122,8 @@ def run_retention(
             _session_report(conn, policy, clock, active_sessions),
             _orchestration_report(conn, policy, clock),
             _alert_report(conn, policy, clock),
+            _alert_occurrence_report(conn, policy, clock),
+            _alert_schedule_report(conn, policy, clock),
             _notification_report(conn, policy, clock),
             _suggestion_raw_report(conn, policy, clock),
             _suggestion_run_diagnostics_report(conn, policy, clock),
@@ -359,6 +365,67 @@ def _alert_report(conn: Any, policy: RetentionPolicy, now: datetime) -> Retentio
     )
 
 
+def _alert_occurrence_report(conn: Any, policy: RetentionPolicy, now: datetime) -> RetentionClassReport:
+    cutoff = now - timedelta(days=policy.alert_terminal_days)
+    candidates: list[str] = []
+    protected: list[str] = []
+    blocked: list[str] = []
+    for row in conn.execute(
+        "SELECT occurrence_id, status, completed_at, updated_at FROM memory_alert_occurrences"
+    ):
+        occurrence_id = str(row["occurrence_id"])
+        status = str(row["status"] or "")
+        if status not in {"completed", "missed", "canceled", "skipped"}:
+            protected.append(occurrence_id)
+            continue
+        age = _parse(row["completed_at"] or row["updated_at"])
+        if age is None or age > now:
+            blocked.append(occurrence_id)
+        elif age <= cutoff:
+            candidates.append(occurrence_id)
+    return _report(
+        "terminal_alert_occurrences",
+        "delete_acknowledgements_transitions_then_occurrence",
+        candidates,
+        protected,
+        blocked,
+    )
+
+
+def _alert_schedule_report(conn: Any, policy: RetentionPolicy, now: datetime) -> RetentionClassReport:
+    cutoff = now - timedelta(days=policy.alert_terminal_days)
+    candidates: list[str] = []
+    protected: list[str] = []
+    blocked: list[str] = []
+    for row in conn.execute(
+        "SELECT schedule_id, schedule_type, status, updated_at FROM memory_alert_schedules"
+    ):
+        schedule_id = str(row["schedule_id"])
+        active_occurrence = conn.execute(
+            """SELECT 1 FROM memory_alert_occurrences
+               WHERE schedule_id=? AND status NOT IN ('completed','missed','canceled','skipped')
+               LIMIT 1""",
+            (schedule_id,),
+        ).fetchone()
+        if active_occurrence is not None or (
+            str(row["schedule_type"]) == "recurring" and str(row["status"]) in {"active", "disabled"}
+        ):
+            protected.append(schedule_id)
+            continue
+        age = _parse(row["updated_at"])
+        if age is None or age > now:
+            blocked.append(schedule_id)
+        elif age <= cutoff:
+            candidates.append(schedule_id)
+    return _report(
+        "terminal_alert_schedules",
+        "delete_schedule_without_live_occurrences",
+        candidates,
+        protected,
+        blocked,
+    )
+
+
 def _suggestion_raw_report(conn: Any, policy: RetentionPolicy, now: datetime) -> RetentionClassReport:
     candidates: list[str] = []
     protected: list[str] = []
@@ -467,6 +534,21 @@ def _apply(conn: Any, reports: tuple[RetentionClassReport, ...], now: datetime) 
     for alert_id in by_name["terminal_alerts"].candidate_ids:
         conn.execute("DELETE FROM memory_alert_transitions WHERE alert_id=?", (alert_id,))
         conn.execute("DELETE FROM memory_alerts WHERE alert_id=?", (alert_id,))
+    for occurrence_id in by_name["terminal_alert_occurrences"].candidate_ids:
+        conn.execute(
+            "DELETE FROM memory_alert_acknowledgements WHERE occurrence_id=?",
+            (occurrence_id,),
+        )
+        conn.execute(
+            "DELETE FROM memory_alert_occurrence_transitions WHERE occurrence_id=?",
+            (occurrence_id,),
+        )
+        conn.execute(
+            "DELETE FROM memory_alert_occurrences WHERE occurrence_id=?",
+            (occurrence_id,),
+        )
+    for schedule_id in by_name["terminal_alert_schedules"].candidate_ids:
+        conn.execute("DELETE FROM memory_alert_schedules WHERE schedule_id=?", (schedule_id,))
     for receipt_id in by_name["notification_receipts"].transition_ids:
         conn.execute(
             """UPDATE memory_notification_deliveries

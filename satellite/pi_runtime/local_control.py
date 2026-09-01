@@ -12,6 +12,7 @@ from .models import CommandOutcome, ForegroundAudioRequest, ForegroundHandoff, I
 
 
 REQUEST_EXCEPTION = getattr(requests, "RequestException", RuntimeError)
+LOCAL_PLAYBACK_AUTHORITY_TIMEOUT_SECONDS = 6.0
 
 
 def _log_failure_selection(
@@ -125,7 +126,7 @@ def fetch_local_control_state(control_url: str, api_key: str, path: str) -> Opti
     response = requests.get(
         f"{control_url.rstrip('/')}{path}",
         headers={"Authorization": f"Bearer {api_key}"},
-        timeout=2.0,
+        timeout=LOCAL_PLAYBACK_AUTHORITY_TIMEOUT_SECONDS if path == "/playback-authority" else 2.0,
     )
     response.raise_for_status()
     data = response.json()

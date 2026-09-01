@@ -165,8 +165,8 @@ class RequiredConfigurationModelTests(unittest.TestCase):
             "touch": True,
             "profile": "example_touch",
             "layout": "satellite_landscape_touch_v1",
-            "pages": ["home", "audio"],
-            "bottom_nav": ["home", "audio"],
+            "pages": ["home", "audio", "alerts"],
+            "bottom_nav": ["home", "audio", "alerts"],
         }
         model = validate_required_role("satellites.yaml", payload)
         self.assertTrue(model.satellites[0].ui.enabled)

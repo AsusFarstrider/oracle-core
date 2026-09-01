@@ -223,6 +223,8 @@ Canonical Stage 5 additions are:
 
 - `POST /api/satellite/alerts/claim`
 - `POST /api/satellite/alerts/{alert_id}/acknowledge`
+- `GET /api/satellite/alerts/state`
+- `POST /api/satellite/alerts/{occurrence_id}/action`
 - `POST /api/satellite/deferred-resume`
 - `GET /api/satellite/media/audiobooks/{playback_id}/tracks/{track_index}`
 

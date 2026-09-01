@@ -276,7 +276,9 @@ class SatelliteAudioConfiguration(ConfigurationModel):
     playback: PlaybackConfiguration
 
 
-SatelliteUiPage = Literal["home", "weather", "calendar", "audio", "music", "audiobooks", "house"]
+SatelliteUiPage = Literal[
+    "home", "weather", "calendar", "audio", "music", "audiobooks", "house", "alerts"
+]
 
 
 class SatelliteUiConfiguration(ConfigurationModel):

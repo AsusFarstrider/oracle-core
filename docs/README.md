@@ -30,6 +30,8 @@ is useful to core consumers.
 - [API architecture](architecture/api.md)
 - [routing architecture](architecture/router.md)
 - [dispatch architecture](architecture/dispatch.md)
+- [system utilities contract](contracts/system-utilities.md)
+- [governed timezone aliases](reference/timezone-alias-catalog.md)
 - [health architecture](architecture/health.md)
 - [speech architecture](architecture/speech-stack.md)
 - [test entrypoint](architecture/testing.md)

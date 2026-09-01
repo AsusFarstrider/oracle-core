@@ -1,6 +1,6 @@
 """Oracle Memory durable operational storage helpers.
 
-This package is intentionally unwired from runtime request paths.
+Memory owns transactions and records; domain owners decide behavior.
 """
 
 from .store import DB_PATH

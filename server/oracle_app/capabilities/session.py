@@ -14,6 +14,7 @@ from oracle_app.news import is_news_request
 from oracle_app.room_context import canonical_pending_room_reply_name
 from oracle_app.routing_helpers import has_home_keyword
 from oracle_app.system_intents import classify_system_intent
+from oracle_app.session_state import get_pending_state
 from oracle_app.weather_intents import classify_weather_intent
 
 from .base import CapabilityDecision
@@ -29,6 +30,17 @@ class PendingConfirmationCapability:
         if normalized_text not in {"yes", "yes please", "add it", "do it"}:
             return None
         return CapabilityDecision("system", 0.99, "Matched pending confirmation context", "confirm")
+
+
+class PendingUtilityCapability:
+    name = "pending_utility"
+    priority = 98
+
+    def evaluate(self, normalized_text: str, *, source: str | None = None, session_id: str | None = None) -> CapabilityDecision | None:
+        pending = get_pending_state(source, session_id, domain="utilities")
+        if pending is None or not normalized_text:
+            return None
+        return CapabilityDecision("system", 0.98, "Matched pending deterministic utility clarification", normalized_text)
 
 
 class PendingHomeCapability:

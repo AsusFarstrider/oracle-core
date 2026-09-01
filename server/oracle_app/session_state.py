@@ -4,6 +4,7 @@ import logging
 import re
 import time
 import uuid
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
@@ -19,7 +20,24 @@ _VALID_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _SOURCE_SLUG_RE = re.compile(r"[^A-Za-z0-9]+")
 _ALLOWED_ANCHOR_STRENGTHS = {"strong", "weak"}
 _ALLOWED_PENDING_TYPES = {"confirmation", "clarification"}
-_ALLOWED_PENDING_DOMAINS = {"confirmation", "music", "audiobook", "home_assistant", "calendar", "ui_context"}
+_ALLOWED_PENDING_DOMAINS = {"confirmation", "music", "audiobook", "home_assistant", "calendar", "ui_context", "utilities"}
+_ALLOWED_UTILITY_CONTEXT_KINDS = {
+    "alert_subject",
+    "calculation",
+    "conversion",
+    "repeat_output",
+    "temporal",
+}
+_UTILITY_CONTEXT_FIELDS = {
+    "alert_subject": {
+        "alert_id", "schedule_id", "occurrence_id", "alert_kind", "name",
+        "duration_seconds", "duration_unit", "schedule_type",
+    },
+    "calculation": {"value", "display_text"},
+    "conversion": {"value", "dimension", "source_unit", "target_unit", "display_text"},
+    "repeat_output": {"reply_text", "route_target", "action", "status", "error"},
+    "temporal": {"subject_type", "iso_value", "timezone", "display_text"},
+}
 _FORBIDDEN_SESSION_REFERENCE_KEYS = {
     "active_sessions",
     "alerts",
@@ -32,6 +50,7 @@ _FORBIDDEN_SESSION_REFERENCE_KEYS = {
     "playback_state",
     "service_health",
 }
+_UTILITY_PENDING_FIELDS = {"clarification_kind", "context_kind", "prompt", "options", "original_text", "subject_text"}
 
 _SESSIONS: dict[str, dict[str, Any]] = {}
 _FALLBACK_BY_SOURCE: dict[str, str] = {}
@@ -124,6 +143,25 @@ def _validate_pending_state_input(
     forbidden_key = _has_forbidden_session_reference(payload)
     if forbidden_key is not None:
         return f"forbidden_pending_reference:{forbidden_key}"
+    if domain == "utilities":
+        extra_fields = sorted(set(payload) - _UTILITY_PENDING_FIELDS)
+        if extra_fields:
+            return f"unsupported_utility_pending_fields:{','.join(extra_fields)}"
+        clarification_kind = str(payload.get("clarification_kind") or "").strip()
+        prompt = str(payload.get("prompt") or "").strip()
+        options = payload.get("options")
+        if not clarification_kind or not prompt:
+            return "utility_pending_clarification_and_prompt_required"
+        if len(prompt) > 1024:
+            return "utility_pending_prompt_too_long"
+        if not isinstance(options, (list, tuple)) or not 2 <= len(options) <= 5:
+            return "utility_pending_requires_two_to_five_options"
+        if any(not isinstance(item, str) or not item.strip() or len(item) > 256 for item in options):
+            return "utility_pending_options_must_be_bounded_strings"
+        if len(str(payload.get("original_text") or "")) > 4096:
+            return "utility_pending_original_text_too_long"
+        if len(str(payload.get("subject_text") or "")) > 256:
+            return "utility_pending_subject_text_too_long"
     if _coerce_timeout(timeout_seconds, default=0.0) <= 0:
         return "pending_timeout_must_be_positive"
     return None
@@ -148,6 +186,35 @@ def _validate_active_context_input(
         return "active_room_ref_requires_home_assistant_context"
     if brightness_context_text and route_target != "home_assistant":
         return "brightness_context_requires_home_assistant_context"
+    return None
+
+
+def _validate_utility_context_input(*, kind: str, payload: dict[str, Any]) -> str | None:
+    allowed_fields = _UTILITY_CONTEXT_FIELDS.get(kind)
+    if kind not in _ALLOWED_UTILITY_CONTEXT_KINDS or allowed_fields is None:
+        return f"unsupported_utility_context_kind:{kind or '-'}"
+    if not isinstance(payload, dict) or not payload:
+        return "utility_context_payload_required"
+    extra_fields = sorted(set(payload) - allowed_fields)
+    if extra_fields:
+        return f"unsupported_utility_context_fields:{','.join(extra_fields)}"
+    forbidden_key = _has_forbidden_session_reference(payload)
+    if forbidden_key is not None:
+        return f"forbidden_utility_context_reference:{forbidden_key}"
+    for key, value in payload.items():
+        if value is None:
+            continue
+        if not isinstance(value, (str, int, float, bool)):
+            return f"utility_context_scalar_required:{key}"
+        if isinstance(value, str) and len(value) > 4096:
+            return f"utility_context_value_too_long:{key}"
+    if kind == "alert_subject" and not any(
+        str(payload.get(key) or "").strip()
+        for key in ("alert_id", "schedule_id", "occurrence_id")
+    ):
+        return "alert_subject_identifier_required"
+    if kind == "repeat_output" and not str(payload.get("reply_text") or "").strip():
+        return "repeat_output_reply_required"
     return None
 
 
@@ -176,6 +243,7 @@ def _build_session(
         "active_context": None,
         "pending_state": None,
         "user_context": None,
+        "utility_context": {},
     }
 
 
@@ -184,11 +252,13 @@ def _copy_session(session: dict[str, Any]) -> dict[str, Any]:
     active = session.get("active_context")
     pending = session.get("pending_state")
     user_context = session.get("user_context")
+    utility_context = session.get("utility_context")
     return {
         "session_meta": meta,
         "active_context": dict(active) if isinstance(active, dict) else active,
-        "pending_state": dict(pending) if isinstance(pending, dict) else pending,
+        "pending_state": deepcopy(pending) if isinstance(pending, dict) else pending,
         "user_context": dict(user_context) if isinstance(user_context, dict) else user_context,
+        "utility_context": deepcopy(utility_context) if isinstance(utility_context, dict) else {},
     }
 
 
@@ -456,6 +526,7 @@ def inspect_session(source: str | None, session_id: str | None) -> dict[str, Any
     pending = session.get("pending_state")
     active = session.get("active_context")
     user_context = session.get("user_context")
+    utility_context = session.get("utility_context")
     followup = describe_followup_resolution(normalized_source, normalized_session_id)
     session_timeout_seconds = _coerce_timeout(meta.get("session_timeout_seconds"), default=DEFAULT_SESSION_TIMEOUT_SECONDS)
     session_refreshed_monotonic = float(meta.get("refreshed_monotonic") or 0.0)
@@ -477,6 +548,7 @@ def inspect_session(source: str | None, session_id: str | None) -> dict[str, Any
         "active_context": active,
         "pending_state": pending,
         "user_context": user_context,
+        "utility_context": utility_context,
         "lifecycle": _copy_audit(key),
         "derived": {
             "session_active": True,
@@ -484,6 +556,7 @@ def inspect_session(source: str | None, session_id: str | None) -> dict[str, Any
             "pending_expired": pending_expired,
             "anchor_strength": str((active or {}).get("anchor_strength") or "") if isinstance(active, dict) else "",
             "active_user_id": str((user_context or {}).get("active_user_id") or "") if isinstance(user_context, dict) else "",
+            "utility_context_kinds": sorted(utility_context) if isinstance(utility_context, dict) else [],
             "follow_up_resolution_order": str(followup.get("resolution_order") or "general_routing"),
             "waiting_on_user": bool(followup.get("waiting_on_user")),
             "next_route_target": str(followup.get("route_target") or ""),
@@ -516,7 +589,7 @@ def iter_pending_states(*, domain: str | None = None) -> list[tuple[str, dict[st
         payload = pending.get("payload")
         if not isinstance(payload, dict):
             continue
-        items.append((key, dict(payload)))
+        items.append((key, deepcopy(payload)))
     return items
 
 
@@ -534,7 +607,7 @@ def describe_followup_resolution(source: str | None, session_id: str | None) -> 
     pending = session.get("pending_state")
     if isinstance(pending, dict):
         pending_domain = str(pending.get("domain") or "").strip().lower()
-        route_target = "system" if pending_domain == "confirmation" else pending_domain
+        route_target = "system" if pending_domain in {"confirmation", "utilities"} else pending_domain
         return {
             "resolution_order": "pending_state",
             "waiting_on_user": True,
@@ -670,6 +743,153 @@ def clear_user_context(source: str | None, session_id: str | None) -> bool:
 
 
 @synchronized_interaction
+def get_utility_context(
+    source: str | None,
+    session_id: str | None,
+    *,
+    kind: str | None = None,
+) -> dict[str, Any] | None:
+    session = get_session(source, session_id)
+    if session is None:
+        return None
+    utility_context = session.get("utility_context")
+    if not isinstance(utility_context, dict):
+        return None
+    if kind is None:
+        return deepcopy(utility_context)
+    normalized_kind = str(kind or "").strip().lower()
+    slot = utility_context.get(normalized_kind)
+    return deepcopy(slot) if isinstance(slot, dict) else None
+
+
+@synchronized_interaction
+def set_utility_context(
+    source: str | None,
+    session_id: str | None,
+    *,
+    kind: str,
+    payload: dict[str, Any],
+) -> bool:
+    normalized_source = _normalize_source(source)
+    normalized_session_id = normalize_client_session_id(session_id)
+    normalized_kind = str(kind or "").strip().lower()
+    if normalized_source is None or normalized_session_id is None:
+        return False
+    validation_error = _validate_utility_context_input(kind=normalized_kind, payload=payload)
+    if validation_error is not None:
+        logger.warning(
+            "utility_context_rejected source=%s session_id=%s kind=%s reason=%s",
+            normalized_source,
+            normalized_session_id,
+            normalized_kind or "-",
+            validation_error,
+        )
+        return False
+    now_monotonic = time.monotonic()
+    _prune_expired(now_monotonic)
+    key = _session_key(normalized_source, normalized_session_id)
+    session = _SESSIONS.get(key)
+    if session is None:
+        session = _build_session(
+            source=normalized_source,
+            client_session_id=normalized_session_id,
+            effective_session_id=normalized_session_id,
+            fallback_generated=False,
+            now_monotonic=now_monotonic,
+        )
+        _SESSIONS[key] = session
+    utility_context = session.get("utility_context")
+    if not isinstance(utility_context, dict):
+        utility_context = {}
+        session["utility_context"] = utility_context
+    now_wall = _utc_now_iso()
+    utility_context[normalized_kind] = {
+        "kind": normalized_kind,
+        "payload": deepcopy(payload),
+        "created_at": now_wall,
+        "refreshed_at": now_wall,
+        "created_monotonic": now_monotonic,
+        "refreshed_monotonic": now_monotonic,
+    }
+    meta = session["session_meta"]
+    meta["refreshed_monotonic"] = now_monotonic
+    meta["refreshed_at"] = now_wall
+    _record_audit(
+        key,
+        "utility",
+        event="utility_context_set",
+        reason=f"{normalized_kind}_context_set",
+        detail="Bounded typed utility context became available to deterministic follow-up handling.",
+    )
+    logger.info(
+        "utility_context_set source=%s session_id=%s kind=%s",
+        normalized_source,
+        normalized_session_id,
+        normalized_kind,
+    )
+    return True
+
+
+@synchronized_interaction
+def clear_utility_context(
+    source: str | None,
+    session_id: str | None,
+    *,
+    kind: str | None = None,
+    reason: str = "cleared",
+) -> bool:
+    normalized_source = _normalize_source(source)
+    normalized_session_id = normalize_client_session_id(session_id)
+    if normalized_source is None or normalized_session_id is None:
+        return False
+    now_monotonic = time.monotonic()
+    _prune_expired(now_monotonic)
+    key = _session_key(normalized_source, normalized_session_id)
+    session = _SESSIONS.get(key)
+    if session is None:
+        return False
+    utility_context = session.get("utility_context")
+    if not isinstance(utility_context, dict) or not utility_context:
+        return False
+    normalized_kind = str(kind or "").strip().lower() if kind is not None else None
+    if normalized_kind is None:
+        detail = ",".join(sorted(utility_context))
+        utility_context.clear()
+    elif normalized_kind in utility_context:
+        detail = normalized_kind
+        utility_context.pop(normalized_kind, None)
+    else:
+        return False
+    meta = session["session_meta"]
+    meta["refreshed_monotonic"] = now_monotonic
+    meta["refreshed_at"] = _utc_now_iso()
+    _record_audit(
+        key,
+        "utility",
+        event="utility_context_cleared",
+        reason=reason,
+        detail=detail,
+    )
+    return True
+
+
+def clear_utility_context_for_topic_change(
+    source: str | None,
+    session_id: str | None,
+    *,
+    route_target: str,
+) -> bool:
+    normalized_target = str(route_target or "").strip().lower()
+    if not normalized_target or normalized_target in {"system", "fallback_router"}:
+        return False
+    return clear_utility_context(
+        source,
+        session_id,
+        reason=f"explicit_topic_change:{normalized_target}",
+    )
+
+
+@synchronized_interaction
 def set_pending_state(
     source: str | None,
     session_id: str | None,
@@ -715,7 +935,7 @@ def set_pending_state(
     session["pending_state"] = {
         "type": normalized_pending_type,
         "domain": normalized_domain,
-        "payload": dict(payload),
+        "payload": deepcopy(payload),
         "created_at": _utc_now_iso(),
         "refreshed_at": _utc_now_iso(),
         "created_monotonic": now_monotonic,
@@ -885,7 +1105,8 @@ def clear_session_state(source: str | None, session_id: str | None, *, reason: s
     pending_cleared = False
     active_cleared = clear_active_context(source, session_id, reason=reason)
     user_cleared = clear_user_context(source, session_id)
-    for domain in ("confirmation", "music", "audiobook", "home_assistant", "calendar", "ui_context"):
+    utility_cleared = clear_utility_context(source, session_id, reason=reason)
+    for domain in ("confirmation", "music", "audiobook", "home_assistant", "calendar", "ui_context", "utilities"):
         pending_cleared = clear_pending_state(source, session_id, domain=domain, reason=reason) or pending_cleared
     normalized_source = _normalize_source(source)
     normalized_session_id = normalize_client_session_id(session_id)
@@ -919,6 +1140,7 @@ def clear_session_state(source: str | None, session_id: str | None, *, reason: s
         "pending_cleared": pending_cleared,
         "active_context_cleared": active_cleared,
         "user_context_cleared": user_cleared,
+        "utility_context_cleared": utility_cleared,
         "conversation_cleared": owned_cleared["conversation_cleared"],
         "command_events_cleared": owned_cleared["command_events_cleared"],
         "audit_cleared": audit_cleared,
@@ -941,7 +1163,7 @@ def get_pending_state(
     if domain is not None and str(pending.get("domain") or "") != domain:
         return None
     payload = pending.get("payload")
-    return dict(payload) if isinstance(payload, dict) else None
+    return deepcopy(payload) if isinstance(payload, dict) else None
 
 
 @synchronized_interaction

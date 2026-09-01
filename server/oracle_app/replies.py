@@ -328,8 +328,10 @@ def _shape_dispatch_reply(dispatch: DispatchPlan) -> str:
         return "I couldn't check the network right now."
 
     if dispatch.target == "system":
+        action = str(result.get("action", "")).strip()
+        if action in {"repeat", "help", "courtesy", "unsupported_utility"}:
+            return str(result.get("speech") or "").strip() or "I couldn't answer that right now."
         if dispatch.status == "failed":
-            action = str(result.get("action", "")).strip()
             if action == "confirm_pending":
                 confirmed = result.get("confirmed_dispatch") or {}
                 confirmed_target = str(confirmed.get("target") or "").strip()
@@ -348,6 +350,10 @@ def _shape_dispatch_reply(dispatch: DispatchPlan) -> str:
                 if requested:
                     return f"I don't know a user named {requested}."
                 return "I don't know which user to switch to."
+            if error == "temporal_unavailable":
+                detail = str(result.get("detail", "")).strip()
+                if detail:
+                    return detail
             return "I couldn't complete that request."
         action = result.get("action")
         if action == "ignore":
@@ -371,7 +377,7 @@ def _shape_dispatch_reply(dispatch: DispatchPlan) -> str:
             if speech:
                 return speech
             return "I could not manage that timer, alarm, or reminder right now."
-        if action in {"current_time", "current_date", "current_time_date"}:
+        if action in {"current_time", "current_date", "current_time_date", "temporal"}:
             speech = str(result.get("speech", "")).strip()
             if speech:
                 return speech

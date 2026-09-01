@@ -125,6 +125,21 @@ def reconcile_identities(
                 raise ValueError(
                     "Cannot retire sources with active durable alerts: " + references
                 )
+            retiring_schedules = conn.execute(
+                f"""SELECT schedule_id, creator_source_id FROM memory_alert_schedules
+                    WHERE status IN ('active','disabled')
+                      AND creator_source_id NOT IN ({placeholders})
+                    ORDER BY schedule_id""",
+                tuple(sorted(authoritative_source_ids)),
+            ).fetchall()
+            if retiring_schedules:
+                references = ", ".join(
+                    f"{row['schedule_id']}:{row['creator_source_id']}"
+                    for row in retiring_schedules
+                )
+                raise ValueError(
+                    "Cannot retire sources with active alert schedules: " + references
+                )
             conn.execute(
                 f"UPDATE memory_sources SET status='retired', updated_at=? "
                 f"WHERE source_id NOT IN ({placeholders})",
@@ -196,6 +211,20 @@ def _rewrite_aliases(conn: Any, aliases: Mapping[str, str]) -> None:
             "memory_alert_transitions",
         ):
             conn.execute(f"UPDATE {table} SET source_id=? WHERE source_id=?", (canonical, alias))
+        conn.execute(
+            "UPDATE memory_alert_schedules SET creator_source_id=? WHERE creator_source_id=?",
+            (canonical, alias),
+        )
+        conn.execute(
+            """UPDATE memory_alert_schedules SET target_id=?
+               WHERE target_scope='local' AND target_id=?""",
+            (canonical, alias),
+        )
+        conn.execute(
+            """UPDATE memory_alert_acknowledgements SET actor_id=?
+               WHERE actor_type IN ('runtime','destination') AND actor_id=?""",
+            (canonical, alias),
+        )
         _merge_projection_alias(conn, alias, canonical)
         conn.execute("DELETE FROM memory_sources WHERE source_id=?", (alias,))
 

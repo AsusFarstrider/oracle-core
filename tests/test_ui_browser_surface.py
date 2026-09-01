@@ -167,7 +167,49 @@ class UiBrowserSurfaceTests(unittest.TestCase):
         self.assertIn("} else if (hasRoomEnvironment", content)
 
         index = (ROOT / "satellite_ui" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("app.js?v=28", index)
+        self.assertIn("app.js?v=31", index)
+
+    def test_satellite_alarm_management_and_takeover_are_typed(self) -> None:
+        content = (ROOT / "satellite_ui" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "satellite_ui" / "app.css").read_text(encoding="utf-8")
+        index = (ROOT / "satellite_ui" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('/api/ui/alert/state?source_id=', content)
+        self.assertIn('apiPost("/api/ui/alarm/action"', content)
+        self.assertIn('action: button.dataset.alarmAction', content)
+        self.assertIn('data-alarm-action="snooze"', content)
+        self.assertIn('data-alarm-action="dismiss"', content)
+        self.assertIn('navigator.wakeLock?.request', content)
+        self.assertIn('.alarm-takeover', styles)
+        self.assertIn('app.css?v=14', index)
+
+    def test_satellite_reminder_card_and_actions_are_typed_and_source_bound(self) -> None:
+        content = (ROOT / "satellite_ui" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "satellite_ui" / "app.css").read_text(encoding="utf-8")
+
+        self.assertIn('/api/ui/alert/state?source_id=', content)
+        self.assertIn('apiPost("/api/ui/reminder/action"', content)
+        self.assertIn('data-reminder-action="snooze"', content)
+        self.assertIn('data-reminder-action="dismiss"', content)
+        self.assertIn('reminder.common_copy ? ""', content)
+        self.assertIn('View reminders', content)
+        self.assertIn('.active-reminder', styles)
+
+    def test_satellite_alert_management_is_compact_complete_and_degraded_aware(self) -> None:
+        content = (ROOT / "satellite_ui" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "satellite_ui" / "app.css").read_text(encoding="utf-8")
+
+        self.assertEqual(content.count('/api/ui/alert/state?source_id='), 2)
+        self.assertIn('renderTimerManagement(timerState)', content)
+        self.assertIn('Alert state is temporarily unavailable.', content)
+        self.assertIn('Retrying automatically.', content)
+        self.assertIn('seq !== state.alertRefreshSeq', content)
+        self.assertIn('renderAlerts({ status: "degraded"', content)
+        self.assertIn('LIVE_CONTROL_PAGES = new Set(["home", "house", "alerts"])', content)
+        self.assertNotIn('scheduleTimerStateRefresh', content)
+        self.assertNotIn('scheduleAlarmStateRefresh', content)
+        self.assertNotIn('scheduleReminderStateRefresh', content)
+        self.assertIn('@media (pointer: coarse)', styles)
 
     def test_browser_surface_paths_remain_repo_local(self) -> None:
         api_text = (ROOT / "server" / "oracle_app" / "api.py").read_text(encoding="utf-8")

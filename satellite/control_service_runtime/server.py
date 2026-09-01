@@ -10,9 +10,35 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from .auth import is_authorized
-from .cache import CommandCache
+from .cache import CommandCache, PlaybackAuthoritySnapshotCache
 from .playback_authority import build_playback_authority_state, interrupt_for_oracle, resume_after_oracle
 from .reply_audio import ReplyAudioStateStore
+
+
+_PLAYBACK_AUTHORITY_MUTATING_ACTIONS = frozenset(
+    {
+        "pause",
+        "resume",
+        "stop",
+        "next",
+        "previous",
+        "restart",
+        "volume_up",
+        "volume_down",
+        "set_volume",
+        "play_media",
+        "play_longform_audio",
+        "pause_longform_audio",
+        "resume_longform_audio",
+        "stop_longform_audio",
+        "seek_longform_audio",
+        "stop_reply_audio",
+        "begin_reply_audio",
+        "finalize_reply_audio",
+        "interrupt_for_oracle",
+        "resume_after_oracle",
+    }
+)
 
 
 def _log_control_event(
@@ -187,8 +213,10 @@ class ControlRequestHandler(BaseHTTPRequestHandler):
                 status="sent",
                 adapter=self.server.adapter.__class__.__name__,
             )
-            with self.server.runtime_lock:
-                return self._dispatch_action(action, args).to_dict(command_id)
+            return self.server.execute_control_action(
+                action,
+                lambda: self._dispatch_action(action, args).to_dict(command_id),
+            )
 
         response, cached = self.server.command_cache.get_or_store(
             command_id,
@@ -437,6 +465,7 @@ class ControlServer(ThreadingHTTPServer):
         self.reply_audio = ReplyAudioStateStore(reply_audio_state_path, reply_audio_stop_path)
         self.command_cache = CommandCache()
         self.runtime_lock = RLock()
+        self.playback_authority_snapshot = PlaybackAuthoritySnapshotCache()
         self.result_type = result_type
         self._build_config_report_payload = build_config_report_payload
         self._render_config_report_text = render_config_report_text
@@ -483,7 +512,20 @@ class ControlServer(ThreadingHTTPServer):
 
     def get_playback_authority_state(self) -> dict[str, Any]:
         with self.runtime_lock:
-            return build_playback_authority_state(adapter=self.adapter, reply_audio=self.reply_audio)
+            cached = self.playback_authority_snapshot.get()
+            if cached is not None:
+                return cached
+            payload = build_playback_authority_state(adapter=self.adapter, reply_audio=self.reply_audio)
+            self.playback_authority_snapshot.store(payload)
+            return payload
+
+    def execute_control_action(self, action: str, operation: Any) -> dict[str, Any]:
+        with self.runtime_lock:
+            try:
+                return operation()
+            finally:
+                if action in _PLAYBACK_AUTHORITY_MUTATING_ACTIONS:
+                    self.playback_authority_snapshot.invalidate()
 
     def interrupt_for_oracle(self) -> dict[str, Any]:
         with self.runtime_lock:

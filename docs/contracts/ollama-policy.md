@@ -97,6 +97,20 @@ It does not:
 - answer the user directly;
 - return executable permission on its own.
 
+For Stage 6 deterministic utilities, fallback also cannot invent or compute:
+
+- arithmetic, conversion, time, date, or holiday answers;
+- dates, durations, units, names, recurrence semantics, edit scope, or snooze
+  behavior;
+- recipients, rooms, satellites, whole-house target sets, or acknowledgement
+  identity; or
+- any durable timer, alarm, or reminder mutation.
+
+If fallback proposes a Stage 6 domain and normalized text, the Brain must
+re-enter that domain's deterministic parser and ordinary validation/context
+path. A proposal that the deterministic owner cannot fully validate clarifies
+or fails; fallback output never supplies missing semantics.
+
 ### Facts transition rule
 
 If `fallback_router` determines the request belongs to facts or any removed

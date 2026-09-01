@@ -11,6 +11,7 @@ from unittest.mock import patch
 from oracle_app.configuration import EffectiveConfig, MusicRuntimeSettings, inspect_candidate
 from oracle_app.configuration.domain_models import PlexMusicProvider
 from oracle_app.music_runtime.canonical import CanonicalMusicExecution
+from oracle_app.music_runtime.control import ControlPlaneError
 from oracle_app.music_runtime.parsing import MusicIntent
 from oracle_app.music import check_music_health
 
@@ -108,6 +109,20 @@ class MusicRuntimeSettingsTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             execution.execute_satellite_command("unknown", "pause")
+
+    def test_mutating_satellite_timeout_is_not_automatically_retried(self) -> None:
+        settings = MusicRuntimeSettings.from_effective_config(self._effective_config(enabled=True))
+        execution = CanonicalMusicExecution(settings, satellite_control_timeout_seconds=6)
+
+        with patch(
+            "oracle_app.music_runtime.control.request.urlopen",
+            side_effect=TimeoutError("timed out"),
+        ) as urlopen:
+            with self.assertRaises(ControlPlaneError) as raised:
+                execution.execute_satellite_command("living_room_voice", "play_media", {"plex_key": "track-1"})
+
+        self.assertEqual(raised.exception.error_code, "control_timeout")
+        self.assertEqual(urlopen.call_count, 1)
 
     def test_canonical_music_health_uses_typed_execution(self) -> None:
         settings = MusicRuntimeSettings.from_effective_config(self._effective_config(enabled=True))

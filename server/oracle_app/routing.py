@@ -12,6 +12,7 @@ from .capabilities.registry import CapabilityRegistry
 from .capabilities.session import (
     PendingAudiobookCapability, PendingCalendarCapability,
     PendingConfirmationCapability, PendingHomeCapability, PendingMusicCapability,
+    PendingUtilityCapability,
 )
 from .capabilities.system import (
     AlertsCapability, MathAndConversionCapability, SystemCommandCapability,
@@ -26,6 +27,11 @@ from .route_refinement import PlaybackRouteState
 from .schemas import RouteResponse
 
 
+DETERMINISTIC_FALLBACK_REENTRY_TARGETS = frozenset(
+    {"home_assistant", "calendar", "music", "news", "audiobook", "weather", "system"}
+)
+
+
 def build_route_capability_registry(
     household_settings: HouseholdRuntimeSettings,
     *,
@@ -36,6 +42,7 @@ def build_route_capability_registry(
     registry = CapabilityRegistry()
     registry.register(SystemCommandCapability())
     registry.register(PendingConfirmationCapability())
+    registry.register(PendingUtilityCapability())
     registry.register(ImpliedHomeCapability(household_settings))
     registry.register(TimeDateQueryCapability())
     registry.register(MathAndConversionCapability())
@@ -90,4 +97,39 @@ def choose_route(
         session_id=session_id,
         household_settings=household_settings,
         playback_state=playback_state,
+    )
+
+
+def validate_fallback_reentry(
+    *,
+    proposed_target: str,
+    original_text: str,
+    normalized_text: str,
+    source: str | None,
+    session_id: str | None,
+    registry: CapabilityRegistry,
+    household_settings: HouseholdRuntimeSettings,
+    playback_state: PlaybackRouteState | None = None,
+) -> RouteResponse | None:
+    """Require a fallback proposal to be independently owned by canonical routing."""
+
+    target = str(proposed_target or "").strip().lower()
+    if target not in DETERMINISTIC_FALLBACK_REENTRY_TARGETS:
+        return None
+    if target == "system" and normalize_text(original_text) != normalize_text(normalized_text):
+        return None
+    route = choose_route(
+        normalized_text,
+        source=source,
+        session_id=session_id,
+        registry=registry,
+        household_settings=household_settings,
+        playback_state=playback_state,
+    )
+    if route.target != target:
+        return None
+    return route.model_copy(
+        update={
+            "reason": f"Fallback proposal validated by canonical {target} owner",
+        }
     )

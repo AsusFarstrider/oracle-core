@@ -28,15 +28,23 @@ The selected canonical configuration generation is authoritative for:
 - capability-specific access configuration
 
 User truth is not stored in source entries, inferred from source identity, or
-stored in handler globals. A stable source may have an `associated_user_id`, but
-that association is context only and does not authenticate a person or grant
-permission.
+stored in handler globals. A stable source may have an `associated_user_id`.
+For a satellite this is the canonical default-user relationship: the person who
+normally uses that satellite. The association supplies context and Stage 6
+personal-reminder destination policy, but it does not authenticate a person,
+prove the current speaker, or grant permission.
 
 Required user-registry fields at a high level:
 
 - canonical user id
 - `display_name`
 - `aliases`
+
+V2 canonical users are real household members. Guest-user modeling is outside
+V2. Service, technical, provider, and system identities are actors or
+provider-owned references and must not be entered in `household.yaml:users`.
+This keeps reminder `everyone` equal to every enabled canonical user without a
+parallel eligibility list or role vocabulary.
 
 ## Session User Context Contract
 
@@ -69,6 +77,17 @@ Rules:
 - session timeout clears user context
 - explicit reset clears user context
 
+Capability contracts may deliberately use a stricter subset of this order.
+For reminder recipient “me,” the only allowed resolution is:
+
+1. explicitly established active session user;
+2. requesting authenticated satellite's `associated_user_id`; and
+3. clarification.
+
+The household default user is not a reminder identity fallback. On a common
+satellite with no default user, an omitted reminder recipient must ask whether
+the reminder is for everyone or a specific person.
+
 ## Execute-As And Session Switch Rules
 
 An explicit user in the current utterance overrides session, association, and
@@ -86,7 +105,10 @@ Explicit reset clears active user context.
 
 User-scoped capability resolution exists in Oracle.
 
-User-scoped capability resolution is currently limited to audiobook execution.
+Before Stage 6 feature implementation, user-scoped execution is limited to
+audiobooks. The ratified Stage 6 target also uses canonical users as semantic
+reminder recipients. This document does not claim that reminder execution is
+implemented before its owning slice closes.
 
 For audiobook execution:
 
@@ -96,6 +118,20 @@ For audiobook execution:
 - the effective user's audiobook capability supplies a logical credential
   reference resolved against the active secret generation
 - audiobook search, progress, playback-session open, sync, close, and stream access resolve credentials from the effective user
+
+For Stage 6 reminder execution:
+
+- every enabled real household user is an eligible semantic recipient;
+- personal delivery resolves all currently enabled and eligible satellites for
+  which that user is the configured default user;
+- a common satellite has no default user and receives no personal reminder or
+  private-reminder indicator;
+- an everyone-reminder creates independent recipient acknowledgement state and
+  may additionally create a common household projection;
+- a person with no eligible destination remains truthfully undelivered and
+  outstanding; and
+- future recurring occurrences re-resolve destinations from the current applied
+  configuration while preserving historical occurrence/delivery records.
 
 ## Fallback-Router Advisory User Contract
 

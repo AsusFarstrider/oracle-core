@@ -12,6 +12,7 @@ from .models import SatelliteCapabilities, SatelliteUiConfiguration, SatellitesC
 class SatelliteUiRuntimeEntry:
     satellite_id: str
     source_id: str
+    platform: str | None
     capabilities: SatelliteCapabilities
     ui: SatelliteUiConfiguration
 
@@ -37,6 +38,7 @@ class SatelliteUiRuntimeSettings:
             entry = SatelliteUiRuntimeEntry(
                 satellite_id=satellite.id,
                 source_id=satellite.source_id,
+                platform=satellite.platform,
                 capabilities=satellite.capabilities,
                 ui=satellite.ui,
             )

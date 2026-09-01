@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
 import sounddevice as sd
 
@@ -31,3 +32,17 @@ def detect_default_model() -> Path:
 
 def list_devices() -> None:
     print(sd.query_devices())
+
+
+def set_alarm_display_attention(active: bool) -> bool:
+    """Hold or release Windows display attention for a ringing alarm."""
+
+    if os.name != "nt":
+        return True
+    import ctypes
+
+    continuous = 0x80000000
+    system_required = 0x00000001
+    display_required = 0x00000002
+    flags = continuous | system_required | display_required if active else continuous
+    return bool(ctypes.windll.kernel32.SetThreadExecutionState(flags))

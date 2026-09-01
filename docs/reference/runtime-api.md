@@ -67,6 +67,11 @@ satellite source. `POST /api/satellite/alerts/{alert_id}/acknowledge` records
 of the same lease is idempotent; source mismatch, lease mismatch, and expiry
 fail closed.
 
+`GET /api/satellite/alerts/state` returns the source-bound active logical timer
+projection. `POST /api/satellite/alerts/{occurrence_id}/action` records an
+authenticated typed dismissal. These occurrence surfaces do not conflate
+delivery receipt with human action.
+
 ## Satellite Media
 
 `GET /api/satellite/media/audiobooks/{playback_id}/tracks/{track_index}` proxies

@@ -382,7 +382,12 @@ Rules:
   `household.locale`, with no host/browser/environment fallback;
 - default and association references target declared IDs;
 - `associated_room_id` requires `fixed: true`;
-- source association is context only;
+- source association is context only and never authenticates a person or grants
+  permission;
+- on a satellite source, `associated_user_id` is the zero-or-one canonical
+  default-user relationship used for personal reminder destinations; one user
+  may be associated with multiple satellites, while an unassociated satellite
+  is a common surface;
 - aliases are unique within their typed resolution namespace, including
   disabled entries, unless a domain contract defines a stronger ambiguity rule;
 - cross-namespace alias reuse is allowed, with warnings for overlapping command

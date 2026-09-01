@@ -40,6 +40,13 @@ The current split is:
 
 Holiday events must not be merged into ordinary calendar replies unless they are also present in the personal calendar feed.
 
+For Stage 6 deterministic holiday questions and holiday-aware date arithmetic,
+the configured feed or feeds of kind `holidays` are the sole holiday authority.
+Stage 6 must reuse the canonical calendar execution/provider edge rather than
+create a hardcoded holiday catalog or query fallback/geocoding. If the requested
+holiday is absent from the configured holiday feed, Oracle reports that it
+cannot establish it from the configured authority.
+
 ## Calendar Read
 
 ### Responsibilities

@@ -7,6 +7,8 @@ from fastapi import FastAPI, HTTPException, Request
 from . import alerts as alerts_module
 from .brain_application_composition import CanonicalBrainApplicationComposition
 from .memory.alerts import acknowledge_alert, claim_due_alerts
+from .alert_lifecycle import acknowledge_alert_occurrence
+from .memory.alert_lifecycle import list_alert_occurrences, transition_alert_occurrence
 from .notifications.channels.satellite_announcement import (
     ensure_active_satellite_receipts,
     reconcile_satellite_receipts,
@@ -16,11 +18,18 @@ from .notifications.channels.satellite_announcement import (
 from .schemas import (
     SatelliteAlertAcknowledgeRequest,
     SatelliteAlertAcknowledgeResponse,
+    SatelliteAlertActionRequest,
+    SatelliteAlertActionResponse,
     SatelliteAlertClaimRequest,
     SatelliteAlertClaimResponse,
     SatelliteAlertLease,
+    SatelliteAlertStateResponse,
 )
 from .satellite_authentication import authenticate_satellite_source
+from .session_state import resolve_request_session, set_utility_context
+from .timers import build_timer_state, dismiss_timer
+from .alarms import build_alarm_state, manage_alarm
+from .reminders import build_reminder_state, manage_reminder
 
 
 def satellite_alert_claim(
@@ -93,10 +102,137 @@ def satellite_alert_acknowledge(
             source_id=source_id,
             status="accepted",
         )
+    elif alert.kind in {"timer", "alarm", "reminder"} and alert.occurrence_id:
+        occurrence = next(
+            (
+                item for item in list_alert_occurrences(db_path=alerts_module.ALERT_DB_PATH)
+                if item.occurrence_id == alert.occurrence_id
+            ),
+            None,
+        )
+        if alert.kind == "reminder" and occurrence is not None and occurrence.status == "outstanding":
+            acknowledge_alert_occurrence(
+                occurrence_id=occurrence.occurrence_id,
+                alert_id=alert.alert_id,
+                actor_type="runtime",
+                actor_id=source_id,
+                action="delivery_accepted",
+                idempotency_key=f"runtime:{alert.alert_id}:{payload.lease_id}",
+                now=datetime.now(timezone.utc),
+                db_path=alerts_module.ALERT_DB_PATH,
+            )
+        elif occurrence is not None and occurrence.status in {"due", "ringing"}:
+            try:
+                transition_alert_occurrence(
+                    alert.occurrence_id,
+                    status="ringing",
+                    actor_type="runtime",
+                    actor_id=source_id,
+                    reason=f"{alert.kind}_delivery_accepted",
+                    now=datetime.now(timezone.utc),
+                    db_path=alerts_module.ALERT_DB_PATH,
+                )
+            except ValueError:
+                latest = next(
+                    (
+                        item for item in list_alert_occurrences(db_path=alerts_module.ALERT_DB_PATH)
+                        if item.occurrence_id == alert.occurrence_id
+                    ),
+                    None,
+                )
+                if latest is None or latest.status not in {"completed", "canceled", "missed"}:
+                    raise
+    if alert.kind == "reminder" and payload.status == "completed" and str(alert.message or "").strip():
+        session = resolve_request_session(source_id, payload.session_id)
+        set_utility_context(
+            source_id,
+            str(session["effective_session_id"]),
+            kind="repeat_output",
+            payload={
+                "reply_text": str(alert.message).strip(),
+                "route_target": "system",
+                "action": "reminder_delivery",
+                "status": "executed",
+                "error": "",
+            },
+        )
     return SatelliteAlertAcknowledgeResponse(
         alert_id=alert.alert_id,
         status="completed" if payload.status == "completed" else "acknowledged",
     )
+
+
+def satellite_alert_state(source_id: str, request: Request) -> SatelliteAlertStateResponse:
+    composition, authenticated_source = _authenticated_alert_source(request, source_id)
+    timer_state = build_timer_state(
+        source_id=authenticated_source,
+        household=composition.runtime.household,
+        satellites=composition.runtime.satellites,
+        db_path=alerts_module.ALERT_DB_PATH,
+    )
+    alarm_state = build_alarm_state(
+        source_id=authenticated_source,
+        household=composition.runtime.household,
+        satellites=composition.runtime.satellites,
+        db_path=alerts_module.ALERT_DB_PATH,
+    )
+    reminder_state = build_reminder_state(
+        source_id=authenticated_source,
+        household=composition.runtime.household,
+        satellites=composition.runtime.satellites,
+        db_path=alerts_module.ALERT_DB_PATH,
+    )
+    return SatelliteAlertStateResponse.model_validate(
+        {
+            **timer_state,
+            "alarms": alarm_state["alarms"],
+            "reminders": reminder_state["reminders"],
+            "outstanding": reminder_state["outstanding"],
+            "ringing": [*timer_state["ringing"], *alarm_state["ringing"]],
+            "count": int(timer_state["count"]) + int(alarm_state["count"]) + int(reminder_state["count"]),
+            "display_attention_required": bool(alarm_state["ringing"] or reminder_state["outstanding"]),
+        }
+    )
+
+
+def satellite_alert_action(
+    occurrence_id: str,
+    payload: SatelliteAlertActionRequest,
+    request: Request,
+) -> SatelliteAlertActionResponse:
+    composition, source_id = _authenticated_alert_source(request, payload.source_id)
+    try:
+        try:
+            result = manage_reminder(
+                source_id=source_id, occurrence_id=occurrence_id, action=payload.action,
+                snooze_minutes=payload.snooze_minutes,
+                household=composition.runtime.household, satellites=composition.runtime.satellites,
+                idempotency_key=payload.idempotency_key, db_path=alerts_module.ALERT_DB_PATH,
+            )
+        except KeyError:
+            try:
+                result = manage_alarm(
+                    source_id=source_id, occurrence_id=occurrence_id, action=payload.action,
+                    snooze_minutes=payload.snooze_minutes,
+                    household=composition.runtime.household, satellites=composition.runtime.satellites,
+                    idempotency_key=payload.idempotency_key, db_path=alerts_module.ALERT_DB_PATH,
+                )
+            except KeyError:
+                if payload.action != "dismiss":
+                    raise
+                result = dismiss_timer(
+                    occurrence_id,
+                    source_id=source_id,
+                    household=composition.runtime.household,
+                    satellites=composition.runtime.satellites,
+                    idempotency_key=payload.idempotency_key,
+                    db_path=alerts_module.ALERT_DB_PATH,
+                )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Active alert occurrence not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return SatelliteAlertActionResponse.model_validate(result)
 
 
 def _authenticated_alert_source(
@@ -116,6 +252,10 @@ def _authenticated_alert_source(
 
 
 def register_satellite_alert_routes(app: FastAPI) -> None:
+    app.get(
+        "/api/satellite/alerts/state",
+        response_model=SatelliteAlertStateResponse,
+    )(satellite_alert_state)
     app.post(
         "/api/satellite/alerts/claim",
         response_model=SatelliteAlertClaimResponse,
@@ -124,3 +264,7 @@ def register_satellite_alert_routes(app: FastAPI) -> None:
         "/api/satellite/alerts/{alert_id}/acknowledge",
         response_model=SatelliteAlertAcknowledgeResponse,
     )(satellite_alert_acknowledge)
+    app.post(
+        "/api/satellite/alerts/{occurrence_id}/action",
+        response_model=SatelliteAlertActionResponse,
+    )(satellite_alert_action)

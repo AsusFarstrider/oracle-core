@@ -262,14 +262,38 @@ def acknowledge_alert(
     lease_id: str,
     *,
     credential: str | None = None,
+    status: str = "completed",
+    session_id: str | None = None,
 ) -> None:
     response = requests.post(
         f"{oracle_url.rstrip('/')}/api/satellite/alerts/{alert_id}/acknowledge",
-        json={"source_id": source, "lease_id": lease_id, "status": "completed"},
+        json={
+            "source_id": source,
+            "lease_id": lease_id,
+            "status": status,
+            **({"session_id": session_id} if session_id else {}),
+        },
         timeout=30,
         **_header_kwargs(credential=credential),
     )
     response.raise_for_status()
+
+
+def fetch_alert_state(
+    oracle_url: str,
+    source: str,
+    *,
+    credential: str | None = None,
+) -> Dict[str, Any]:
+    response = requests.get(
+        f"{oracle_url.rstrip('/')}/api/satellite/alerts/state",
+        params={"source_id": source},
+        timeout=30,
+        **_header_kwargs(credential=credential),
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data if isinstance(data, dict) else {}
 
 
 def fetch_command_events(

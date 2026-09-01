@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 
+PASSIVE_STATE_COMMAND_TIMEOUT_SECONDS = 5.0
+
+
 @dataclass
 class CommandResult:
     ok: bool
@@ -149,7 +152,11 @@ class LongformShellController:
         cached_payload = self._get_cached_state() if use_cache else None
         if cached_payload is not None:
             return cached_payload
-        completed = self._run_command(command, {})
+        completed = self._run_command(
+            command,
+            {},
+            timeout_seconds=PASSIVE_STATE_COMMAND_TIMEOUT_SECONDS,
+        )
         if not completed.ok:
             raise RuntimeError(completed.detail or "longform state command failed")
         payload = completed.payload or {}
@@ -212,6 +219,7 @@ class LongformShellController:
         context: dict[str, Any],
         *,
         missing_detail: str = "No local command is configured",
+        timeout_seconds: float | None = None,
     ) -> CommandResult:
         if not template:
             return CommandResult(ok=False, state="unsupported", detail=missing_detail)
@@ -224,13 +232,21 @@ class LongformShellController:
                 detail=f"Missing command template field: {exc.args[0]}",
             )
 
-        completed = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            completed = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            return CommandResult(
+                ok=False,
+                state="failed",
+                detail=f"Player state command timed out after {timeout_seconds:g} seconds",
+            )
         stdout = completed.stdout.strip()
         stderr = completed.stderr.strip()
         if completed.returncode != 0:

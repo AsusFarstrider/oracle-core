@@ -11,6 +11,7 @@ _FOREGROUND_KINDS = {
     "followup_cue",
     "timer",
     "alarm",
+    "reminder",
     "alert",
     "notification",
     "sleep_expiry",
@@ -153,6 +154,8 @@ class RuntimeState:
     wake_state: str = "idle"
     wake_arbitration_suppressed_until: float = 0.0
     next_alert_poll_at: float = 0.0
+    active_timer_alerts: Dict[str, Dict[str, Any]] | None = None
+    active_timer_handoff: Any | None = None
     next_error_tone_at: float = 0.0
     reply_output_handoff_until: float = 0.0
     wake_playback_state_checked_at: float = 0.0

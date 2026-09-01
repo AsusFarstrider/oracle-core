@@ -7185,7 +7185,8 @@
                   "audio",
                   "music",
                   "audiobooks",
-                  "house"
+                  "house",
+                  "alerts"
                 ],
                 "type": "string"
               },
@@ -7220,7 +7221,8 @@
                   "audio",
                   "music",
                   "audiobooks",
-                  "house"
+                  "house",
+                  "alerts"
                 ],
                 "type": "string"
               },

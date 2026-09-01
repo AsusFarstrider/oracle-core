@@ -254,15 +254,15 @@ async def lifespan(target_app: FastAPI):
                     )
                 )
             )
-        if startup_composition.audiobook_execution is not None:
-            background_tasks.append(
-                asyncio.create_task(
-                    alert_scheduler_loop(
-                        audiobook_execution=startup_composition.audiobook_execution,
-                        satellites=startup_composition.runtime.satellites,
-                    )
+        background_tasks.append(
+            asyncio.create_task(
+                alert_scheduler_loop(
+                    household=startup_composition.runtime.household,
+                    audiobook_execution=startup_composition.audiobook_execution,
+                    satellites=startup_composition.runtime.satellites,
                 )
             )
+        )
         if home_automation_scheduler_required(
             startup_composition.runtime.home_assistant
         ):

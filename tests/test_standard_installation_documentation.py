@@ -85,6 +85,34 @@ def test_distribution_no_longer_calls_the_validated_installer_non_operational() 
     assert "standard installation runbook" in inventory
 
 
+def test_release_requires_managed_live_candidate_acceptance_before_promotion() -> None:
+    runbook = RUNBOOK.read_text(encoding="utf-8")
+    normalized = " ".join(runbook.split())
+
+    required_in_order = (
+        "exact disposable clean-core candidate",
+        "copied-production upgrade/migration",
+        "managed `update` transaction",
+        "bounded real-household acceptance matrix",
+        "Roll back through the managed lifecycle",
+        "Only after the gate passes may protected clean-core history",
+        "The final managed production",
+    )
+    positions = [normalized.index(value) for value in required_in_order]
+    assert positions == sorted(positions)
+
+    for required in (
+        "Do not start `uvicorn`",
+        "previously recorded complete production activation",
+        "failed acceptance or failed restoration",
+        "copied-production migration/recovery/rollback rehearsal remains",
+        "post-activation health, fleet checks, and soak remain mandatory",
+        "activation of the exact released artifact",
+        "fresh operator approval",
+    ):
+        assert required in normalized
+
+
 def test_reusable_operator_docs_contain_no_private_household_locator() -> None:
     combined = RUNBOOK.read_text(encoding="utf-8") + CLI_REFERENCE.read_text(encoding="utf-8")
     assert re.search(r"/home/[A-Za-z0-9._-]+", combined) is None

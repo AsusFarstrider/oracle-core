@@ -124,6 +124,11 @@ The control plane:
 - authenticates non-health control requests
 - executes explicit local transport and control operations authored by the brain
 - treats command ids as idempotency keys for a short cache window
+- coalesces concurrent passive playback-authority reads into one short-lived,
+  non-authoritative snapshot under the existing serialized runtime boundary;
+  playback and reply mutations invalidate that snapshot
+- bounds passive player-state subprocesses and gives local Windows authority
+  reads enough time to complete a normal cold refresh
 - returns structured action results
 
 The control plane does not:

@@ -7,6 +7,9 @@ const state = {
   clockTimer: 0,
   headerAudioTimer: 0,
   pageRefreshTimer: 0,
+  alertRefreshTimer: 0,
+  alertRefreshSeq: 0,
+  alarmWakeLock: null,
   headerAudio: null,
   headerAudioLoading: false,
   headerAudioLoadedAt: 0,
@@ -65,7 +68,7 @@ const elements = {
 };
 
 const CLIENT_TIMEOUT_MS = 8000;
-const LIVE_CONTROL_PAGES = new Set(["home", "house"]);
+const LIVE_CONTROL_PAGES = new Set(["home", "house", "alerts"]);
 const LIVE_CONTROL_PAGE_MAX_STALE_MS = 3000;
 const DEFAULT_PAGE_REFRESH_SECONDS = {
   home: 30,
@@ -303,6 +306,7 @@ const pageLoaders = {
   music: async () => apiGet(`/api/ui/audio?source=${encodeURIComponent(state.sourceId)}`),
   audiobooks: async () => apiGet(`/api/ui/audio?source=${encodeURIComponent(state.sourceId)}`),
   house: async () => apiGet("/api/ui/house"),
+  alerts: async () => apiGet(`/api/ui/alert/state?source_id=${encodeURIComponent(state.sourceId)}`),
 };
 
 const pageRenderers = {
@@ -313,6 +317,7 @@ const pageRenderers = {
   music: renderMusic,
   audiobooks: renderAudiobooks,
   house: renderHouse,
+  alerts: renderAlerts,
 };
 
 function pageLabel(page) {
@@ -324,6 +329,7 @@ function pageLabel(page) {
     music: "Music",
     audiobooks: "Audiobooks",
     house: "House",
+    alerts: "Alerts",
   }[page] || page;
 }
 
@@ -336,6 +342,7 @@ function pageIcon(page) {
     music: "music_note",
     audiobooks: "book",
     house: "house",
+    alerts: "alarm",
   }[page] || "circle";
 }
 
@@ -849,7 +856,11 @@ async function refreshPageSnapshot(page, seq, { renderErrors }) {
     const message = error instanceof Error ? error.message : "Unable to load page.";
     noteVoiceEvent("page_refresh_failed", { page, message });
     if (renderErrors && seq === state.pageLoadSeq && state.currentPage === page) {
-      renderFatal(friendlyVoiceError(message));
+      if (page === "alerts") {
+        renderAlerts({ status: "degraded", generated_at: "", refresh_after_seconds: 5 });
+      } else {
+        renderFatal(friendlyVoiceError(message));
+      }
     }
     if (seq === state.pageLoadSeq && state.currentPage === page) {
       schedulePageRefresh(page, null);
@@ -900,6 +911,10 @@ function renderHome(payload) {
     hasRoomEnvironment,
   );
   elements.pageRoot.innerHTML = `
+    <div id="alert-status-root">${renderAlertAvailability({ status: "ready", generated_at: payload.generated_at })}</div>
+    <div id="active-alarm-root">${renderAlarmTakeover(payload.alarms || {})}</div>
+    <div id="active-reminder-root">${renderOutstandingReminders(payload.reminders || {})}</div>
+    <div id="active-timers-root">${renderActiveTimers(payload.timers || {})}</div>
     <section class="home-grid ${hasControls ? "" : "home-grid--visual"}">
       <article class="card card--hero room-card">
         <div class="hero-copy room-card__header">
@@ -929,6 +944,300 @@ function renderHome(payload) {
   `;
   updateClockText();
   wireActionButtons();
+  wireTimerActions();
+  wireAlarmActions();
+  wireReminderActions();
+  scheduleAlertStateRefresh({
+    timer_state: payload.timers || {},
+    alarm_state: payload.alarms || {},
+    reminder_state: payload.reminders || {},
+  });
+}
+
+function renderAlerts(payload) {
+  const timerState = payload?.timer_state || {};
+  const alarms = Array.isArray(payload?.alarms) ? payload.alarms : [];
+  const reminders = Array.isArray(payload?.reminders) ? payload.reminders : [];
+  elements.pageRoot.innerHTML = `
+    <div id="alert-status-root">${renderAlertAvailability(payload)}</div>
+    <div id="active-alarm-root">${renderAlarmTakeover(payload.alarm_state || payload)}</div>
+    <div id="active-reminder-root">${renderOutstandingReminders(payload.reminder_state || {})}</div>
+    <section class="page-heading">
+      <div><p class="card__eyebrow">Schedules</p><h2>Alerts</h2></div>
+      <p class="mini-copy">Timers, alarms, and reminders for this satellite. Use voice to create or edit schedules.</p>
+    </section>
+    <section class="alert-family-heading"><div><p class="card__eyebrow">Countdowns</p><h2>Timers</h2></div></section>
+    ${renderTimerManagement(timerState)}
+    <section class="alert-family-heading"><div><p class="card__eyebrow">Schedules</p><h2>Alarms</h2></div></section>
+    <section class="alarm-management">
+      ${alarms.length ? alarms.map(renderAlarmCard).join("") : `<article class="card alarm-card"><h3>No alarms</h3><p class="mini-copy">Ask Oracle to set one.</p></article>`}
+    </section>
+    <section class="alert-family-heading"><div><p class="card__eyebrow">Obligations</p><h2>Reminders</h2></div></section>
+    <section class="alarm-management">
+      ${reminders.length ? reminders.map(renderReminderCard).join("") : `<article class="card alarm-card"><h3>No reminders</h3><p class="mini-copy">Ask Oracle to remind you.</p></article>`}
+    </section>
+  `;
+  wireAlarmActions();
+  wireReminderActions();
+  wireTimerActions();
+  scheduleAlertStateRefresh(payload);
+}
+
+function renderTimerManagement(timerState) {
+  return Number(timerState?.count || 0) > 0
+    ? renderActiveTimers(timerState)
+    : `<section class="alarm-management"><article class="card alarm-card"><h3>No active timers</h3><p class="mini-copy">Ask Oracle to start one.</p></article></section>`;
+}
+
+function renderAlertAvailability(payload) {
+  if (payload?.status !== "degraded") return "";
+  const stamp = payload?.generated_at ? ` Last good update ${formatAlertUpdateTime(payload.generated_at)}.` : "";
+  return `<section class="alert-availability alert-availability--degraded" role="status" aria-live="polite">
+    <span class="material-symbols-outlined">cloud_off</span><span>Alert state is temporarily unavailable.${escapeHtml(stamp)} Retrying automatically.</span>
+  </section>`;
+}
+
+function formatAlertUpdateTime(value) {
+  const date = new Date(value || "");
+  return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat([], { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(date);
+}
+
+function renderReminderCard(reminder) {
+  return `<article class="card alarm-card ${reminder.overdue ? "reminder-card--overdue" : ""}">
+    <div><p class="card__eyebrow">${escapeHtml(reminder.label || "Reminder")}</p><h3>${escapeHtml(reminder.message || "Reminder")}</h3>
+    <p class="mini-copy">${escapeHtml(reminder.status || "scheduled")}${reminder.due_at ? ` · ${escapeHtml(formatAlarmDate(reminder.due_at))}` : ""}</p></div>
+    ${reminder.outstanding ? `<div class="alarm-card__actions">
+      ${reminder.common_copy ? "" : `<button class="nav-action" type="button" data-reminder-action="snooze" data-reminder-occurrence="${escapeHtml(reminder.occurrence_id || "")}">Snooze 10 minutes</button>`}
+      <button class="nav-action" type="button" data-reminder-action="dismiss" data-reminder-occurrence="${escapeHtml(reminder.occurrence_id || "")}">Dismiss</button>
+    </div>` : ""}
+  </article>`;
+}
+
+function renderOutstandingReminders(payload) {
+  const reminders = Array.isArray(payload?.outstanding) ? payload.outstanding : [];
+  if (!reminders.length) return "";
+  const reminder = reminders[0];
+  return `<section class="active-reminder" role="status" aria-live="polite">
+    <span class="material-symbols-outlined">notification_important</span>
+    <div><p class="card__eyebrow">${reminder.overdue ? "Overdue reminder" : reminder.label || "Reminder"}</p>
+    <h3>${escapeHtml(reminder.message || "Reminder")}</h3>
+    <p class="mini-copy">${escapeHtml(formatAlarmDate(reminder.due_at))}${reminders.length > 1 ? ` · ${reminders.length - 1} more outstanding` : ""}</p></div>
+    <div class="alarm-card__actions">
+      ${reminder.common_copy ? "" : `<button class="nav-action" type="button" data-reminder-action="snooze" data-reminder-occurrence="${escapeHtml(reminder.occurrence_id || "")}">Snooze 10 minutes</button>`}
+      <button class="nav-action" type="button" data-reminder-action="dismiss" data-reminder-occurrence="${escapeHtml(reminder.occurrence_id || "")}">Dismiss</button>
+      <button class="nav-action" type="button" data-reminder-view="true">View reminders</button>
+    </div>
+  </section>`;
+}
+
+function renderAlarmCard(alarm) {
+  const enabled = alarm.schedule_status === "active";
+  return `
+    <article class="card alarm-card ${alarm.missed === true ? "alarm-card--missed" : ""}">
+      <div>
+        <p class="card__eyebrow">${alarm.missed === true ? "Missed alarm" : alarm.schedule_type === "recurring" ? "Recurring alarm" : "One-time alarm"}</p>
+        <h3>${escapeHtml(alarm.label || "Alarm")}</h3>
+        <p>${escapeHtml(alarm.schedule_text || "")}</p>
+        <p class="mini-copy">${enabled ? "Enabled" : escapeHtml(alarm.schedule_status || "Disabled")}${alarm.due_at ? ` · Next ${escapeHtml(formatAlarmDate(alarm.due_at))}` : ""}</p>
+      </div>
+      <div class="alarm-card__actions">
+        <button class="nav-action" type="button" data-alarm-action="${enabled ? "disable" : "enable"}" data-alarm-schedule="${escapeHtml(alarm.schedule_id || "")}">${enabled ? "Disable" : "Enable"}</button>
+        ${enabled && alarm.schedule_type === "recurring" ? `<button class="nav-action" type="button" data-alarm-action="skip" data-alarm-schedule="${escapeHtml(alarm.schedule_id || "")}">Skip next</button>` : ""}
+        <button class="nav-action" type="button" data-alarm-action="delete" data-alarm-schedule="${escapeHtml(alarm.schedule_id || "")}">Delete</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderAlarmTakeover(payload) {
+  const ringing = Array.isArray(payload?.ringing) ? payload.ringing : [];
+  if (!ringing.length) return "";
+  const alarm = ringing[0];
+  void requestAlarmDisplayAttention();
+  return `
+    <section class="alarm-takeover" role="alertdialog" aria-live="assertive" aria-label="Alarm ringing">
+      <span class="material-symbols-outlined alarm-takeover__icon">alarm</span>
+      <p class="card__eyebrow">Alarm ringing</p>
+      <h2>${escapeHtml(alarm.label || "Alarm")}</h2>
+      <p>${escapeHtml(formatAlarmDate(alarm.due_at))}</p>
+      <div class="alarm-takeover__actions">
+        <button class="alarm-action alarm-action--snooze" type="button" data-alarm-action="snooze" data-alarm-occurrence="${escapeHtml(alarm.occurrence_id || "")}">Snooze 10 minutes</button>
+        <button class="alarm-action alarm-action--dismiss" type="button" data-alarm-action="dismiss" data-alarm-occurrence="${escapeHtml(alarm.occurrence_id || "")}">Dismiss</button>
+      </div>
+    </section>
+  `;
+}
+
+function formatAlarmDate(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat([], { weekday: "short", hour: "numeric", minute: "2-digit" }).format(date);
+}
+
+async function requestAlarmDisplayAttention() {
+  try { globalThis.focus(); } catch (_error) { /* best effort */ }
+  try {
+    if (!state.alarmWakeLock && navigator.wakeLock?.request) {
+      state.alarmWakeLock = await navigator.wakeLock.request("screen");
+      state.alarmWakeLock.addEventListener("release", () => { state.alarmWakeLock = null; });
+    }
+  } catch (_error) { /* Native runtime remains the Windows wake authority. */ }
+}
+
+async function releaseAlarmDisplayAttention() {
+  if (!state.alarmWakeLock) return;
+  try { await state.alarmWakeLock.release(); } catch (_error) { /* already released */ }
+  state.alarmWakeLock = null;
+}
+
+function wireAlarmActions() {
+  for (const button of document.querySelectorAll("[data-alarm-action]")) {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await apiPost("/api/ui/alarm/action", {
+          client_id: state.clientId, source_id: state.sourceId,
+          schedule_id: button.dataset.alarmSchedule || undefined,
+          occurrence_id: button.dataset.alarmOccurrence || undefined,
+          action: button.dataset.alarmAction, snooze_minutes: 10,
+        });
+        await refreshAlertState();
+      } catch (error) {
+        button.disabled = false;
+        showFeedback(error instanceof Error ? error.message : "Alarm action failed.", "warn");
+      }
+    });
+  }
+}
+
+function wireReminderActions() {
+  for (const button of document.querySelectorAll("[data-reminder-action]")) {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await apiPost("/api/ui/reminder/action", {
+          client_id: state.clientId, source_id: state.sourceId,
+          occurrence_id: button.dataset.reminderOccurrence,
+          action: button.dataset.reminderAction, snooze_minutes: 10,
+        });
+        await refreshAlertState();
+      } catch (error) {
+        button.disabled = false;
+        showFeedback(error instanceof Error ? error.message : "Reminder action failed.", "warn");
+      }
+    });
+  }
+  for (const button of document.querySelectorAll("[data-reminder-view]")) {
+    button.addEventListener("click", async () => {
+      state.currentPage = "alerts";
+      highlightNav();
+      await loadCurrentPage();
+    });
+  }
+}
+
+function renderActiveTimers(statePayload) {
+  const timers = Array.isArray(statePayload?.timers) ? statePayload.timers : [];
+  if (!timers.length) {
+    return "";
+  }
+  return `
+    <section class="active-timers" aria-live="polite">
+      ${timers.map((timer) => `
+        <article class="active-timer ${["due", "ringing"].includes(timer.status) ? "active-timer--ringing" : ""}">
+          <span class="material-symbols-outlined">timer</span>
+          <div>
+            <p class="card__eyebrow">${["due", "ringing"].includes(timer.status) ? "Timer finished" : "Active timer"}</p>
+            <h3>${escapeHtml(timer.label || "Timer")}</h3>
+            <p class="mini-copy" data-timer-countdown="${escapeHtml(timer.due_at || "")}">${escapeHtml(formatTimerRemaining(timer.remaining_seconds))}</p>
+          </div>
+          <button class="nav-action" type="button" data-timer-action="${["due", "ringing"].includes(timer.status) ? "dismiss" : "cancel"}" data-timer-occurrence="${escapeHtml(timer.occurrence_id || "")}">
+            <span class="material-symbols-outlined">timer_off</span>
+            <span>${["due", "ringing"].includes(timer.status) ? "Dismiss" : "Cancel"}</span>
+          </button>
+        </article>
+      `).join("")}
+    </section>
+  `;
+}
+
+function formatTimerRemaining(secondsValue) {
+  const seconds = Math.max(0, Math.round(Number(secondsValue || 0)));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  if (hours) return `${hours}h ${minutes}m remaining`;
+  if (minutes) return `${minutes}m ${remainder}s remaining`;
+  return seconds ? `${seconds}s remaining` : "Finished";
+}
+
+function wireTimerActions() {
+  for (const button of document.querySelectorAll("[data-timer-action]")) {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await apiPost("/api/ui/timer/action", {
+          client_id: state.clientId,
+          source_id: state.sourceId,
+          occurrence_id: button.dataset.timerOccurrence,
+          action: button.dataset.timerAction,
+        });
+        await refreshAlertState();
+      } catch (error) {
+        button.disabled = false;
+        showFeedback(error instanceof Error ? error.message : "Timer action failed.", "warn");
+      }
+    });
+  }
+}
+
+function scheduleAlertStateRefresh(payload) {
+  clearTimeout(state.alertRefreshTimer);
+  if (!["home", "alerts"].includes(state.currentPage)) return;
+  const active = Number(payload?.active_count || 0) > 0
+    || Number(payload?.timer_state?.count || 0) > 0
+    || Number(payload?.alarm_state?.ringing?.length || 0) > 0
+    || Number(payload?.reminder_state?.outstanding?.length || 0) > 0;
+  const requestedSeconds = Number(payload?.refresh_after_seconds || 0);
+  const delay = payload?.status === "degraded"
+    ? 5000
+    : Math.max(2000, Math.min(30000, (requestedSeconds || (active ? 2 : 30)) * 1000));
+  state.alertRefreshTimer = setTimeout(refreshAlertState, delay);
+}
+
+async function refreshAlertState() {
+  if (!["home", "alerts"].includes(state.currentPage) || !state.sourceId) return;
+  const seq = ++state.alertRefreshSeq;
+  const statusRoot = document.querySelector("#alert-status-root");
+  const priorGeneratedAt = String(state.pageSnapshots.alerts?.generated_at || "");
+  try {
+    const payload = await apiGet(`/api/ui/alert/state?source_id=${encodeURIComponent(state.sourceId)}`);
+    if (seq !== state.alertRefreshSeq || !["home", "alerts"].includes(state.currentPage)) return;
+    state.pageSnapshots.alerts = payload;
+    state.pageSnapshotLoadedAt.alerts = Date.now();
+    if (state.currentPage === "alerts") {
+      renderAlerts(payload);
+      return;
+    }
+    if (statusRoot) statusRoot.innerHTML = renderAlertAvailability(payload);
+    const alarmRoot = document.querySelector("#active-alarm-root");
+    const reminderRoot = document.querySelector("#active-reminder-root");
+    const timerRoot = document.querySelector("#active-timers-root");
+    if (alarmRoot) alarmRoot.innerHTML = renderAlarmTakeover(payload.alarm_state || {});
+    if (reminderRoot) reminderRoot.innerHTML = renderOutstandingReminders(payload.reminder_state || {});
+    if (timerRoot) timerRoot.innerHTML = renderActiveTimers(payload.timer_state || {});
+    wireAlarmActions();
+    wireReminderActions();
+    wireTimerActions();
+    if (!payload.alarm_state?.ringing?.length) await releaseAlarmDisplayAttention();
+    scheduleAlertStateRefresh(payload);
+  } catch (_error) {
+    if (seq !== state.alertRefreshSeq || !["home", "alerts"].includes(state.currentPage)) return;
+    if (statusRoot) {
+      statusRoot.innerHTML = renderAlertAvailability({ status: "degraded", generated_at: priorGeneratedAt });
+    }
+    scheduleAlertStateRefresh({ status: "degraded" });
+  }
 }
 
 function configuredHomeSecondaryCards(hasRoutineActions = false, hasRoomEnvironment = false) {
@@ -1066,9 +1375,9 @@ function renderHomeAlarmCard(slotClass, alarm) {
         <span>Set Alarm</span>
       </button>
       ${active ? `
-        <button class="nav-action nav-action--wide nav-action--quiet" type="button" data-alarm-cancel>
+        <button class="nav-action nav-action--wide nav-action--quiet" type="button" data-alarm-action="disable" data-alarm-schedule="${escapeHtml(nextAlarm.schedule_id || "")}">
           <span class="material-symbols-outlined">alarm_off</span>
-          <span>Clear Alarm</span>
+          <span>Turn off</span>
         </button>
       ` : ""}
     </article>

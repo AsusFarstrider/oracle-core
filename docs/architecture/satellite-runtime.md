@@ -70,6 +70,20 @@ It does not:
 - become a second durable ownership layer
 - absorb unrelated STT or routing behavior
 
+## Stage 6 Alert And Display-Attention Direction
+
+Stage 6 keeps the foreground coordinator and playback authority as the only
+audio interruption/resume owners. The alert runtime will evolve from one-shot
+play-and-ack into an occurrence-aware local presenter, but it will continue to
+execute Brain-authored state rather than own schedules, recurrence, recipients,
+or logical acknowledgement.
+
+Physical display wake/attention is a narrow requirement for the current Windows
+Surface fleet. It should use the existing Windows host/runtime edge and report
+readiness truthfully; it is not a universal cross-platform display framework.
+The currently enabled Linux display does not sleep and needs no new wake
+mechanism. Broad UI/runtime rearchitecture remains Stage 9.
+
 ## Audio Backend Boundary
 
 The `audio/` subpackage is the explicit audio backend boundary for the runtime.

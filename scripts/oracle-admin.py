@@ -1089,6 +1089,42 @@ def _ensure_python_environment_support(host: dict[str, object]) -> dict[str, obj
     }
 
 
+def _staging_evidence_identity(result: dict[str, object]) -> dict[str, object]:
+    """Return the plan-bound facts that must agree across idempotent stage retries."""
+
+    components = result.get("components")
+    environment = result.get("environment")
+    operator_enrollment = result.get("operator_enrollment")
+    if not isinstance(components, dict) or not isinstance(environment, dict):
+        raise RuntimeError("staging evidence omits immutable component identity")
+    if not isinstance(operator_enrollment, dict):
+        raise RuntimeError("staging evidence omits operator identity")
+    return {
+        "format": result.get("format"),
+        "command": result.get("command"),
+        "status": result.get("status"),
+        "plan_identity": result.get("plan_identity"),
+        "platform_support_status": result.get("platform_support_status"),
+        "operator_enrollment": {
+            key: operator_enrollment.get(key)
+            for key in ("account", "uid", "group")
+        },
+        "components": {
+            key: value
+            for key, value in components.items()
+            if key not in {"application_reused", "deployment_reused"}
+        },
+        "environment": {
+            key: value
+            for key, value in environment.items()
+            if key != "reused"
+        },
+        "activation_created": result.get("activation_created"),
+        "selection_changed": result.get("selection_changed"),
+        "service_modified": result.get("service_modified"),
+    }
+
+
 def _write_staging_evidence(root: Path, plan_identity: str, result: dict[str, object]) -> Path:
     directory = root / "state" / "installation" / "staging-results"
     directory.mkdir(mode=0o750, exist_ok=True)
@@ -1101,7 +1137,16 @@ def _write_staging_evidence(root: Path, plan_identity: str, result: dict[str, ob
     destination = directory / f"{digest}.json"
     content = _json_bytes(result)
     if destination.exists():
-        if destination.is_symlink() or destination.read_bytes() != content:
+        if destination.is_symlink() or not destination.is_file():
+            raise RuntimeError("existing staging evidence conflicts with the approved plan")
+        try:
+            existing = json.loads(destination.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("existing staging evidence conflicts with the approved plan") from exc
+        if (
+            not isinstance(existing, dict)
+            or _staging_evidence_identity(existing) != _staging_evidence_identity(result)
+        ):
             raise RuntimeError("existing staging evidence conflicts with the approved plan")
         return destination
     temporary = directory / f".{destination.name}.tmp-{os.getpid()}"

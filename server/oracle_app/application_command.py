@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -31,9 +32,10 @@ from .memory.transcripts import safe_enrich_transcripts_for_correlation
 from .orchestration_routine_canonical import CanonicalRoutineExecution
 from .replies import build_reply_text
 from .room_context import apply_room_context_to_home_text
-from .routing import choose_route
+from .routing import choose_route, validate_fallback_reentry
 from .runtime_contracts import (
     ContractValidationError,
+    build_failure_result,
     build_command_contract_failure_response,
     validate_command_response_contract,
 )
@@ -47,11 +49,13 @@ from .schemas import (
 )
 from .session_state import (
     clear_active_context,
+    clear_utility_context_for_topic_change,
     inspect_session,
     refresh_session,
     resolve_request_session,
     set_active_context,
     set_user_context,
+    set_utility_context,
 )
 from . import state
 from .text_normalization import normalize_text
@@ -103,7 +107,60 @@ _NON_ANCHORING_SYSTEM_ACTIONS = {
     "current_date",
     "current_time_date",
     "calculation",
+    "temporal",
+    "repeat",
+    "help",
+    "courtesy",
+    "unsupported_utility",
 }
+
+_NON_REPEATABLE_TARGETS = {"facts", "fallback_router", "home_assistant", "news"}
+_NON_REPEATABLE_ACTIONS = {
+    "ignore", "repeat", "refresh_cache", "routine_start", "commit_event",
+    "play", "pause", "resume", "stop", "next", "previous", "restart",
+    "set_volume", "volume_up", "volume_down",
+}
+_NON_REPEATABLE_ALERT_OPERATIONS = {
+    "create", "adjust", "restart", "cancel", "cancel_all", "dismiss",
+    "edit", "delete", "skip", "snooze", "acknowledge",
+}
+_SENSITIVE_REPLY_RE = re.compile(
+    r"(?i)(?:bearer\s+[a-z0-9._~-]+|api[_ -]?key\s*[:=]|password\s*[:=]|secret\s*[:=])"
+)
+
+
+def record_repeat_eligible_output(
+    *,
+    source: str | None,
+    session_id: str | None,
+    route_target: str,
+    dispatch: DispatchPlan,
+    reply_text: str,
+) -> bool:
+    text = str(reply_text or "").strip()
+    result = dict(dispatch.result or {})
+    action = str(result.get("action") or dispatch.payload.get("action") or "").strip()
+    if not text or route_target in _NON_REPEATABLE_TARGETS or action in _NON_REPEATABLE_ACTIONS:
+        return False
+    if _SENSITIVE_REPLY_RE.search(text):
+        return False
+    if action == "alerts":
+        alert_result = result.get("alerts") or {}
+        operation = str((alert_result or {}).get("operation") or "").strip()
+        if operation in _NON_REPEATABLE_ALERT_OPERATIONS:
+            return False
+    return set_utility_context(
+        source,
+        session_id,
+        kind="repeat_output",
+        payload={
+            "reply_text": text,
+            "route_target": str(route_target or dispatch.target),
+            "action": action,
+            "status": str(dispatch.status or ""),
+            "error": str(result.get("error") or ""),
+        },
+    )
 
 def _maybe_update_active_context(*, route: RouteResponse, dispatch, result: dict[str, object]) -> None:
     session_id = dispatch.payload.get("session_id")
@@ -134,6 +191,12 @@ def _maybe_update_active_context(*, route: RouteResponse, dispatch, result: dict
 
     if status != "executed":
         return
+
+    clear_utility_context_for_topic_change(
+        source,
+        session_id,
+        route_target=route_target,
+    )
 
     if route_target == "facts":
         set_active_context(
@@ -413,10 +476,23 @@ def _resolve_router_user_override(
         return None
     if str(dispatch_payload.get("requested_user_name") or "").strip():
         return None
-    if get_user_entry(
+    entry = get_user_entry(
         candidate,
         household_settings=household_settings,
-    ) is None:
+    )
+    if entry is None:
+        return None
+    original_text = normalize_text(str(dispatch_payload.get("prompt") or ""))
+    explicit_terms = (
+        str(entry.get("id") or ""),
+        str(entry.get("display_name") or ""),
+        *(str(value) for value in (entry.get("aliases") or [])),
+    )
+    if not any(
+        term.strip()
+        and re.search(rf"(?<![a-z0-9]){re.escape(normalize_text(term))}(?![a-z0-9])", original_text)
+        for term in explicit_terms
+    ):
         return None
     return candidate
 
@@ -528,6 +604,37 @@ def _continue_from_fallback_router(
     next_route = _build_fallback_router_next_route(route, dispatch)
     next_command_text = next_route.normalized_text
     next_payload = effective_payload.model_copy(update={"text": next_command_text})
+    if next_route.target != "facts":
+        composition = brain_application_composition(app)
+        validated_route = validate_fallback_reentry(
+            proposed_target=next_route.target,
+            original_text=route.normalized_text,
+            normalized_text=next_command_text,
+            source=effective_payload.source,
+            session_id=effective_payload.session_id,
+            registry=composition.route_registry,
+            household_settings=household_settings or composition.runtime.household,
+            playback_state=composition.music_execution or composition.audiobook_execution,
+        )
+        if validated_route is None:
+            rejected_dispatch = build_dispatch_plan(
+                next_payload,
+                next_route,
+                original_text=original_payload.text,
+            )
+            rejected_dispatch.status = "failed"
+            rejected_dispatch.result = build_failure_result(
+                action="fallback_reentry",
+                failure_class="router_failure",
+                owning_component="brain.fallback_router",
+                error="fallback_router_unvalidated_proposal",
+                detail=(
+                    f"The canonical {next_route.target} owner did not accept the fallback "
+                    "router's normalized request."
+                ),
+            )
+            return next_route, rejected_dispatch
+        next_route = validated_route
     next_payload, target_resolution, target_error = _apply_resolved_playback_target(
         next_payload,
         route_target=next_route.target,
@@ -965,11 +1072,20 @@ def command_request(
                 inputs=inputs,
             )
         ),
+        household_settings=composition.runtime.household,
+        satellite_settings=composition.runtime.satellites,
     )
     if pending_ui_response is not None:
         pending_ui_response.session_id = payload.session_id
         pending_ui_response.effective_session_id = str(session_info["effective_session_id"])
         append_turn(effective_payload.source, effective_payload.session_id, "user", payload.text)
+        record_repeat_eligible_output(
+            source=effective_payload.source,
+            session_id=effective_payload.session_id,
+            route_target=str(pending_ui_response.route.target),
+            dispatch=pending_ui_response.dispatch,
+            reply_text=pending_ui_response.reply_text,
+        )
         append_turn(effective_payload.source, effective_payload.session_id, "assistant", pending_ui_response.reply_text)
         _memory_observe_command_outcome(
             original_payload=payload,
@@ -1028,6 +1144,13 @@ def command_request(
             normalized_text=normalized,
             error="no_active_context_for_execute_as",
             detail="I don't have a recent request to rerun as that user.",
+        )
+        record_repeat_eligible_output(
+            source=effective_payload.source,
+            session_id=effective_payload.session_id,
+            route_target="system",
+            dispatch=response.dispatch,
+            reply_text=response.reply_text,
         )
         _memory_observe_command_outcome(
             original_payload=payload,
@@ -1181,6 +1304,13 @@ def command_request(
     if _should_refresh_session(route=route, dispatch=dispatch, result=result):
         refresh_session(effective_payload.source, effective_payload.session_id)
     _maybe_update_active_context(route=route, dispatch=dispatch, result=result)
+    record_repeat_eligible_output(
+        source=effective_payload.source,
+        session_id=effective_payload.session_id,
+        route_target=str(route.target or dispatch.target),
+        dispatch=dispatch,
+        reply_text=reply_text,
+    )
     _log_command_event(
         "dispatch_executed",
         payload=effective_payload,

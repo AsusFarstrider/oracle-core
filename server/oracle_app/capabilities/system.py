@@ -11,7 +11,10 @@ class SystemCommandCapability:
 
     def evaluate(self, normalized_text: str, *, source: str | None = None, session_id: str | None = None) -> CapabilityDecision | None:
         intent = classify_system_intent(normalized_text)
-        if intent is None or intent.action not in {"confirm_pending", "cancel_pending", "refresh_cache", "switch_user"}:
+        if intent is None or intent.action not in {
+            "confirm_pending", "cancel_pending", "refresh_cache", "switch_user",
+            "repeat", "help", "courtesy", "unsupported_utility",
+        }:
             return None
         return CapabilityDecision("system", intent.confidence, intent.reason, normalized_text)
 
@@ -33,7 +36,7 @@ class TimeDateQueryCapability:
 
     def evaluate(self, normalized_text: str, *, source: str | None = None, session_id: str | None = None) -> CapabilityDecision | None:
         intent = classify_system_intent(normalized_text)
-        if intent is None or intent.action not in {"current_time", "current_date", "current_time_date"}:
+        if intent is None or intent.action not in {"current_time", "current_date", "current_time_date", "temporal"}:
             return None
         return CapabilityDecision("system", intent.confidence, intent.reason, normalized_text)
 

@@ -9,9 +9,11 @@ from .conversation import get_conversation
 from .music_runtime.transport import is_dual_active_music_audiobook_target, resolve_authority_transport_targets
 from .room_context import canonical_room_name
 from .routing_helpers import canonicalize_home_command, has_home_keyword
-from .session_state import describe_followup_resolution, get_active_context
+from .session_state import describe_followup_resolution, get_active_context, get_utility_context
 from .schemas import RouteResponse
 from .tracing import log_followup_event
+from .timers import looks_like_timer_followup
+from .alarms import looks_like_alarm_followup
 
 
 _PAUSE_PHRASES = {"pause", "pause it", "pause music", "pause the music", "hold on", "hold it"}
@@ -22,6 +24,16 @@ _PREVIOUS_PHRASES = {"previous", "go back", "back"}
 _RESTART_PHRASES = {"restart", "restart song", "restart track", "restart this"}
 _VOLUME_UP_PHRASES = {"turn it up", "volume up", "turn the volume up", "turn the music up"}
 _VOLUME_DOWN_PHRASES = {"turn it down", "volume down", "turn the volume down", "turn the music down"}
+_ALERT_CONTEXT_ACTION_PHRASES = {
+    "cancel",
+    "cancel it",
+    "dismiss",
+    "dismiss it",
+    "snooze",
+    "snooze it",
+    "stop",
+    "stop it",
+}
 _HOME_FOLLOWUP_ACTION_PHRASES = {
     "turn it on",
     "turn them on",
@@ -141,6 +153,22 @@ def refine_route(
         )
         return route
 
+    refined = _refine_active_alert_context(
+        normalized_text=normalized_text,
+        source=source,
+        session_id=session_id,
+    )
+    if refined is not None:
+        log_followup_event(
+            "followup_bound",
+            source=source,
+            session_id=session_id,
+            order="active_context",
+            route_target=refined.target,
+            detail="Bound through typed active-alert context before media transport refinement.",
+        )
+        return refined
+
     refined = _refine_active_media_transport(
         route,
         normalized_text=normalized_text,
@@ -194,6 +222,30 @@ def refine_route(
         return refined
 
     return route
+
+
+def _refine_active_alert_context(
+    *,
+    normalized_text: str,
+    source: str,
+    session_id: str | None,
+) -> RouteResponse | None:
+    if normalized_text not in _ALERT_CONTEXT_ACTION_PHRASES and not looks_like_timer_followup(normalized_text) and not looks_like_alarm_followup(normalized_text):
+        return None
+    context = get_utility_context(source, session_id, kind="alert_subject")
+    if not isinstance(context, dict):
+        return None
+    payload = context.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    if not any(str(payload.get(key) or "").strip() for key in ("alert_id", "schedule_id", "occurrence_id")):
+        return None
+    return RouteResponse(
+        target="system",
+        confidence=0.99,
+        reason="Matched typed active-alert context",
+        normalized_text=normalized_text,
+    )
 
 
 def _refine_active_media_transport(

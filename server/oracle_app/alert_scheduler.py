@@ -5,10 +5,12 @@ import logging
 from datetime import datetime, timezone
 
 from . import alerts as alerts_module
+from .alert_lifecycle import reconcile_alert_lifecycle
 from . import audiobook_state
 from .audiobook_runtime.canonical import CanonicalAudiobookExecution
 from .audiobook_runtime.playback import sync_then_control
 from .configuration.satellite_fleet_runtime_settings import SatelliteFleetRuntimeSettings
+from .configuration.household_runtime_settings import HouseholdRuntimeSettings
 from .memory.alerts import acknowledge_alert, claim_due_alerts
 
 
@@ -70,16 +72,24 @@ def process_due_audiobook_sleep_timers(
 
 async def alert_scheduler_loop(
     *,
-    audiobook_execution: CanonicalAudiobookExecution,
+    household: HouseholdRuntimeSettings,
     satellites: SatelliteFleetRuntimeSettings,
+    audiobook_execution: CanonicalAudiobookExecution | None = None,
     interval_seconds: float = 1.0,
 ) -> None:
     while True:
         try:
-            process_due_audiobook_sleep_timers(
-                audiobook_execution=audiobook_execution,
+            reconcile_alert_lifecycle(
+                household=household,
                 satellites=satellites,
+                now=datetime.now(timezone.utc),
+                db_path=alerts_module.ALERT_DB_PATH,
             )
+            if audiobook_execution is not None:
+                process_due_audiobook_sleep_timers(
+                    audiobook_execution=audiobook_execution,
+                    satellites=satellites,
+                )
         except Exception:
             logger.exception("alert_scheduler_iteration_failed")
         await asyncio.sleep(interval_seconds)

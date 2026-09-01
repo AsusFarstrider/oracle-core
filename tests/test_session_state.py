@@ -4,7 +4,7 @@ import sys
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 
@@ -21,12 +21,27 @@ python_multipart_multipart_stub.parse_options_header = lambda value: (value, {})
 sys.modules.setdefault("python_multipart", python_multipart_stub)
 sys.modules.setdefault("python_multipart.multipart", python_multipart_multipart_stub)
 
-from oracle_app.application_command import session_lookup
+from oracle_app.application_command import (
+    _continue_from_fallback_router,
+    _resolve_router_user_override,
+    session_lookup,
+)
 from oracle_app import state
 from oracle_app.command_events import append_command_interim_event, list_command_interim_events
 from oracle_app.conversation import append_turn, get_conversation
-from oracle_app.session_state import describe_followup_resolution, set_active_context, set_user_context
+from oracle_app.routing import build_route_capability_registry
+from oracle_app.schemas import CommandRequest, DispatchPlan, RouteResponse
+from oracle_app.session_state import (
+    clear_utility_context,
+    clear_utility_context_for_topic_change,
+    describe_followup_resolution,
+    get_utility_context,
+    set_active_context,
+    set_user_context,
+    set_utility_context,
+)
 from oracle_app.session_state import _SESSIONS, _SESSION_AUDIT, clear_all_sessions, clear_session_state, inspect_session, refresh_session, resolve_request_session, set_pending_state
+from canonical_test_support import neutral_brain_runtime_settings
 
 
 class SessionStateTests(unittest.TestCase):
@@ -91,6 +106,71 @@ class SessionStateTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('"domain":"confirmation"', payload)
         self.assertIn('"type":"confirmation"', payload)
+
+    @patch("oracle_app.application_command.brain_application_composition")
+    def test_fallback_continuation_fails_before_dispatch_when_owner_rejects_proposal(self, composition_lookup) -> None:
+        runtime = neutral_brain_runtime_settings()
+        composition_lookup.return_value = SimpleNamespace(
+            route_registry=build_route_capability_registry(runtime.household),
+            runtime=runtime,
+            music_execution=None,
+            audiobook_execution=None,
+        )
+        payload = CommandRequest(
+            text="put something on",
+            source="satellite-alpha",
+            session_id="fallback-reentry-1",
+        )
+        initial_route = RouteResponse(
+            target="fallback_router",
+            confidence=0.64,
+            reason="No deterministic capability matched",
+            normalized_text="put something on",
+        )
+        fallback_dispatch = DispatchPlan(
+            target="fallback_router",
+            hook="fallback_router.decide",
+            payload={},
+            status="executed",
+            result={
+                "action": "route_proposed",
+                "proposed_domain": "system",
+                "normalized_text": "play david bowie",
+                "user_id": "",
+            },
+        )
+
+        final_route, final_dispatch = _continue_from_fallback_router(
+            original_payload=payload,
+            effective_payload=payload,
+            route=initial_route,
+            dispatch=fallback_dispatch,
+            household_settings=runtime.household,
+        )
+
+        self.assertEqual(final_route.target, "system")
+        self.assertEqual(final_dispatch.status, "failed")
+        self.assertEqual(final_dispatch.result["error"], "fallback_router_unvalidated_proposal")
+        self.assertEqual(final_dispatch.result["owning_component"], "brain.fallback_router")
+
+    def test_fallback_user_override_requires_user_to_be_explicit_in_original_request(self) -> None:
+        household = neutral_brain_runtime_settings().household
+
+        explicit = _resolve_router_user_override(
+            proposed_domain="audiobook",
+            proposed_user_id="resident_one",
+            dispatch_payload={"prompt": "resume resident one's audiobook"},
+            household_settings=household,
+        )
+        implicit = _resolve_router_user_override(
+            proposed_domain="audiobook",
+            proposed_user_id="resident_one",
+            dispatch_payload={"prompt": "resume my audiobook"},
+            household_settings=household,
+        )
+
+        self.assertEqual(explicit, "resident_one")
+        self.assertIsNone(implicit)
 
     def test_pending_state_sets_strong_active_context(self) -> None:
         state.store_pending_music_request(
@@ -314,6 +394,199 @@ class SessionStateTests(unittest.TestCase):
         self.assertTrue(result["user_context_cleared"])
         assert payload is not None
         self.assertIsNone(payload["user_context"])
+
+    def test_typed_utility_context_is_session_scoped_and_copied(self) -> None:
+        payload = {"value": "48", "display_text": "48"}
+
+        stored = set_utility_context(
+            "satellite-alpha",
+            "utility-1",
+            kind="calculation",
+            payload=payload,
+        )
+        payload["value"] = "changed"
+        first = get_utility_context("satellite-alpha", "utility-1", kind="calculation")
+        assert first is not None
+        first["payload"]["value"] = "also changed"
+        second = get_utility_context("satellite-alpha", "utility-1", kind="calculation")
+
+        self.assertTrue(stored)
+        assert second is not None
+        self.assertEqual(second["payload"]["value"], "48")
+        self.assertIsNone(get_utility_context("satellite-beta", "utility-1", kind="calculation"))
+        inspected = inspect_session("satellite-alpha", "utility-1")
+        assert inspected is not None
+        self.assertEqual(inspected["derived"]["utility_context_kinds"], ["calculation"])
+
+    def test_typed_utility_context_rejects_unbounded_or_live_references(self) -> None:
+        nested = set_utility_context(
+            "satellite-alpha",
+            "utility-invalid-1",
+            kind="calculation",
+            payload={"value": {"nested": "not allowed"}},
+        )
+        extra = set_utility_context(
+            "satellite-alpha",
+            "utility-invalid-1",
+            kind="calculation",
+            payload={"value": "4", "config": "live-authority"},
+        )
+        unidentified_alert = set_utility_context(
+            "satellite-alpha",
+            "utility-invalid-1",
+            kind="alert_subject",
+            payload={"alert_kind": "timer"},
+        )
+
+        self.assertFalse(nested)
+        self.assertFalse(extra)
+        self.assertFalse(unidentified_alert)
+        self.assertIsNone(inspect_session("satellite-alpha", "utility-invalid-1"))
+
+    def test_utility_pending_state_routes_back_to_system_owner(self) -> None:
+        stored = set_pending_state(
+            "satellite-alpha",
+            "utility-pending-1",
+            pending_type="clarification",
+            domain="utilities",
+            payload={
+                "clarification_kind": "recipient",
+                "context_kind": "alert_subject",
+                "prompt": "Who should receive it?",
+                "options": ["everyone", "specific person"],
+            },
+        )
+
+        followup = describe_followup_resolution("satellite-alpha", "utility-pending-1")
+
+        self.assertTrue(stored)
+        self.assertEqual(followup["resolution_order"], "pending_state")
+        self.assertEqual(followup["pending_domain"], "utilities")
+        self.assertEqual(followup["route_target"], "system")
+
+    def test_clear_session_state_clears_utility_context_and_pending_state(self) -> None:
+        set_utility_context(
+            "satellite-alpha",
+            "utility-reset-1",
+            kind="repeat_output",
+            payload={"reply_text": "It is 8 o'clock.", "route_target": "system"},
+        )
+        set_pending_state(
+            "satellite-alpha",
+            "utility-reset-1",
+            pending_type="clarification",
+            domain="utilities",
+            payload={
+                "clarification_kind": "location",
+                "context_kind": "temporal",
+                "prompt": "Which Springfield?",
+                "options": ["Illinois", "Massachusetts"],
+            },
+        )
+
+        result = clear_session_state("satellite-alpha", "utility-reset-1")
+        inspected = inspect_session("satellite-alpha", "utility-reset-1")
+
+        self.assertTrue(result["utility_context_cleared"])
+        self.assertTrue(result["pending_cleared"])
+        assert inspected is not None
+        self.assertEqual(inspected["utility_context"], {})
+        self.assertIsNone(inspected["pending_state"])
+
+    def test_clear_utility_context_can_clear_one_typed_slot(self) -> None:
+        set_utility_context(
+            "satellite-alpha",
+            "utility-clear-1",
+            kind="calculation",
+            payload={"value": "4"},
+        )
+        set_utility_context(
+            "satellite-alpha",
+            "utility-clear-1",
+            kind="temporal",
+            payload={"subject_type": "date", "iso_value": "2026-08-27"},
+        )
+
+        cleared = clear_utility_context(
+            "satellite-alpha",
+            "utility-clear-1",
+            kind="calculation",
+            reason="superseded",
+        )
+
+        self.assertTrue(cleared)
+        self.assertIsNone(get_utility_context("satellite-alpha", "utility-clear-1", kind="calculation"))
+        self.assertIsNotNone(get_utility_context("satellite-alpha", "utility-clear-1", kind="temporal"))
+
+    def test_explicit_non_utility_topic_change_clears_utility_context(self) -> None:
+        set_utility_context(
+            "satellite-alpha",
+            "utility-topic-1",
+            kind="conversion",
+            payload={
+                "value": "12",
+                "dimension": "length",
+                "source_unit": "mile",
+                "target_unit": "kilometer",
+            },
+        )
+
+        system_clear = clear_utility_context_for_topic_change(
+            "satellite-alpha",
+            "utility-topic-1",
+            route_target="system",
+        )
+        media_clear = clear_utility_context_for_topic_change(
+            "satellite-alpha",
+            "utility-topic-1",
+            route_target="music",
+        )
+
+        self.assertFalse(system_clear)
+        self.assertTrue(media_clear)
+        self.assertEqual(get_utility_context("satellite-alpha", "utility-topic-1"), {})
+
+    def test_utility_pending_state_rejects_unbounded_choices_and_live_references(self) -> None:
+        too_many = set_pending_state(
+            "satellite-alpha",
+            "utility-pending-invalid",
+            pending_type="clarification",
+            domain="utilities",
+            payload={
+                "clarification_kind": "location",
+                "prompt": "Which location?",
+                "options": ["a", "b", "c", "d", "e", "f"],
+            },
+        )
+        live_reference = set_pending_state(
+            "satellite-alpha",
+            "utility-pending-invalid",
+            pending_type="clarification",
+            domain="utilities",
+            payload={
+                "clarification_kind": "recipient",
+                "prompt": "Who?",
+                "options": ["everyone", "person"],
+                "alerts": "global",
+            },
+        )
+
+        self.assertFalse(too_many)
+        self.assertFalse(live_reference)
+
+    def test_utility_context_expires_with_canonical_session(self) -> None:
+        set_utility_context(
+            "satellite-alpha",
+            "utility-expire-1",
+            kind="temporal",
+            payload={"subject_type": "date", "iso_value": "2026-08-27"},
+        )
+        refreshed = _SESSIONS["satellite-alpha:utility-expire-1"]["session_meta"]["refreshed_monotonic"]
+
+        with patch("oracle_app.session_state.time.monotonic", return_value=refreshed + 91.0):
+            payload = inspect_session("satellite-alpha", "utility-expire-1")
+
+        self.assertIsNone(payload)
 
     def test_describe_followup_resolution_prefers_pending_state_over_active_context(self) -> None:
         set_active_context(

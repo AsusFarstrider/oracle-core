@@ -90,6 +90,8 @@ def handle_pending_ui_context(
     *,
     audio_search: Callable[[UiAudioSearchRequest], dict[str, object]],
     routine_start: Callable[..., dict[str, object]] | None = None,
+    household_settings: object | None = None,
+    satellite_settings: object | None = None,
 ) -> CommandResponse | None:
     pending = state.load_pending_ui_context(source, session_id)
     if pending is None:
@@ -264,7 +266,11 @@ def handle_pending_ui_context(
         )
 
     try:
-        speech, details = build_alert_response(f"alarm {normalized}", target_source_id, session_id)
+        speech, details = build_alert_response(
+            f"set an alarm for {normalized}", target_source_id, session_id,
+            household_settings=household_settings,
+            satellite_settings=satellite_settings,
+        )
     except Exception as exc:
         dispatch = DispatchPlan(
             target="system",

@@ -3,6 +3,7 @@ from __future__ import annotations
 from .inference import InferenceClient
 from .configuration.home_assistant_runtime_settings import HomeAssistantRuntimeSettings
 from .configuration.household_runtime_settings import HouseholdRuntimeSettings
+from .configuration.satellite_fleet_runtime_settings import SatelliteFleetRuntimeSettings
 from .audiobook_runtime.canonical import CanonicalAudiobookExecution
 from .music_runtime.canonical import CanonicalMusicExecution
 from .information_runtime import CanonicalFactsExecution, CanonicalNewsExecution
@@ -23,9 +24,12 @@ from .handlers import (
     WeatherHandler,
 )
 from .schemas import CommandRequest, DispatchPlan, RouteResponse
+from .session_state import get_pending_state, get_utility_context
 from .dispatch_dtos import target_outcome, validate_target_payload
 from .system_intents import build_system_hook, classify_system_intent, system_action_requires_text
 from .weather_intents import build_weather_hook, classify_weather_intent
+from .timers import looks_like_timer_followup
+from .alarms import looks_like_alarm_followup
 
 
 def build_dispatch_plan(
@@ -111,10 +115,23 @@ def _plan_system_target(
     payload: CommandRequest,
     route: RouteResponse,
 ) -> tuple[str, dict[str, str | None]]:
-    intent = classify_system_intent(route.normalized_text)
+    alert_context = get_utility_context(payload.source, payload.session_id, kind="alert_subject")
+    intent = (
+        None
+        if alert_context is not None and (looks_like_timer_followup(route.normalized_text) or looks_like_alarm_followup(route.normalized_text))
+        else classify_system_intent(route.normalized_text)
+    )
     if intent is None:
-        action = "unknown_system_operation"
-        hook = "system.unknown_operation"
+        pending = get_pending_state(payload.source, payload.session_id, domain="utilities")
+        if pending is not None and str(pending.get("context_kind") or "") in {"temporal", "timer", "alarm"}:
+            action = "temporal" if str(pending.get("context_kind") or "") == "temporal" else "alerts"
+            hook = "system.temporal" if action == "temporal" else "system.alerts"
+        elif alert_context is not None and (looks_like_timer_followup(route.normalized_text) or looks_like_alarm_followup(route.normalized_text)):
+            action = "alerts"
+            hook = "system.alerts"
+        else:
+            action = "unknown_system_operation"
+            hook = "system.unknown_operation"
     else:
         action = intent.action
         hook = build_system_hook(intent.action)
@@ -188,6 +205,7 @@ def build_dispatch_registry(
     inference_client: InferenceClient | None = None,
     household_settings: HouseholdRuntimeSettings | None = None,
     home_assistant_settings: HomeAssistantRuntimeSettings | None = None,
+    satellite_settings: SatelliteFleetRuntimeSettings | None = None,
     audiobook_execution: CanonicalAudiobookExecution | None = None,
     music_execution: CanonicalMusicExecution | None = None,
     facts_execution: CanonicalFactsExecution | None = None,
@@ -214,6 +232,7 @@ def build_dispatch_registry(
             household_settings,
             calendar_execution,
             home_assistant_settings,
+            satellite_settings,
         )
     )
     registry.register(FallbackRouterHandler(inference_client))

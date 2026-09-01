@@ -32,6 +32,7 @@ The accepted Oracle test taxonomy is:
 
 - `tests/test_routing_capabilities.py`
 - `tests/test_system_intents.py`
+- `tests/test_system_self_interaction.py`
 
 Primary coverage:
 
@@ -39,6 +40,7 @@ Primary coverage:
 - bare transport route refinement
 - pending clarification routing
 - system intent classification
+- Repeat eligibility/isolation and truthful Help/catalog behavior
 
 ### Handler / Domain Tests
 

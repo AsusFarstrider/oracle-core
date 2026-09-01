@@ -4,14 +4,23 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException, Request, Response
 
+from . import alerts as alerts_module
 from .application_command import _canonical_http_request_source, command_request
 from .application_runtime import app, brain_application_composition
+from .configuration.request_source_resolution import ResolvedRequestSource
 from .home_assistant_actions import (
     execute_home_assistant_ui_action,
     resolve_home_assistant_dynamic_ui_action,
 )
 from .network import build_ui_network_health_snapshot
-from .schemas import CommandRequest, UiActionRequest, UiContextStartRequest
+from .schemas import (
+    CommandRequest,
+    UiActionRequest,
+    UiAlarmActionRequest,
+    UiContextStartRequest,
+    UiReminderActionRequest,
+    UiTimerActionRequest,
+)
 from .ui_audio import (
     build_ui_audio_snapshot,
     build_ui_audio_status_snapshot,
@@ -37,6 +46,9 @@ from .ui_house import (
     ui_house_camera_snapshot_impl,
 )
 from .ui_satellite import build_satellite_ui_config, build_satellite_ui_home_snapshot
+from .timers import build_timer_state, dismiss_timer
+from .alarms import build_alarm_state, manage_alarm
+from .reminders import build_reminder_state, manage_reminder
 from .ui_snapshot_cache import get_cached_snapshot, invalidate_cached_snapshots
 from .ui_weather import build_ui_weather_snapshot as _build_ui_weather_snapshot
 
@@ -260,7 +272,9 @@ def _ui_audio_search_impl(payload):
     )
 
 
-def _require_stable_alert_ui_request(target_source_id: str, request: Request) -> None:
+def _require_stable_alert_ui_request(
+    target_source_id: str, request: Request
+) -> ResolvedRequestSource:
     resolved = _canonical_http_request_source(target_source_id, request)
     if resolved is None or not resolved.stable:
         raise HTTPException(
@@ -275,6 +289,7 @@ def _require_stable_alert_ui_request(target_source_id: str, request: Request) ->
             status_code=400,
             detail="Alert target is not an enabled alert-capable satellite.",
         )
+    return resolved
 
 
 def _ui_audio_play_impl(payload, request: Request | None = None):
@@ -310,7 +325,7 @@ def _ui_audio_sleep_timer_impl(payload, request: Request | None = None):
 
 def _build_application_satellite_ui_home_snapshot(satellite_id: str | None) -> dict[str, object]:
     composition = brain_application_composition(app)
-    return build_satellite_ui_home_snapshot(
+    payload = build_satellite_ui_home_snapshot(
         satellite_id,
         build_ui_home_snapshot=lambda: {"weather": _cached_ui_home_weather_payload()},
         build_ui_audio_status_snapshot=_build_ui_audio_status_snapshot,
@@ -320,6 +335,185 @@ def _build_application_satellite_ui_home_snapshot(satellite_id: str | None) -> d
         household_settings=composition.runtime.household,
         routine_settings=composition.runtime.routines,
     )
+    config = build_satellite_ui_config(
+        satellite_id,
+        fleet_settings=composition.runtime.satellite_ui,
+        household_settings=composition.runtime.household,
+    )
+    payload["timers"] = build_timer_state(
+        source_id=str(config.get("source_id") or ""),
+        household=composition.runtime.household,
+        satellites=composition.runtime.satellites,
+        db_path=alerts_module.ALERT_DB_PATH,
+    )
+    alarm_state = build_alarm_state(
+        source_id=str(config.get("source_id") or ""),
+        household=composition.runtime.household,
+        satellites=composition.runtime.satellites,
+        db_path=alerts_module.ALERT_DB_PATH,
+    )
+    payload["alarms"] = alarm_state
+    reminder_state = build_reminder_state(
+        source_id=str(config.get("source_id") or ""),
+        household=composition.runtime.household,
+        satellites=composition.runtime.satellites,
+        db_path=alerts_module.ALERT_DB_PATH,
+    )
+    payload["reminders"] = reminder_state
+    next_alarm = alarm_state.get("next")
+    payload["alarm"] = {
+        "active": bool(next_alarm),
+        "count": int(alarm_state.get("count") or 0),
+        "next": next_alarm,
+    }
+    return payload
+
+
+def _ui_timer_action_impl(payload: UiTimerActionRequest, request: Request) -> dict[str, object]:
+    _normalize_ui_client_id(payload.client_id)
+    resolved = _require_stable_alert_ui_request(payload.source_id, request)
+    if resolved.request_source_id != payload.source_id:
+        raise HTTPException(status_code=403, detail="Timer action source does not match the authenticated UI source.")
+    composition = brain_application_composition(request.app)
+    try:
+        result = dismiss_timer(
+            payload.occurrence_id,
+            source_id=payload.source_id,
+            household=composition.runtime.household,
+            satellites=composition.runtime.satellites,
+            idempotency_key=f"ui:{payload.client_id}:{payload.action}:{payload.occurrence_id}",
+            db_path=alerts_module.ALERT_DB_PATH,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Active timer occurrence not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        **result,
+        "refresh": {"refresh_pages": ["home"], "refresh_after_ms": 0},
+    }
+
+
+def _ui_timer_state_impl(source_id: str, request: Request) -> dict[str, object]:
+    resolved = _require_stable_alert_ui_request(source_id, request)
+    if resolved.request_source_id != source_id:
+        raise HTTPException(status_code=403, detail="Timer state source does not match the authenticated UI source.")
+    composition = brain_application_composition(request.app)
+    return build_timer_state(
+        source_id=source_id,
+        household=composition.runtime.household,
+        satellites=composition.runtime.satellites,
+        db_path=alerts_module.ALERT_DB_PATH,
+    )
+
+
+def _ui_alarm_state_impl(source_id: str, request: Request) -> dict[str, object]:
+    resolved = _require_stable_alert_ui_request(source_id, request)
+    if resolved.request_source_id != source_id:
+        raise HTTPException(status_code=403, detail="Alarm state source does not match the authenticated UI source.")
+    composition = brain_application_composition(request.app)
+    return build_alarm_state(
+        source_id=source_id, household=composition.runtime.household,
+        satellites=composition.runtime.satellites, db_path=alerts_module.ALERT_DB_PATH,
+    )
+
+
+def _ui_alarm_action_impl(payload: UiAlarmActionRequest, request: Request) -> dict[str, object]:
+    _normalize_ui_client_id(payload.client_id)
+    resolved = _require_stable_alert_ui_request(payload.source_id, request)
+    if resolved.request_source_id != payload.source_id:
+        raise HTTPException(status_code=403, detail="Alarm action source does not match the authenticated UI source.")
+    composition = brain_application_composition(request.app)
+    try:
+        result = manage_alarm(
+            source_id=payload.source_id, action=payload.action,
+            schedule_id=payload.schedule_id, occurrence_id=payload.occurrence_id,
+            snooze_minutes=payload.snooze_minutes,
+            household=composition.runtime.household, satellites=composition.runtime.satellites,
+            idempotency_key=f"ui:{payload.client_id}:{payload.action}:{payload.occurrence_id or payload.schedule_id}",
+            db_path=alerts_module.ALERT_DB_PATH,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Alarm not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {**result, "refresh": {"refresh_pages": ["home", "alerts"], "refresh_after_ms": 0}}
+
+
+def _ui_reminder_state_impl(source_id: str, request: Request) -> dict[str, object]:
+    resolved = _require_stable_alert_ui_request(source_id, request)
+    if resolved.request_source_id != source_id:
+        raise HTTPException(status_code=403, detail="Reminder state source does not match the authenticated UI source.")
+    composition = brain_application_composition(request.app)
+    return build_reminder_state(
+        source_id=source_id, household=composition.runtime.household,
+        satellites=composition.runtime.satellites, db_path=alerts_module.ALERT_DB_PATH,
+    )
+
+
+def _ui_reminder_action_impl(payload: UiReminderActionRequest, request: Request) -> dict[str, object]:
+    _normalize_ui_client_id(payload.client_id)
+    resolved = _require_stable_alert_ui_request(payload.source_id, request)
+    if resolved.request_source_id != payload.source_id:
+        raise HTTPException(status_code=403, detail="Reminder action source does not match the authenticated UI source.")
+    composition = brain_application_composition(request.app)
+    try:
+        result = manage_reminder(
+            source_id=payload.source_id, action=payload.action,
+            occurrence_id=payload.occurrence_id, snooze_minutes=payload.snooze_minutes,
+            household=composition.runtime.household, satellites=composition.runtime.satellites,
+            idempotency_key=f"ui:{payload.client_id}:{payload.action}:{payload.occurrence_id}",
+            db_path=alerts_module.ALERT_DB_PATH,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Reminder occurrence not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {**result, "refresh": {"refresh_pages": ["home", "alerts"], "refresh_after_ms": 0}}
+
+
+def _build_compact_alert_state(source_id: str, composition) -> dict[str, object]:
+    clock = datetime.now(UTC)
+    timer_state = build_timer_state(
+        source_id=source_id, household=composition.runtime.household,
+        satellites=composition.runtime.satellites, now=clock, db_path=alerts_module.ALERT_DB_PATH,
+    )
+    alarm_state = build_alarm_state(
+        source_id=source_id, household=composition.runtime.household,
+        satellites=composition.runtime.satellites, now=clock, db_path=alerts_module.ALERT_DB_PATH,
+    )
+    reminder_state = build_reminder_state(
+        source_id=source_id, household=composition.runtime.household,
+        satellites=composition.runtime.satellites, now=clock, db_path=alerts_module.ALERT_DB_PATH,
+    )
+    return {
+        "source_id": source_id,
+        "generated_at": clock.isoformat(),
+        "status": "ready",
+        "timer_state": timer_state,
+        "alarm_state": alarm_state,
+        "reminder_state": reminder_state,
+        "timers": list(timer_state.get("timers") or []),
+        "alarms": list(alarm_state.get("alarms") or []),
+        "reminders": list(reminder_state.get("reminders") or []),
+        "ringing": list(alarm_state.get("ringing") or []),
+        "outstanding": list(reminder_state.get("outstanding") or []),
+        "active_count": (
+            int(timer_state.get("count") or 0)
+            + int(alarm_state.get("count") or 0)
+            + int(reminder_state.get("count") or 0)
+        ),
+        "refresh_after_seconds": 2
+        if timer_state.get("timers") or alarm_state.get("ringing") or reminder_state.get("outstanding")
+        else 30,
+    }
+
+
+def _ui_alert_state_impl(source_id: str, request: Request) -> dict[str, object]:
+    resolved = _require_stable_alert_ui_request(source_id, request)
+    if resolved.request_source_id != source_id:
+        raise HTTPException(status_code=403, detail="Alert state source does not match the authenticated UI source.")
+    return _build_compact_alert_state(source_id, brain_application_composition(request.app))
 
 
 def _validate_ui_action_source(source: str | None) -> str:

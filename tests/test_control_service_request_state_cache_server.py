@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from satellite.control_service import ControlServer
 from satellite.control_service_runtime import CommandResult
 from satellite.control_service_runtime.adapters import PlexampHttpAdapter, ShellPlexampAdapter
-from satellite.control_service_runtime.cache import CommandCache
+from satellite.control_service_runtime.cache import CommandCache, PlaybackAuthoritySnapshotCache
 from satellite.control_service_runtime.longform import LongformShellController
 import satellite.control_service_runtime.playback_authority as playback_authority_runtime
 from satellite.control_service_runtime.playback_authority import (
@@ -49,6 +49,7 @@ class ControlServiceTests(unittest.TestCase):
         server = ControlServer.__new__(ControlServer)
         server.reply_audio = ReplyAudioStateStore(reply_audio_state_path, reply_audio_stop_path)
         server.runtime_lock = RLock()
+        server.playback_authority_snapshot = PlaybackAuthoritySnapshotCache()
         return server
 
     def test_get_reply_audio_state_defaults_when_missing(self) -> None:
@@ -274,6 +275,99 @@ class ControlServiceTests(unittest.TestCase):
 
         self.assertEqual(maximum_active_calls, 1)
         self.assertTrue(all(payload["adapter"] == {"ok": True} for payload in payloads))
+
+    def test_playback_authority_concurrent_reads_share_one_bounded_snapshot_refresh(self) -> None:
+        server = self._build_server_like()
+        refresh_lock = Lock()
+        longform_refreshes = 0
+        music_refreshes = 0
+
+        def get_longform_state() -> dict[str, object]:
+            nonlocal longform_refreshes
+            with refresh_lock:
+                longform_refreshes += 1
+            time.sleep(0.02)
+            return {"ok": True, "state": "stopped", "playing": False}
+
+        def get_now_playing() -> dict[str, object]:
+            nonlocal music_refreshes
+            with refresh_lock:
+                music_refreshes += 1
+            time.sleep(0.02)
+            return {"ok": True, "state": "stopped", "playing": False}
+
+        server.adapter = SimpleNamespace(
+            get_longform_state=get_longform_state,
+            get_now_playing=get_now_playing,
+            get_music_backend_expectation=lambda: {},
+        )
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            payloads = list(executor.map(lambda _index: server.get_playback_authority_state(), range(8)))
+
+        self.assertEqual(longform_refreshes, 1)
+        self.assertEqual(music_refreshes, 1)
+        self.assertTrue(all(payload["playback_active"] is False for payload in payloads))
+
+    def test_playback_mutation_invalidates_snapshot_and_next_read_is_fresh(self) -> None:
+        server = self._build_server_like()
+        state = {"playing": False}
+        refreshes = 0
+
+        def get_now_playing() -> dict[str, object]:
+            nonlocal refreshes
+            refreshes += 1
+            return {
+                "ok": True,
+                "state": "playing" if state["playing"] else "stopped",
+                "playing": state["playing"],
+                "backend_type": "oracle_native_music",
+                "plex_key": "track-1",
+            }
+
+        server.adapter = SimpleNamespace(
+            get_longform_state=lambda: {"ok": True, "state": "stopped", "playing": False},
+            get_now_playing=get_now_playing,
+            get_music_backend_expectation=lambda: {"default_backend": "oracle_native_music"},
+        )
+
+        before = server.get_playback_authority_state()
+        cached = server.get_playback_authority_state()
+
+        def play_media() -> dict[str, object]:
+            state["playing"] = True
+            return {"ok": True, "state": "playing"}
+
+        result = server.execute_control_action("play_media", play_media)
+        after = server.get_playback_authority_state()
+
+        self.assertFalse(before["playback_active"])
+        self.assertFalse(cached["playback_active"])
+        self.assertEqual(result, {"ok": True, "state": "playing"})
+        self.assertTrue(after["playback_active"])
+        self.assertEqual(after["output_owner"]["session_id"], "track-1")
+        self.assertEqual(refreshes, 2)
+
+    def test_read_only_control_action_preserves_authority_snapshot(self) -> None:
+        server = self._build_server_like()
+        refreshes = 0
+
+        def get_now_playing() -> dict[str, object]:
+            nonlocal refreshes
+            refreshes += 1
+            return {"ok": True, "state": "stopped", "playing": False}
+
+        server.adapter = SimpleNamespace(
+            get_longform_state=lambda: {"ok": True, "state": "stopped", "playing": False},
+            get_now_playing=get_now_playing,
+            get_music_backend_expectation=lambda: {},
+        )
+
+        server.get_playback_authority_state()
+        server.execute_control_action("get_longform_state", lambda: {"ok": True, "state": "accepted"})
+        server.get_playback_authority_state()
+
+        self.assertEqual(refreshes, 1)
 
     def test_dispatch_action_stop_reply_audio_uses_server_state(self) -> None:
         handler = ControlRequestHandler.__new__(ControlRequestHandler)

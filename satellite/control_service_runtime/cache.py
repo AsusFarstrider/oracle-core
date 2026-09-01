@@ -8,6 +8,30 @@ from typing import Any, Callable
 
 
 @dataclass
+class PlaybackAuthoritySnapshotCache:
+    """Short-lived, non-authoritative snapshot reused under the server runtime lock."""
+
+    ttl_seconds: float = 1.0
+    payload: dict[str, Any] | None = None
+    checked_at: float = 0.0
+
+    def get(self) -> dict[str, Any] | None:
+        if self.payload is None:
+            return None
+        if (time.monotonic() - self.checked_at) > max(0.0, float(self.ttl_seconds)):
+            return None
+        return deepcopy(self.payload)
+
+    def store(self, payload: dict[str, Any]) -> None:
+        self.payload = deepcopy(payload)
+        self.checked_at = time.monotonic()
+
+    def invalidate(self) -> None:
+        self.payload = None
+        self.checked_at = 0.0
+
+
+@dataclass
 class CommandCache:
     entries: dict[str, dict[str, Any]] = field(default_factory=dict)
     updated_at: dict[str, float] = field(default_factory=dict)

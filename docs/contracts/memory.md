@@ -105,7 +105,7 @@ Do not create separate durable SQLite stores for operational records without a d
 
 ## Required Core Tables
 
-Memory schema `0009_durable_alerts` includes:
+Memory schema `0010_alert_lifecycle` includes:
 
 - `memory_schema_migrations`
 - `memory_users`
@@ -119,6 +119,10 @@ Memory schema `0009_durable_alerts` includes:
 - `memory_notification_deliveries`
 - `memory_alerts`
 - `memory_alert_transitions`
+- `memory_alert_schedules`
+- `memory_alert_occurrences`
+- `memory_alert_occurrence_transitions`
+- `memory_alert_acknowledgements`
 - `suggestion_runs`
 - `suggestions`
 - `suggestion_reviews`
@@ -145,10 +149,23 @@ source. Existing Memory rows do not authorize a retired source.
 history, is never age-pruned, and derives staleness from `observed_at`.
 
 The alerts domain owns alert behavior while Memory owns its transactions.
-Active alert rows carry payload and lease state; transition rows preserve the
-required mutation audit. Active rows block source retirement. Satellite
-notification outcomes also use `memory_notification_deliveries`; local timer,
-alarm, reminder, and sleep-timer records do not.
+Schedules retain durable intent and recurrence, occurrences retain logical due
+instances and exception state, `memory_alerts` remains the destination delivery
+projection with payload and lease state, and typed acknowledgement rows retain
+actor meaning independently from runtime acceptance. Transition rows preserve
+the required mutation audit. Active delivery rows and active schedules block
+source retirement. Satellite notification outcomes also use
+`memory_notification_deliveries`; timer, alarm, reminder, and sleep-timer
+records do not.
+
+Recipient reminders use one occurrence per semantic person. A separately
+identified common-copy occurrence may project household-visible text but cannot
+substitute for or acknowledge any person's occurrence.
+
+Existing timer, alarm, and reminder delivery rows are adopted into deterministic
+one-time schedules and occurrences without changing their alert or source
+identity. Notification and audiobook sleep-timer rows retain their existing
+delivery ownership and are not reclassified as user-created semantic schedules.
 
 ## Event Taxonomy
 
@@ -223,7 +240,8 @@ defaults are:
 - lifecycle events: 365 days
 - session metadata: 90 days, with active sessions protected
 - orchestration terminal runs and steps: 365 days, atomically
-- terminal alerts: 90 days; pending and leased alerts protected
+- terminal alert deliveries, occurrences, and completed one-time schedules: 90
+  days; active deliveries, occurrences, and recurring schedules protected
 - notification receipts: accepted/suppressed 90 days; failed/expired 365 days
 - Suggestions raw evidence and run diagnostics: 90 days
 - current Suggestions packet/response: 30 days, overwritten rather than versioned

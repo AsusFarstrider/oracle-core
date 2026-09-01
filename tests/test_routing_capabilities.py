@@ -12,9 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
 from oracle_app.text_normalization import normalize_text
 from oracle_app import state
-from oracle_app.routing import build_route_capability_registry, choose_route
+from oracle_app.routing import build_route_capability_registry, choose_route, validate_fallback_reentry
 from oracle_app.route_refinement import CharacterizedPlaybackRouteState
-from oracle_app.session_state import clear_all_sessions, set_active_context
+from oracle_app.session_state import clear_all_sessions, set_active_context, set_utility_context
 from canonical_test_support import neutral_brain_runtime_settings
 
 
@@ -126,6 +126,139 @@ class RoutingCapabilitiesTests(unittest.TestCase):
         route = choose_route("confirm")
         self.assertEqual(route.target, "system")
         self.assertEqual(route.reason, "Matched internal confirmation command")
+
+    def test_fallback_reentry_requires_the_proposed_deterministic_owner_to_accept(self) -> None:
+        accepted = validate_fallback_reentry(
+            proposed_target="system",
+            original_text="what is 2 plus 2",
+            normalized_text="what is 2 plus 2",
+            source="satellite-alpha",
+            session_id="fallback-owner-1",
+            registry=_BASELINE_ROUTE_REGISTRY,
+            household_settings=_NEUTRAL_HOUSEHOLD,
+            playback_state=CharacterizedPlaybackRouteState(),
+        )
+        rejected = validate_fallback_reentry(
+            proposed_target="system",
+            original_text="play david bowie",
+            normalized_text="play david bowie",
+            source="satellite-alpha",
+            session_id="fallback-owner-1",
+            registry=_BASELINE_ROUTE_REGISTRY,
+            household_settings=_NEUTRAL_HOUSEHOLD,
+            playback_state=CharacterizedPlaybackRouteState(),
+        )
+
+        assert accepted is not None
+        self.assertEqual(accepted.target, "system")
+        self.assertIn("validated by canonical system owner", accepted.reason)
+        self.assertIsNone(rejected)
+
+    def test_fallback_reentry_rejects_non_deterministic_and_mismatched_targets(self) -> None:
+        facts = validate_fallback_reentry(
+            proposed_target="facts",
+            original_text="explain black holes",
+            normalized_text="explain black holes",
+            source="satellite-alpha",
+            session_id="fallback-owner-2",
+            registry=_FACTS_ROUTE_REGISTRY,
+            household_settings=_NEUTRAL_HOUSEHOLD,
+        )
+        mismatched_news = validate_fallback_reentry(
+            proposed_target="news",
+            original_text="what time is it",
+            normalized_text="what time is it",
+            source="satellite-alpha",
+            session_id="fallback-owner-2",
+            registry=_BASELINE_ROUTE_REGISTRY,
+            household_settings=_NEUTRAL_HOUSEHOLD,
+        )
+
+        self.assertIsNone(facts)
+        self.assertIsNone(mismatched_news)
+
+    def test_system_fallback_reentry_cannot_rewrite_or_invent_semantic_values(self) -> None:
+        rewritten = validate_fallback_reentry(
+            proposed_target="system",
+            original_text="what is 2 plus 2",
+            normalized_text="what is 5 plus 5",
+            source="satellite-alpha",
+            session_id="fallback-owner-3",
+            registry=_BASELINE_ROUTE_REGISTRY,
+            household_settings=_NEUTRAL_HOUSEHOLD,
+        )
+
+        self.assertIsNone(rewritten)
+
+    @patch("oracle_app.route_refinement.fetch_satellite_playback_authority")
+    def test_typed_alert_context_precedes_active_media_for_bare_stop(self, mock_authority) -> None:
+        mock_authority.return_value = {
+            "music": {"active": True, "status": "playing"},
+            "audiobook": {"active": False},
+            "reply_audio": {"active": False},
+            "degraded_state": False,
+            "degraded_reasons": [],
+        }
+        set_utility_context(
+            "satellite-alpha",
+            "alert-context-1",
+            kind="alert_subject",
+            payload={"occurrence_id": "occurrence-1", "alert_kind": "alarm"},
+        )
+
+        route = choose_route(
+            "stop",
+            source="satellite-alpha",
+            session_id="alert-context-1",
+        )
+
+        self.assertEqual(route.target, "system")
+        self.assertEqual(route.reason, "Matched typed active-alert context")
+        self.assertEqual(route.normalized_text, "stop")
+
+    def test_cross_domain_collision_corpus_preserves_existing_canonical_owners(self) -> None:
+        cases = {
+            "set a timer for 5 minutes": "system",
+            "set an alarm for 7 am": "system",
+            "what's on my calendar tomorrow": "calendar",
+            "convert 12 miles to kilometers": "system",
+            "what is 12 plus 3": "system",
+            "play the song alarm": "music",
+            "turn the living room lights to 50 percent": "home_assistant",
+        }
+
+        for utterance, expected_target in cases.items():
+            with self.subTest(utterance=utterance):
+                route = choose_route(utterance)
+                self.assertEqual(route.target, expected_target)
+
+    def test_slice11_self_interaction_and_deferred_utility_corpus_never_falls_back(self) -> None:
+        cases = {
+            "repeat that": "Matched session-scoped Repeat request",
+            "what can you do with alarms": "Matched truthful capability Help request",
+            "can you set timers": "Matched truthful capability Help request",
+            "can you start a stopwatch": "Matched truthful capability Help request",
+            "start a stopwatch": "Matched explicitly deferred deterministic utility",
+            "flip a coin": "Matched explicitly deferred deterministic utility",
+            "when is sunrise": "Matched explicitly deferred deterministic utility",
+            "hello": "Matched bounded greeting or courtesy",
+            "thank you": "Matched bounded greeting or courtesy",
+        }
+        for utterance, reason in cases.items():
+            with self.subTest(utterance=utterance):
+                route = choose_route(utterance)
+                self.assertEqual(route.target, "system")
+                self.assertEqual(route.reason, reason)
+
+    def test_slice11_help_phrasing_does_not_collide_with_execution(self) -> None:
+        self.assertEqual(choose_route("can you set alarms").target, "system")
+        self.assertEqual(choose_route("set an alarm for 7 am").target, "system")
+        self.assertEqual(choose_route("can you set a timer for 5 minutes").target, "system")
+        self.assertEqual(choose_route("can you tell me the weather tomorrow").target, "weather")
+        self.assertEqual(choose_route("can you do conversions").target, "system")
+        self.assertEqual(choose_route("convert 12 miles to kilometers").target, "system")
+        self.assertEqual(choose_route("what can you do with lights").target, "system")
+        self.assertEqual(choose_route("turn the living room lights on").target, "home_assistant")
 
     @patch("oracle_app.routing_helpers.load_home_assistant_cache")
     def test_implied_home_intent(self, mock_cache) -> None:
@@ -547,10 +680,59 @@ class RoutingCapabilitiesTests(unittest.TestCase):
         self.assertEqual(route.target, "system")
         self.assertEqual(route.reason, "Matched math query")
 
+    def test_spoken_fraction_routes_to_math(self) -> None:
+        route = choose_route("what is three quarters of 80")
+        self.assertEqual(route.target, "system")
+        self.assertEqual(route.reason, "Matched math query")
+
+    def test_contextual_math_followup_routes_to_math(self) -> None:
+        route = choose_route("divide that by four")
+        self.assertEqual(route.target, "system")
+        self.assertEqual(route.reason, "Matched math query")
+
+    def test_math_domain_error_still_routes_to_deterministic_owner(self) -> None:
+        route = choose_route("what is one divided by zero")
+        self.assertEqual(route.target, "system")
+        self.assertEqual(route.reason, "Matched math query")
+
+    def test_unknown_math_tokens_do_not_route_to_calculator(self) -> None:
+        route = choose_route("what is two plus bananas three")
+        self.assertNotEqual(route.reason, "Matched math query")
+
     def test_conversion_query_routes_to_system(self) -> None:
         route = choose_route("convert 10 miles to kilometers")
         self.assertEqual(route.target, "system")
         self.assertEqual(route.reason, "Matched unit conversion query")
+
+    def test_mixed_conversion_query_routes_to_system(self) -> None:
+        route = choose_route("how many inches is 6 feet 5 inches")
+        self.assertEqual(route.target, "system")
+        self.assertEqual(route.reason, "Matched unit conversion query")
+
+    def test_conversion_followups_route_to_system_owner(self) -> None:
+        for utterance in ("what about 12 miles", "what about 80", "and meters"):
+            with self.subTest(utterance=utterance):
+                route = choose_route(utterance)
+                self.assertEqual(route.target, "system")
+                self.assertEqual(route.reason, "Matched unit conversion query")
+
+    def test_home_quantity_phrases_do_not_route_to_converter(self) -> None:
+        for utterance in ("how many lights are in the kitchen", "set the thermostat to 72 degrees"):
+            with self.subTest(utterance=utterance):
+                route = choose_route(utterance)
+                self.assertNotEqual(route.reason, "Matched unit conversion query")
+
+    def test_timezone_conversion_remains_temporal(self) -> None:
+        route = choose_route("if it's 3 pm here what time is it in london")
+        self.assertEqual(route.target, "system")
+        self.assertEqual(route.reason, "Matched deterministic time/date query")
+
+    def test_unsupported_conversion_families_stay_with_conversion_owner(self) -> None:
+        for utterance in ("convert 1 month to days", "convert 10 dollars to euros"):
+            with self.subTest(utterance=utterance):
+                route = choose_route(utterance)
+                self.assertEqual(route.target, "system")
+                self.assertEqual(route.reason, "Matched unit conversion query")
 
     def test_timer_query_routes_to_system(self) -> None:
         route = choose_route("set a timer for 5 minutes")

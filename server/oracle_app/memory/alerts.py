@@ -34,6 +34,10 @@ class AlertRecord:
     status: str = "pending"
     lease_id: str | None = None
     lease_expires_at: datetime | None = None
+    occurrence_id: str | None = None
+    delivery_role: str = "destination"
+    recipient_user_id: str | None = None
+    config_revision: str | None = None
 
     @property
     def source(self) -> str:
@@ -56,6 +60,10 @@ def create_alert_record(
     idempotency_key: str | None = None,
     alert_id: str | None = None,
     created_at: datetime | None = None,
+    occurrence_id: str | None = None,
+    delivery_role: str = "destination",
+    recipient_user_id: str | None = None,
+    config_revision: str | None = None,
     db_path: Path | None = None,
 ) -> tuple[AlertRecord, bool]:
     path = db_path or DB_PATH
@@ -73,8 +81,17 @@ def create_alert_record(
     clean_key = str(idempotency_key or "").strip() or None
     clean_alert_id = str(alert_id or uuid.uuid4().hex[:12]).strip()
     metadata_json = json.dumps(dict(metadata or {}), sort_keys=True, separators=(",", ":"))
+    clean_occurrence = str(occurrence_id or "").strip() or None
+    clean_role = _delivery_role(delivery_role)
+    clean_recipient = str(recipient_user_id or "").strip() or None
+    clean_revision = str(config_revision or "").strip() or None
     with transaction(path) as conn:
         _require_active_source(conn, clean_source)
+        if clean_occurrence is not None and conn.execute(
+            "SELECT 1 FROM memory_alert_occurrences WHERE occurrence_id=?",
+            (clean_occurrence,),
+        ).fetchone() is None:
+            raise ValueError("Alert delivery occurrence is not a canonical occurrence")
         if clean_key:
             existing = conn.execute(
                 "SELECT * FROM memory_alerts WHERE idempotency_key=? AND source_id=?",
@@ -86,8 +103,9 @@ def create_alert_record(
             conn.execute(
                 """INSERT INTO memory_alerts (
                        alert_id, created_at, updated_at, kind, source_id, session_id,
-                       due_at, expires_at, message, metadata_json, status, idempotency_key
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
+                       due_at, expires_at, message, metadata_json, status, idempotency_key,
+                       occurrence_id, delivery_role, recipient_user_id, config_revision
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)""",
                 (
                     clean_alert_id,
                     clean_created.isoformat(),
@@ -100,6 +118,10 @@ def create_alert_record(
                     clean_message,
                     metadata_json,
                     clean_key,
+                    clean_occurrence,
+                    clean_role,
+                    clean_recipient,
+                    clean_revision,
                 ),
             )
         except sqlite3.IntegrityError:
@@ -121,6 +143,8 @@ def create_alert_record(
             reason="created",
             at=clean_created,
         )
+        if clean_occurrence is None and clean_kind in {"timer", "alarm", "reminder"}:
+            _adopt_compatibility_alert(conn, clean_alert_id)
         created = conn.execute(
             "SELECT * FROM memory_alerts WHERE alert_id=?", (clean_alert_id,)
         ).fetchone()
@@ -139,6 +163,10 @@ def create_alert_records(
     metadata: dict[str, Any] | None = None,
     expires_at: datetime | None = None,
     idempotency_key: str | None = None,
+    occurrence_id: str | None = None,
+    delivery_role: str = "destination",
+    recipient_user_id: str | None = None,
+    config_revision: str | None = None,
     db_path: Path | None = None,
 ) -> tuple[list[AlertRecord], bool]:
     sources = tuple(dict.fromkeys(_required(value, "source_id") for value in source_ids))
@@ -157,9 +185,18 @@ def create_alert_records(
     if clean_expires is not None and clean_expires <= created_at:
         raise ValueError("expires_at must be after created_at")
     metadata_json = json.dumps(dict(metadata or {}), sort_keys=True, separators=(",", ":"))
+    clean_occurrence = str(occurrence_id or "").strip() or None
+    clean_role = _delivery_role(delivery_role)
+    clean_recipient = str(recipient_user_id or "").strip() or None
+    clean_revision = str(config_revision or "").strip() or None
     with transaction(path) as conn:
         for source_id in sources:
             _require_active_source(conn, source_id)
+        if clean_occurrence is not None and conn.execute(
+            "SELECT 1 FROM memory_alert_occurrences WHERE occurrence_id=?",
+            (clean_occurrence,),
+        ).fetchone() is None:
+            raise ValueError("Alert delivery occurrence is not a canonical occurrence")
         if clean_key:
             placeholders = ",".join("?" for _ in sources)
             existing = conn.execute(
@@ -169,14 +206,58 @@ def create_alert_records(
             ).fetchone()
             if existing is not None:
                 return [], True
+        if clean_occurrence is None and clean_kind in {"timer", "alarm", "reminder"}:
+            schedule_id = f"compat-schedule-{uuid.uuid4().hex}"
+            clean_occurrence = f"compat-occurrence-{uuid.uuid4().hex}"
+            target_scope = "household" if len(sources) > 1 else "local"
+            target_id = None if len(sources) > 1 else sources[0]
+            conn.execute(
+                """INSERT INTO memory_alert_schedules (
+                       schedule_id, created_at, updated_at, kind, schedule_type, status,
+                       timezone, start_at, local_time, recurrence_json, creator_source_id,
+                       session_id, message, target_scope, target_id, recipients_json,
+                       metadata_json
+                   ) VALUES (?, ?, ?, ?, 'one_time', 'active', 'UTC', ?, NULL, '{}', ?, ?, ?,
+                             ?, ?, '[]', '{"compatibility":"batch_api"}')""",
+                (
+                    schedule_id, created_at.isoformat(), created_at.isoformat(), clean_kind,
+                    clean_due.isoformat(), sources[0], str(session_id or "").strip() or None,
+                    clean_message, target_scope, target_id,
+                ),
+            )
+            conn.execute(
+                """INSERT INTO memory_alert_occurrences (
+                       occurrence_id, schedule_id, occurrence_key, created_at, updated_at,
+                       due_at, intended_local, status, metadata_json
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled',
+                             '{"compatibility":"batch_api"}')""",
+                (
+                    clean_occurrence, schedule_id, f"batch:{clean_occurrence}",
+                    created_at.isoformat(), created_at.isoformat(),
+                    clean_due.isoformat(), clean_due.isoformat(),
+                ),
+            )
+            conn.execute(
+                """INSERT INTO memory_alert_occurrence_transitions (
+                       transition_id, occurrence_id, created_at, from_status, to_status,
+                       actor_type, actor_id, reason
+                   ) VALUES (?, ?, ?, NULL, 'scheduled', 'system', NULL,
+                             'batch_api_adopted')""",
+                (
+                    f"alert-occurrence-transition-{uuid.uuid4().hex}",
+                    clean_occurrence,
+                    created_at.isoformat(),
+                ),
+            )
         alert_ids: list[str] = []
         for source_id in sources:
             alert_id = uuid.uuid4().hex[:12]
             conn.execute(
                 """INSERT INTO memory_alerts (
                        alert_id, created_at, updated_at, kind, source_id, session_id,
-                       due_at, expires_at, message, metadata_json, status, idempotency_key
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
+                       due_at, expires_at, message, metadata_json, status, idempotency_key,
+                       occurrence_id, delivery_role, recipient_user_id, config_revision
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)""",
                 (
                     alert_id,
                     created_at.isoformat(),
@@ -189,6 +270,10 @@ def create_alert_records(
                     clean_message,
                     metadata_json,
                     clean_key,
+                    clean_occurrence,
+                    clean_role,
+                    clean_recipient,
+                    clean_revision,
                 ),
             )
             _transition_row(
@@ -420,6 +505,16 @@ def acknowledge_alert(
             reason="satellite_accepted",
             lease_id=clean_lease,
         )
+        occurrence_id = str(current["occurrence_id"] or "").strip()
+        if occurrence_id:
+            _record_runtime_acceptance(
+                conn,
+                occurrence_id=occurrence_id,
+                alert_id=clean_id,
+                source_id=clean_source,
+                lease_id=clean_lease,
+                at=clock,
+            )
         row = conn.execute(
             "SELECT * FROM memory_alerts WHERE alert_id=?", (clean_id,)
         ).fetchone()
@@ -585,6 +680,81 @@ def _row(row: Any) -> AlertRecord:
         status=str(row["status"]),
         lease_id=str(row["lease_id"]) if row["lease_id"] is not None else None,
         lease_expires_at=_optional_datetime(row["lease_expires_at"]),
+        occurrence_id=str(row["occurrence_id"]) if row["occurrence_id"] is not None else None,
+        delivery_role=str(row["delivery_role"] or "destination"),
+        recipient_user_id=str(row["recipient_user_id"]) if row["recipient_user_id"] is not None else None,
+        config_revision=str(row["config_revision"]) if row["config_revision"] is not None else None,
+    )
+
+
+def _delivery_role(value: object) -> str:
+    clean = _required(value, "delivery_role")
+    if clean not in {"destination", "common"}:
+        raise ValueError(f"Unsupported delivery_role {clean!r}")
+    return clean
+
+
+def _adopt_compatibility_alert(conn: sqlite3.Connection, alert_id: str) -> None:
+    row = conn.execute("SELECT * FROM memory_alerts WHERE alert_id=?", (alert_id,)).fetchone()
+    if row is None or row["occurrence_id"] is not None:
+        return
+    schedule_id = f"legacy-schedule-{alert_id}"
+    occurrence_id = f"legacy-occurrence-{alert_id}"
+    conn.execute(
+        """INSERT INTO memory_alert_schedules (
+               schedule_id, created_at, updated_at, kind, schedule_type, status,
+               timezone, start_at, local_time, recurrence_json, creator_source_id,
+               session_id, message, target_scope, target_id, recipients_json,
+               metadata_json
+           ) VALUES (?, ?, ?, ?, 'one_time', 'active', 'UTC', ?, NULL, '{}', ?, ?, ?,
+                     'local', ?, '[]', '{"compatibility":"legacy_api"}')""",
+        (
+            schedule_id, row["created_at"], row["updated_at"], row["kind"], row["due_at"],
+            row["source_id"], row["session_id"], row["message"], row["source_id"],
+        ),
+    )
+    conn.execute(
+        """INSERT INTO memory_alert_occurrences (
+               occurrence_id, schedule_id, occurrence_key, created_at, updated_at,
+               due_at, intended_local, status, metadata_json
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', '{"compatibility":"legacy_api"}')""",
+        (
+            occurrence_id, schedule_id, f"legacy:{alert_id}", row["created_at"],
+            row["updated_at"], row["due_at"], row["due_at"],
+        ),
+    )
+    conn.execute(
+        """INSERT INTO memory_alert_occurrence_transitions (
+               transition_id, occurrence_id, created_at, from_status, to_status,
+               actor_type, actor_id, reason
+           ) VALUES (?, ?, ?, NULL, 'scheduled', 'system', NULL, 'legacy_api_adopted')""",
+        (f"alert-occurrence-transition-{uuid.uuid4().hex}", occurrence_id, row["created_at"]),
+    )
+    conn.execute(
+        "UPDATE memory_alerts SET occurrence_id=? WHERE alert_id=?",
+        (occurrence_id, alert_id),
+    )
+
+
+def _record_runtime_acceptance(
+    conn: sqlite3.Connection,
+    *,
+    occurrence_id: str,
+    alert_id: str,
+    source_id: str,
+    lease_id: str,
+    at: datetime,
+) -> None:
+    idempotency_key = f"runtime:{alert_id}:{lease_id}"
+    conn.execute(
+        """INSERT OR IGNORE INTO memory_alert_acknowledgements (
+               acknowledgement_id, occurrence_id, alert_id, created_at,
+               actor_type, actor_id, action, idempotency_key, metadata_json
+           ) VALUES (?, ?, ?, ?, 'runtime', ?, 'delivery_accepted', ?, '{}')""",
+        (
+            f"alert-ack-{uuid.uuid4().hex}", occurrence_id, alert_id,
+            at.isoformat(), source_id, idempotency_key,
+        ),
     )
 
 
