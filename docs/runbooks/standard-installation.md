@@ -315,6 +315,27 @@ The gate occurs in this order:
    activation of the exact released artifact is the re-upgrade/return leg and
    must still pass independent status, health, fleet, integration, and soak
    checks.
+10. Before declaring the stage closed, determine whether the released core
+    changed satellite-distributed runtime content. If it did, audit every
+    enabled satellite against an exact manifest derived from the released
+    artifact, roll the required runtime to the real fleet through the
+    household's existing Linux or Windows deployment method, and record exact
+    installed provenance. Each updated host must pass runtime/control process
+    health, current projection acceptance, configuration health, bounded
+    source-local behavior appropriate to the changed runtime, and cleanup.
+    Representative pre-promotion acceptance proves the candidate architecture;
+    it does not substitute for installing required runtime content on every
+    enabled satellite installation. If the release has no satellite runtime
+    delta, record that result explicitly instead of inventing a rollout.
+    When the household artifact declares satellite asset overlays, build each
+    satellite's exact installed manifest as the released core satellite
+    payload plus those household-owned destinations. Copy the complete core
+    runtime first, then overlay only the declared household assets at their
+    canonical runtime destinations before restarting the host. Verify both
+    source artifact identities and the composed manifest. Household-private
+    assets must remain in the household artifact and must never be copied into
+    clean core or a public release; the core files remain distributable
+    fallbacks for households that do not declare an override.
 
 Schedule the gate inside a bounded maintenance window. Account for alerts due
 before, during, and immediately after Brain downtime; do not create broad
@@ -330,7 +351,10 @@ This gate reconciles existing evidence rather than duplicating or weakening it:
   pre-promotion managed update/rollback exercise;
 - the final released activation supplies the existing return/re-upgrade proof;
 - clean-core CI, artifact verification, failed/interrupted recovery coverage,
-  final post-activation health, fleet checks, and soak remain mandatory; and
+  final post-activation health, fleet checks, and soak remain mandatory;
+- ordinary fleet health cannot prove satellite runtime version parity, so an
+  exact released-artifact manifest/provenance audit and any required satellite
+  rollout are separate closure evidence; and
 - architectural changes that make live rollback, data restoration, exact
   provenance, or bounded external cleanup questionable require fresh operator
   approval rather than silent modification of this sequence.

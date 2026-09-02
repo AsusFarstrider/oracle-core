@@ -84,6 +84,41 @@ def test_one_time_alarm_natural_forms(utterance, expected_hour, alarm_env) -> No
 
 
 @pytest.mark.parametrize(
+    ("utterance", "expected_hour", "expected_minute"),
+    [
+        ("set an alarm for 9.11 pm", 21, 11),
+        ("set an alarm for 9 12 p m", 21, 12),
+    ],
+)
+def test_alarm_accepts_observed_stt_clock_punctuation(
+    utterance, expected_hour, expected_minute, alarm_env
+) -> None:
+    _speech, details = run(
+        utterance,
+        alarm_env,
+        now=datetime(2026, 4, 3, 20, tzinfo=timezone(timedelta(hours=-4))),
+    )
+    due = datetime.fromisoformat(details["due_at"]).astimezone(timezone(timedelta(hours=-4)))
+    assert (due.hour, due.minute) == (expected_hour, expected_minute)
+
+
+def test_cancel_alarm_deletes_the_selected_future_schedule(alarm_env) -> None:
+    _speech, created = run("set an alarm for 9:12 pm", alarm_env)
+    speech, details = run("cancel my alarm", alarm_env)
+
+    assert speech.startswith("Deleted")
+    assert details == {
+        "kind": "alarm",
+        "operation": "delete",
+        "schedule_id": created["schedule_id"],
+        "status": "deleted",
+        "terminal": True,
+    }
+    assert list_alert_schedules(db_path=alarm_env[2])[0].status == "deleted"
+    assert list_alert_occurrences(db_path=alarm_env[2])[0].status == "canceled"
+
+
+@pytest.mark.parametrize(
     ("utterance", "frequency", "weekdays", "interval", "month_days", "ordinals"),
     [
         ("set an alarm for 7 every day", "daily", [], 1, [], []),

@@ -164,6 +164,18 @@ class SatelliteAlertsRuntimeTests(unittest.TestCase):
 
         self.assertEqual(followup, "Your work alarm is going off. It's 8:29 PM.")
 
+    def test_alarm_followup_prefers_canonical_intended_local_over_utc_due_at(self) -> None:
+        followup = alerts_runtime._build_alarm_followup_text(
+            {
+                "kind": "alarm",
+                "message": "Your work alarm is going off.",
+                "due_at": "2026-09-01T19:56:00+00:00",
+                "metadata": {"intended_local": "2026-09-01T15:56:00"},
+            }
+        )
+
+        self.assertEqual(followup, "Your work alarm is going off. It's 3:56 PM.")
+
     def test_notification_uses_brain_tts(self) -> None:
         args = self._build_args()
         logger = self._build_logger()

@@ -121,6 +121,29 @@ def test_restart_reconciliation_materializes_one_occurrence_and_reuses_one_deliv
         assert conn.execute("SELECT COUNT(*) FROM memory_alerts").fetchone()[0] == 1
 
 
+def test_delivery_projection_carries_canonical_intended_local_time(db_path: Path) -> None:
+    _schedule(
+        db_path,
+        kind="alarm",
+        start_at=datetime(2026, 8, 28, 19, 56, tzinfo=UTC),
+        timezone_name="America/New_York",
+        message="Your alarm is going off.",
+    )
+
+    reconcile_alert_lifecycle(
+        household=_Household(), satellites=_Fleet(),
+        now=datetime(2026, 8, 28, 19, 56, tzinfo=UTC), db_path=db_path,
+    )
+    projected = claim_due_alerts(
+        source_id="source-a",
+        now=datetime(2026, 8, 28, 19, 56, tzinfo=UTC),
+        db_path=db_path,
+    )[0]
+
+    assert projected.due_at == datetime(2026, 8, 28, 19, 56, tzinfo=UTC)
+    assert projected.metadata["intended_local"] == "2026-08-28T15:56:00"
+
+
 def test_reconciliation_preserves_runtime_acknowledged_ringing_occurrence(db_path: Path) -> None:
     _schedule(db_path)
     first = reconcile_alert_lifecycle(
@@ -331,6 +354,7 @@ def test_skip_and_snooze_are_occurrence_scoped_and_preserve_lineage(db_path: Pat
         db_path=db_path,
     )
     assert snoozed.parent_occurrence_id == occurrences[0].occurrence_id
+    assert snoozed.intended_local == "2026-08-28T16:05:00"
     assert get_status(db_path, occurrences[0].occurrence_id) == "snoozed"
     assert list_alert_schedules(db_path=db_path)[0].status == "active"
 
