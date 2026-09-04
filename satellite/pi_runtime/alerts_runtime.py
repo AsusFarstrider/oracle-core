@@ -73,10 +73,12 @@ def _begin_alert_handoff(*, args, logger, alert: dict):
 
 def _build_alarm_followup_text(alert: dict) -> str:
     message = str(alert.get("message", "")).strip()
-    due_at_raw = str(alert.get("due_at", "")).strip()
-    if due_at_raw:
+    metadata = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+    intended_local_raw = str(metadata.get("intended_local") or "").strip()
+    display_time_raw = intended_local_raw or str(alert.get("due_at", "")).strip()
+    if display_time_raw:
         try:
-            due_at = datetime.fromisoformat(due_at_raw)
+            due_at = datetime.fromisoformat(display_time_raw)
             hour = due_at.strftime("%I").lstrip("0") or "0"
             time_text = f"It's {hour}:{due_at.strftime('%M %p')}."
             return f"{message} {time_text}" if message else time_text

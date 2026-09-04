@@ -448,6 +448,11 @@ def _parse_alarm_due(text: str, *, local_now: datetime, recurrence: RecurrenceRu
 
 def _clock_text(text: str) -> str:
     cleaned = re.sub(r"\ba\.m\.\b", "am", text).replace("p.m.", "pm")
+    cleaned = re.sub(
+        r"\b([01]?\d|2[0-3])[.\s]([0-5]\d)\s*([ap])(?:[.\s])*m\b",
+        lambda match: f"{match.group(1)}:{match.group(2)} {match.group(3)}m",
+        cleaned,
+    )
     matches = list(re.finditer(r"\b(?:at|for|to)\s+([a-z0-9]+(?::[0-5]\d)?(?:\s*(?:am|pm))?)\b", cleaned))
     if matches:
         return matches[-1].group(1)
@@ -498,7 +503,7 @@ def _operation(text: str) -> str:
     if "snooze" in text or "more minutes" in text: return "snooze"
     if "skip" in text or "don't run" in text or "do not run" in text: return "skip"
     if re.search(r"\b(?:dismiss|stop)\b", text): return "dismiss"
-    if re.search(r"\b(?:delete|remove)\b", text): return "delete"
+    if re.search(r"\b(?:cancel|delete|remove)\b", text): return "delete"
     if any(item in text for item in ("turn off", "disable")): return "disable"
     if any(item in text for item in ("turn on", "back on", "enable", "re-enable")): return "enable"
     if re.search(r"\b(?:change|move|make)\b", text): return "edit"

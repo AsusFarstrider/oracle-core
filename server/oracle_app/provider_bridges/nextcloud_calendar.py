@@ -226,6 +226,8 @@ class NextcloudCalendarBridge:
             raise CalendarBridgeError("calendar_query_failed", detail or f"Calendar feed returned HTTP {exc.code}") from exc
         except error.URLError as exc:
             raise CalendarBridgeError("calendar_query_failed", str(exc.reason)) from exc
+        except (TimeoutError, OSError) as exc:
+            raise CalendarBridgeError("calendar_query_failed", str(exc)) from exc
 
     def _parse_events(self, payload: str, timezone_name: str) -> list[CalendarEvent]:
         lines = self._unfold_ics_lines(payload)

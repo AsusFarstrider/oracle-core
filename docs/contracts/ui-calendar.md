@@ -34,6 +34,12 @@ Required top-level fields:
 - `today`
 - `upcoming`
 
+When the configured read provider is temporarily unavailable, the endpoint
+remains renderable and returns empty `today.events` and `upcoming.events`
+arrays with top-level `status: "unavailable"` and app-safe `detail`. The
+`create_event` block reports unavailable for that snapshot. Invalid canonical
+configuration and unexpected implementation failures remain strict errors.
+
 Recommended Alpha fields:
 
 - `timezone`

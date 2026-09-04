@@ -438,7 +438,10 @@ def snooze_alert_occurrence(
         schedule_id=current.schedule_id,
         occurrence_key=f"snooze:{occurrence_id}:{_utc(until).isoformat()}",
         due_at=until,
-        intended_local=_utc(until).isoformat(),
+        intended_local=_utc(until)
+        .astimezone(ZoneInfo(get_alert_schedule(current.schedule_id, db_path=db_path).timezone))
+        .replace(tzinfo=None)
+        .isoformat(timespec="seconds"),
         parent_occurrence_id=occurrence_id,
         recipient_user_id=current.recipient_user_id,
         metadata={**current.metadata, "snoozed_from": occurrence_id},
@@ -474,6 +477,7 @@ def _project_delivery(
         metadata={
             "schedule_id": schedule.schedule_id,
             "occurrence_id": occurrence.occurrence_id,
+            "intended_local": occurrence.intended_local,
             "late_seconds": late_seconds,
         },
         expires_at=occurrence.due_at + _LATE_GRACE[schedule.kind] + timedelta(seconds=1),

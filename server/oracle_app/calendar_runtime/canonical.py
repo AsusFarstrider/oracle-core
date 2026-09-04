@@ -7,8 +7,21 @@ from fastapi import HTTPException
 from oracle_app.calendar import CalendarQuery, _find_matching_event, _list_events
 from oracle_app.calendar_models import CalendarEvent
 from oracle_app.configuration.calendar_runtime_settings import CalendarRuntimeSettings
-from oracle_app.provider_bridges.nextcloud_calendar import CalendarBridgeError, NextcloudCalendarBridge
+from oracle_app.provider_bridges.nextcloud_calendar import (
+    CalendarBridgeConfigurationError,
+    CalendarBridgeError,
+    NextcloudCalendarBridge,
+)
 from oracle_app.read_cache import BoundedReadCache, CachedRead
+
+
+class CalendarReadUnavailableError(RuntimeError):
+    """Raised when the configured calendar provider cannot serve a read."""
+
+    def __init__(self, detail: str, *, error_code: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.error_code = error_code
 
 
 class CanonicalCalendarExecution:
@@ -52,8 +65,13 @@ class CanonicalCalendarExecution:
                             auth_password=auth_password,
                         )
                     )
+                except CalendarBridgeConfigurationError:
+                    raise
                 except CalendarBridgeError as exc:
-                    raise RuntimeError(exc.detail) from exc
+                    raise CalendarReadUnavailableError(
+                        exc.detail,
+                        error_code=exc.error_code,
+                    ) from exc
             return events
 
         feed_identity = ",".join(f"{feed.id}:{feed.resolved_url}" for feed in feeds)

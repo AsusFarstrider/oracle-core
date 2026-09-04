@@ -315,6 +315,46 @@ The gate occurs in this order:
    activation of the exact released artifact is the re-upgrade/return leg and
    must still pass independent status, health, fleet, integration, and soak
    checks.
+10. Before declaring the stage closed, determine whether the released core
+    changed satellite-distributed runtime content. If it did, audit every
+    enabled satellite against an exact manifest derived from the released
+    artifact, roll the required runtime to the real fleet through the
+    household's existing Linux or Windows deployment method, and record exact
+    installed provenance. Each updated host must pass runtime/control process
+    health, current projection acceptance, configuration health, bounded
+    source-local behavior appropriate to the changed runtime, and cleanup.
+    Representative pre-promotion acceptance proves the candidate architecture;
+    it does not substitute for installing required runtime content on every
+    enabled satellite installation. If the release has no satellite runtime
+    delta, record that result explicitly instead of inventing a rollout.
+    When the household artifact declares satellite asset overlays, build each
+    satellite's exact installed manifest as the released core satellite
+    payload plus those household-owned destinations. Copy the complete core
+    runtime first, then overlay only the declared household assets at their
+    canonical runtime destinations before restarting the host. Verify both
+    source artifact identities and the composed manifest. Household-private
+    assets must remain in the household artifact and must never be copied into
+    clean core or a public release; the core files remain distributable
+    fallbacks for households that do not declare an override.
+    Before changing a Windows task's execution root, inventory every
+    root-relative host dependency used by its preserved launcher. Native music
+    and long-form audiobook playback require `ffplay` or `mpv`; if the launcher
+    resolves it below `tools/ffmpeg/bin`, preserve that complete host-local
+    payload at the same relative path in the new root or configure an explicit
+    validated absolute player path. A clean control-service health response
+    proves command availability, not executable availability: require
+    executable/version/hash evidence and one representative real playback
+    start/stop. Record these files separately from the released 62-file runtime
+    manifest as installed host-local dependency provenance.
+    When restarting a Windows scheduled task, do not assume a fixed delay after
+    `Stop-ScheduledTask` is sufficient. Poll until the old task is definitively
+    stopped/`Ready`, then start it and independently prove the new listener and
+    owning process. With `MultipleInstances=IgnoreNew`, starting while the old
+    instance is still stopping can be ignored and later resemble an application
+    crash; `0xC000013A` is also the expected result of the deliberate hard stop.
+    The tracked Windows projection-sync and startup-check wrappers enforce this
+    wait and fail closed when a stopped task does not reach `Ready`; deployment
+    tooling must not replace that with a fixed sleep.
 
 Schedule the gate inside a bounded maintenance window. Account for alerts due
 before, during, and immediately after Brain downtime; do not create broad
@@ -330,7 +370,10 @@ This gate reconciles existing evidence rather than duplicating or weakening it:
   pre-promotion managed update/rollback exercise;
 - the final released activation supplies the existing return/re-upgrade proof;
 - clean-core CI, artifact verification, failed/interrupted recovery coverage,
-  final post-activation health, fleet checks, and soak remain mandatory; and
+  final post-activation health, fleet checks, and soak remain mandatory;
+- ordinary fleet health cannot prove satellite runtime version parity, so an
+  exact released-artifact manifest/provenance audit and any required satellite
+  rollout are separate closure evidence; and
 - architectural changes that make live rollback, data restoration, exact
   provenance, or bounded external cleanup questionable require fresh operator
   approval rather than silent modification of this sequence.

@@ -173,6 +173,14 @@ def build_ui_calendar_snapshot(
     return serialize_ui_calendar_snapshot(loaded=loaded, now=now, limit=limit)
 
 
+def build_ui_calendar_unavailable_snapshot() -> dict[str, object]:
+    return {
+        "events": [],
+        "status": "unavailable",
+        "detail": "Calendar is temporarily unavailable.",
+    }
+
+
 def serialize_ui_calendar_snapshot(*, loaded, now: datetime, limit: int) -> dict[str, object]:
     upcoming = [event for event in loaded if event.end > now]
     upcoming.sort(key=lambda item: item.start)
@@ -194,6 +202,28 @@ def build_ui_calendar_page_snapshot(
         timezone_name=timezone_name,
         write_enabled=canonical_execution.settings.write.enabled,
     )
+
+
+def build_ui_calendar_unavailable_page_snapshot(
+    *,
+    timezone_name: str,
+) -> dict[str, object]:
+    timezone = ZoneInfo(timezone_name)
+    today = datetime.now(timezone).date()
+    return {
+        "generated_at": _build_ui_generated_at(),
+        "timezone": timezone_name,
+        "status": "unavailable",
+        "detail": "Calendar is temporarily unavailable.",
+        "today": {"date": today.isoformat(), "events": []},
+        "upcoming": {"events": []},
+        "create_event": {
+            "available": False,
+            "status": "unavailable",
+            "detail": "Calendar is temporarily unavailable.",
+        },
+        "refresh_after_seconds": 30,
+    }
 
 
 def serialize_ui_calendar_page_snapshot(

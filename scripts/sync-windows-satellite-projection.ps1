@@ -42,6 +42,28 @@ if ($syncStatus -ne 3) {
     throw "Satellite projection pull or local installation failed."
 }
 
+function Wait-TaskReady {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TaskName,
+        [int]$TimeoutSeconds = 30
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+        if ($task.State -eq "Ready") {
+            return
+        }
+        if ($task.State -eq "Disabled") {
+            throw "Scheduled task is disabled after stop: $TaskName"
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+
+    throw "Scheduled task did not reach Ready after stop: $TaskName"
+}
+
 foreach ($taskName in @($ControlTaskName, $RuntimeTaskName)) {
     $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     if ($null -eq $task) {
@@ -49,6 +71,9 @@ foreach ($taskName in @($ControlTaskName, $RuntimeTaskName)) {
     }
     if ($task.State -eq "Running") {
         Stop-ScheduledTask -TaskName $taskName
+        Wait-TaskReady -TaskName $taskName
+    } elseif ($task.State -ne "Ready") {
+        throw "Scheduled task is not safely restartable: $taskName state=$($task.State)"
     }
     Start-ScheduledTask -TaskName $taskName
 }

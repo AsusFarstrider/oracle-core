@@ -51,6 +51,25 @@ function Start-TaskIfNeeded {
     }
 }
 
+function Wait-TaskReady {
+    param(
+        [string]$TaskName,
+        [int]$TimeoutSeconds = 30
+    )
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+        if ($task.State -eq "Ready") {
+            return
+        }
+        if ($task.State -eq "Disabled") {
+            throw "Scheduled task is disabled after stop: $TaskName"
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    throw "Scheduled task did not reach Ready after stop: $TaskName"
+}
+
 function Restart-Task {
     param([string]$TaskName)
     $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -61,7 +80,9 @@ function Restart-Task {
     Write-StartupLog "task_restart task=$TaskName state=$($task.State)"
     if ($task.State -eq "Running") {
         Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
+        Wait-TaskReady -TaskName $TaskName
+    } elseif ($task.State -ne "Ready") {
+        throw "Scheduled task is not safely restartable: $TaskName state=$($task.State)"
     }
     Start-ScheduledTask -TaskName $TaskName
 }

@@ -1,3 +1,3 @@
-from .canonical import CanonicalCalendarExecution
+from .canonical import CalendarReadUnavailableError, CanonicalCalendarExecution
 
-__all__ = ["CanonicalCalendarExecution"]
+__all__ = ["CalendarReadUnavailableError", "CanonicalCalendarExecution"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, Request, Response
@@ -7,6 +8,7 @@ from fastapi import HTTPException, Request, Response
 from . import alerts as alerts_module
 from .application_command import _canonical_http_request_source, command_request
 from .application_runtime import app, brain_application_composition
+from .calendar_runtime import CalendarReadUnavailableError
 from .configuration.request_source_resolution import ResolvedRequestSource
 from .home_assistant_actions import (
     execute_home_assistant_ui_action,
@@ -37,6 +39,8 @@ from .ui_audio_control import (
 from .ui_calendar import (
     build_ui_calendar_page_snapshot as _build_ui_calendar_page_snapshot,
     build_ui_calendar_snapshot as _build_ui_calendar_snapshot,
+    build_ui_calendar_unavailable_page_snapshot,
+    build_ui_calendar_unavailable_snapshot,
     ui_calendar_confirm_impl as _ui_calendar_confirm_impl,
 )
 from .ui_context import ui_context_start_impl, ui_alarm_cancel_impl as _ui_alarm_cancel_impl
@@ -51,6 +55,10 @@ from .alarms import build_alarm_state, manage_alarm
 from .reminders import build_reminder_state, manage_reminder
 from .ui_snapshot_cache import get_cached_snapshot, invalidate_cached_snapshots
 from .ui_weather import build_ui_weather_snapshot as _build_ui_weather_snapshot
+
+
+logger = logging.getLogger("oracle-brain.application.ui")
+
 
 def _canonical_playback_execution(source_id: str):
     composition = brain_application_composition(app)
@@ -149,13 +157,25 @@ def _cached_ui_calendar_snapshot(*, limit: int) -> dict[str, object]:
     composition = brain_application_composition(app)
     if composition.calendar_execution is None:
         return {"events": []}
+
+    def build() -> dict[str, object]:
+        try:
+            return _build_ui_calendar_snapshot(
+                limit=limit,
+                canonical_execution=composition.calendar_execution,
+            )
+        except CalendarReadUnavailableError as exc:
+            logger.warning(
+                "ui_calendar_component_unavailable surface=summary error_code=%s detail=%s",
+                exc.error_code,
+                exc.detail,
+            )
+            return build_ui_calendar_unavailable_snapshot()
+
     return get_cached_snapshot(
         f"ui_calendar_summary:{limit}",
         ttl_seconds=45,
-        builder=lambda: _build_ui_calendar_snapshot(
-            limit=limit,
-            canonical_execution=composition.calendar_execution,
-        ),
+        builder=build,
     )
 
 
@@ -163,12 +183,26 @@ def _cached_ui_calendar_page_snapshot() -> dict[str, object]:
     composition = brain_application_composition(app)
     if composition.calendar_execution is None:
         raise RuntimeError("Calendar capability is not configured")
+
+    def build() -> dict[str, object]:
+        try:
+            return _build_ui_calendar_page_snapshot(
+                canonical_execution=composition.calendar_execution,
+            )
+        except CalendarReadUnavailableError as exc:
+            logger.warning(
+                "ui_calendar_component_unavailable surface=page error_code=%s detail=%s",
+                exc.error_code,
+                exc.detail,
+            )
+            return build_ui_calendar_unavailable_page_snapshot(
+                timezone_name=composition.calendar_execution.settings.timezone,
+            )
+
     return get_cached_snapshot(
         "ui_calendar_page",
         ttl_seconds=45,
-        builder=lambda: _build_ui_calendar_page_snapshot(
-            canonical_execution=composition.calendar_execution,
-        ),
+        builder=build,
     )
 
 

@@ -22,6 +22,13 @@ write invalidates the read cache immediately.
 
 Read and write remain separate surfaces even though they now point at the same backend calendar.
 
+UI reads contain typed calendar-provider availability failures at the calendar
+component boundary. Satellite Home, household Home, and the Calendar page stay
+renderable with empty event arrays and explicit unavailable metadata. This
+boundary does not catch invalid canonical configuration, malformed provider
+data, or unexpected implementation failures. The canonical stale-read policy
+still applies first when a bounded last-known-good read exists.
+
 In canonical V2 mode, one immutable calendar execution binds the selected
 Nextcloud provider, resolved feed URLs, household timezone, read freshness
 policy, and confirmed-write credential tuple. Route parsing, pending-calendar

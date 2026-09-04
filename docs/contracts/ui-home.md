@@ -57,6 +57,9 @@ Rules:
 
 - `events` is always an array
 - empty is valid
+- temporary calendar-provider unavailability is represented by an empty
+  `events` array with optional `status: "unavailable"` and app-safe `detail`;
+  it does not invalidate the rest of the Home snapshot
 
 Recommended Alpha event fields:
 
