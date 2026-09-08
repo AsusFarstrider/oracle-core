@@ -64,6 +64,9 @@ class InitialInstallationAssemblyTests(unittest.TestCase):
             selected_configuration.activation.generation_id,
         )
         self.assertEqual(selected_configuration.secrets.snapshot.present_ids, frozenset())
+        companion = self.layout.secrets / "secrets.env"
+        self.assertEqual(companion.read_bytes(), b"")
+        self.assertEqual(companion.stat().st_mode & 0o777, 0o600)
         self.assertEqual(load_runtime_cutover_marker(store).activation_generation_id, selected_configuration.activation.generation_id)
         self.assertEqual(load_selected_activation(self.layout, "staged").activation_id, complete.activation_id)
         self.assertFalse((self.layout.selection / "active").exists())
@@ -86,6 +89,7 @@ class InitialInstallationAssemblyTests(unittest.TestCase):
         selected = GenerationStore(self.layout.configuration, secret_root=self.layout.secrets).load_selected()
         self.assertEqual(selected.secrets.snapshot.present_ids, frozenset({"TOKEN"}))
         self.assertTrue(selected.secrets.raw_present)
+        self.assertEqual((self.layout.secrets / "secrets.env").read_text(encoding="utf-8"), "TOKEN=value\n")
 
     def test_initial_assembly_preserves_explicit_safety_acknowledgements(self) -> None:
         access = (

@@ -15,6 +15,7 @@ from .configuration import (
     snapshot_candidate,
 )
 from .configuration.secrets import SecretSnapshot
+from .configuration.generations import _atomic_replace
 from .installation import (
     ActivationRequest,
     InstallationLayout,
@@ -180,6 +181,10 @@ def assemble_initial_activation(
         initial_secret_snapshot=request.initial_secret_snapshot,
     )
     selected = store.load_selected()
+    _atomic_replace(
+        layout.secrets / "secrets.env",
+        selected.secrets.snapshot._companion_bytes(),
+    )
     arm_runtime_cutover(store, selected, actor="host_local_cli", audit_event_id=activated.audit_event_id)
 
     complete = publish_activation(
