@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class OpenClawBridgeOptions(BaseModel):
-    adapter: Literal["http", "mock", "websocket", "ssh_cli"] = "http"
+    adapter: Literal["http", "mock", "ssh_cli"] = "http"
     base_url: str = ""
     endpoint_path: str = ""
     timeout_seconds: int = Field(default=20, ge=1, le=86400)
@@ -37,11 +37,22 @@ class NormalizedOpenClawSuggestion(BaseModel):
     requires_review: bool = True
 
 
-class OpenClawBridgeResult(BaseModel):
+class SuggestionsBridgeResult(BaseModel):
     ok: bool
     provider: str = "openclaw"
     adapter: str
     raw_response: dict[str, Any] = Field(default_factory=dict)
     suggestions: list[dict[str, Any]] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    failure_class: Literal[
+        "configuration",
+        "transport",
+        "agent_execution",
+        "response_validation",
+    ] | None = None
     mock: bool = False
+
+
+# Compatibility name for the existing OpenClaw adapters. Result semantics are
+# owned by Suggestions and are also used by the direct Luna adapter.
+OpenClawBridgeResult = SuggestionsBridgeResult

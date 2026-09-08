@@ -57,3 +57,4 @@ class ForecastPeriod:
     wind_direction: str
     short_forecast: str
     detailed_forecast: str
+    probability_of_precipitation_pct: int | None = None

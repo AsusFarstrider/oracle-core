@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+import re
 from zoneinfo import ZoneInfo
 
 
@@ -33,7 +34,7 @@ def _extract_target_date(normalized: str, *, now: datetime | None = None) -> dat
         return (reference - timedelta(days=1)).date()
 
     cleaned = normalized.replace(",", " ")
-    cleaned = cleaned.replace("st", "").replace("nd", "").replace("rd", "").replace("th", "")
+    cleaned = re.sub(r"\b(\d{1,2})(?:st|nd|rd|th)\b", r"\1", cleaned)
     parts = cleaned.split()
 
     month_names = {

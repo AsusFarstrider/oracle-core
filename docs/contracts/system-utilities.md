@@ -5,17 +5,16 @@
 This contract defines the ratified V2 Stage 6 behavior and authority boundary
 for Time/Date, Timers, Alarms, Reminders, Math, Conversions, Repeat, and Help.
 
-Status: ratified target contract. Private development planning records track
-slice completion; a requirement in this document is not a claim that the
-current runtime already implements it. This contract is the reusable behavioral
-law and does not depend on private roadmap artifacts at runtime.
+Status: implemented and released in V2 Stage 6. This contract is the reusable
+behavioral law and does not depend on private roadmap artifacts at runtime.
 
-Implementation note: Stage 6 Slices 2 through 11 now provide the shared strict
+Implementation note: Stage 6 Slices 2 through 11 provide the shared strict
 value parsers, bounded typed session/pending-context seam, alert-aware route
 precedence, owner-validated fallback re-entry, deterministic Time/Date, Math,
 Conversion, Timer, Alarm, Reminder, Repeat, and truthful Help owners, plus the
-focused satellite alert runtime/UI. Slice 12 integrated release verification
-and promotion remain incomplete.
+focused satellite alert runtime/UI. Slice 12 completed integrated verification,
+release, fleet activation, and closeout; current release truth remains in the
+handoff and deployment state.
 
 ## Shared Authority Rules
 

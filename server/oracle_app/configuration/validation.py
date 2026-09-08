@@ -233,6 +233,34 @@ def _validate_domain_references(
             "config.reference.disabled_inference_backend",
         )
 
+    if information is not None and brain is not None:
+        facts = information.facts  # type: ignore[attr-defined]
+        shared_inference = brain.inference.shared_backend  # type: ignore[attr-defined]
+        if facts.enabled and facts.summarizer_enabled and shared_inference.enabled:
+            if not facts.summarizer_provider_order:
+                unknown(
+                    "domains/information.yaml",
+                    "facts.summarizer_provider_order",
+                    "Enabled Facts summarization requires an explicit inference provider order.",
+                    "config.reference.missing_inference_provider_order",
+                )
+            for index, provider_id in enumerate(facts.summarizer_provider_order):
+                provider = shared_inference.providers.get(provider_id)
+                path = f"facts.summarizer_provider_order[{index}]"
+                if provider is None:
+                    unknown(
+                        "domains/information.yaml",
+                        path,
+                        f"Facts summarizer references undefined shared inference provider {provider_id!r}.",
+                    )
+                elif not provider.enabled:
+                    unknown(
+                        "domains/information.yaml",
+                        path,
+                        f"Facts summarizer references disabled shared inference provider {provider_id!r}.",
+                        "config.reference.disabled_inference_provider",
+                    )
+
     for role_path, playback_capability in (
         ("domains/music.yaml", "music_playback"),
         ("domains/audiobooks.yaml", "audiobook_playback"),
@@ -258,6 +286,18 @@ def _validate_domain_references(
         )
         if provider.latitude is None and not household_coordinates:
             unknown("domains/weather.yaml", "forecast.provider", "Enabled home forecast requires coordinates in its NWS provider mapping or household home_location.", "config.reference.missing_home_location")
+
+    calendar = roles.get("domains/calendar.yaml")
+    if calendar is not None:
+        for provider_id, provider in calendar.providers.items():  # type: ignore[attr-defined]
+            for feed_index, feed in enumerate(provider.feeds):
+                for user_index, user_id in enumerate(feed.user_ids):
+                    if user_id not in enabled_users:
+                        unknown(
+                            "domains/calendar.yaml",
+                            f"providers.{provider_id}.feeds[{feed_index}].user_ids[{user_index}]",
+                            f"Calendar feed user {user_id!r} is not an enabled canonical household user.",
+                        )
 
     notifications = roles.get("domains/notifications.yaml")
     notification_ids: set[str] = set()

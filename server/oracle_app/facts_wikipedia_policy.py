@@ -11,6 +11,7 @@ class WikipediaSearchPlan:
     subject: str
     intent: str
     accept_score: int
+    qualifier: str | None = None
 
 
 class WikipediaQuestionPolicy:
@@ -47,13 +48,13 @@ class WikipediaQuestionPolicy:
             if subject:
                 return WikipediaSearchPlan(subject, subject, "location", 7)
         date_match = re.match(
-            r"^(?:when\s+(?:is|was|were|did))\s+(.+?)\s+(?:built|born|founded|created|published|made|opened|start|started|begin|began|release|released)\??$",
+            r"^(?:when\s+(?:is|was|were|did))\s+(.+?)\s+(built|born|founded|created|published|made|opened|start|started|begin|began|release|released)\??$",
             normalized_query,
         )
         if date_match:
             subject = _strip_leading_article(date_match.group(1).strip(" '\""))
             if subject:
-                return WikipediaSearchPlan(subject, subject, "date", 7)
+                return WikipediaSearchPlan(subject, subject, "date", 7, date_match.group(2))
         return WikipediaSearchPlan(query, normalized_query, "general", 4)
 
     def score_summary(self, *, query: str, summary: dict[str, Any], search_plan: WikipediaSearchPlan) -> int:
@@ -96,6 +97,23 @@ class WikipediaQuestionPolicy:
         enriched["_oracle_retrieval_notes"] = ["selected lifespan sentence from wikipedia page extract"]
         return enriched
 
+    def needs_date_extract(self, summary: dict[str, Any], search_plan: WikipediaSearchPlan) -> bool:
+        return search_plan.intent == "date" and not _has_date_answer(str(summary.get("extract") or ""))
+
+    def enrich_date(
+        self,
+        summary: dict[str, Any],
+        page_extract: str,
+        search_plan: WikipediaSearchPlan,
+    ) -> dict[str, Any]:
+        sentence = _select_date_sentence(page_extract, qualifier=search_plan.qualifier)
+        if not sentence:
+            return summary
+        enriched = dict(summary)
+        enriched["extract"] = sentence
+        enriched["_oracle_retrieval_notes"] = ["selected date-bearing sentence from wikipedia page extract"]
+        return enriched
+
 
 def _normalize_words(value: str) -> str:
     normalized = value.lower().strip()
@@ -123,6 +141,35 @@ def _has_lifespan_answer(text: str) -> bool:
     return any(term in normalized for term in ("lifespan", "life span", "life expectancy")) or bool(
         re.search(r"\b\d+\s+(?:to\s+\d+\s+)?years\b", normalized)
     )
+
+
+def _has_date_answer(text: str) -> bool:
+    return bool(re.search(r"\b\d{3,4}\b", _normalize_words(text)))
+
+
+def _select_date_sentence(text: str, *, qualifier: str | None) -> str:
+    sentences = _split_sentences(text)
+    qualifiers = {
+        "start": ("start", "started", "began"),
+        "begin": ("begin", "began", "started"),
+        "release": ("release", "released"),
+        "made": ("made", "created", "built"),
+    }
+    requested_terms = qualifiers.get(str(qualifier or ""), (str(qualifier or ""),))
+    for sentence in sentences:
+        normalized = _normalize_words(sentence)
+        if _has_date_answer(normalized) and any(term and term in normalized for term in requested_terms):
+            return sentence.strip()
+    if qualifier != "born":
+        return ""
+    for sentence in sentences[:2]:
+        normalized = _normalize_words(sentence)
+        if _has_date_answer(normalized) and re.search(
+            r"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b",
+            normalized,
+        ):
+            return sentence.strip()
+    return ""
 
 
 def _select_lifespan_sentence(text: str) -> str:

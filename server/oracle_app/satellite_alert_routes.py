@@ -123,7 +123,7 @@ def satellite_alert_acknowledge(
             )
         elif occurrence is not None and occurrence.status in {"due", "ringing"}:
             try:
-                transition_alert_occurrence(
+                occurrence = transition_alert_occurrence(
                     alert.occurrence_id,
                     status="ringing",
                     actor_type="runtime",
@@ -142,6 +142,26 @@ def satellite_alert_acknowledge(
                 )
                 if latest is None or latest.status not in {"completed", "canceled", "missed"}:
                     raise
+                occurrence = latest
+            if (
+                occurrence is not None
+                and occurrence.status == "ringing"
+                and alert.metadata.get("completion_policy") == "delivery_accepted"
+            ):
+                owner_type = str(alert.metadata.get("completion_owner_type") or "").strip()
+                owner_id = str(alert.metadata.get("completion_owner_id") or "").strip()
+                if owner_type != "routine" or not owner_id:
+                    raise ValueError("Delivery-consumed alert has invalid completion ownership metadata")
+                acknowledge_alert_occurrence(
+                    occurrence_id=occurrence.occurrence_id,
+                    alert_id=alert.alert_id,
+                    actor_type="system",
+                    actor_id=f"routine:{owner_id}",
+                    action="completed",
+                    idempotency_key=f"routine-consumed:{occurrence.occurrence_id}",
+                    now=datetime.now(timezone.utc),
+                    db_path=alerts_module.ALERT_DB_PATH,
+                )
     if alert.kind == "reminder" and payload.status == "completed" and str(alert.message or "").strip():
         session = resolve_request_session(source_id, payload.session_id)
         set_utility_context(

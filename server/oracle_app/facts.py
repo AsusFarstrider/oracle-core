@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-
-from oracle_app.command_events import append_command_interim_event
 from oracle_app.facts_cache import load_cached_facts_result, store_facts_result_in_cache
-from oracle_app.facts_summarizer import summarize_facts_result
+from oracle_app.facts_summarizer import FactsSummarizationResult, summarize_facts_result
 from oracle_app.facts_wikipedia_policy import WikipediaQuestionPolicy
 from oracle_app.inference import InferenceClient
 from oracle_app.provider_bridges.facts_static import StaticFactsBridge
@@ -88,19 +86,13 @@ def maybe_summarize_facts_result(
     source: str | None = None,
     session_id: str | None = None,
     inference: InferenceClient,
-) -> str | None:
+) -> FactsSummarizationResult | None:
     if not bool(settings.get("summarizer_enabled", False)):
         return None
     if result.status not in {"answered", "evidence_only"}:
         return None
-    if bool(settings.get("ack_enabled", True)):
-        append_command_interim_event(
-            source=source,
-            session_id=session_id,
-            event_type="facts_summarizer_ack",
-            domain="facts",
-            message="One second while I look that up.",
-        )
+    if not inference.can_attempt("facts_summarizer"):
+        return None
     try:
         return summarize_facts_result(result, inference=inference)
     except Exception as exc:
@@ -116,17 +108,42 @@ def maybe_summarize_facts_result(
 def facts_result_to_dispatch_payload(
     result: FactsProviderResult,
     *,
-    summary: str | None = None,
+    summary: FactsSummarizationResult | str | None = None,
 ) -> dict[str, object]:
+    summary_text = summary.summary if isinstance(summary, FactsSummarizationResult) else summary
+    inference_payload = None
+    summarizer_status = "not_used"
+    if isinstance(summary, FactsSummarizationResult):
+        summarizer_status = summary.status
+        inference_payload = {
+            "provider_id": summary.provider_id,
+            "provider_type": summary.provider_type,
+            "model": summary.model,
+            "request_id": summary.request_id,
+            "attempts": [
+                {
+                    "provider_id": attempt.provider_id,
+                    "provider_type": attempt.provider_type,
+                    "model": attempt.model,
+                    "outcome": attempt.outcome,
+                    "detail_code": attempt.detail_code,
+                }
+                for attempt in summary.attempts
+            ],
+        }
+    elif isinstance(summary_text, str) and summary_text.strip():
+        summarizer_status = "summary"
     return {
         "action": "facts_lookup",
         "facts_status": result.status,
         "query": result.query,
-        "summary": summary,
+        "summary": summary_text,
         "answer": result.answer.model_dump() if result.answer is not None else None,
         "evidence": [item.model_dump() for item in result.evidence],
         "provider": result.provider.model_dump(),
         "retrieval": result.retrieval.model_dump(),
         "detail": result.detail,
-        "summarized_by_model": summary is not None,
+        "summarized_by_model": bool(str(summary_text or "").strip()),
+        "summarizer_status": summarizer_status,
+        "inference": inference_payload,
     }

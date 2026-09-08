@@ -39,6 +39,9 @@ def _serialize_ui_calendar_event(event) -> dict[str, object]:
         "start": event.start.isoformat(),
         "end": event.end.isoformat(),
         "all_day": bool(getattr(event, "all_day", False)),
+        "location": getattr(event, "location", ""),
+        "source_id": getattr(event, "source_id", ""),
+        "source_label": getattr(event, "source_label", ""),
     }
 
 
@@ -169,8 +172,14 @@ def build_ui_calendar_snapshot(
     timezone_name = canonical_execution.settings.timezone
     timezone = ZoneInfo(timezone_name)
     now = datetime.now(timezone)
-    loaded = canonical_execution.load_events(scope="personal").value
-    return serialize_ui_calendar_snapshot(loaded=loaded, now=now, limit=limit)
+    snapshot = canonical_execution.load_calendar(scope="personal")
+    return serialize_ui_calendar_snapshot(
+        loaded=snapshot.events, now=now, limit=limit,
+        source_availability=[item.__dict__ for item in snapshot.sources],
+        freshness=snapshot.freshness,
+        provider_age_seconds=snapshot.age_seconds,
+        complete=snapshot.complete,
+    )
 
 
 def build_ui_calendar_unavailable_snapshot() -> dict[str, object]:
@@ -181,11 +190,22 @@ def build_ui_calendar_unavailable_snapshot() -> dict[str, object]:
     }
 
 
-def serialize_ui_calendar_snapshot(*, loaded, now: datetime, limit: int) -> dict[str, object]:
+def serialize_ui_calendar_snapshot(
+    *, loaded, now: datetime, limit: int,
+    source_availability: list[dict[str, object]] | None = None,
+    freshness: str = "fresh", provider_age_seconds: float = 0.0,
+    complete: bool = True,
+) -> dict[str, object]:
     upcoming = [event for event in loaded if event.end > now]
     upcoming.sort(key=lambda item: item.start)
     events = [_serialize_ui_calendar_event(event) for event in upcoming[:limit]]
-    return {"events": events}
+    return {
+        "events": events,
+        "freshness": freshness,
+        "provider_age_seconds": round(provider_age_seconds, 3),
+        "complete": complete,
+        "source_availability": source_availability or [],
+    }
 
 
 def build_ui_calendar_page_snapshot(
@@ -195,12 +215,16 @@ def build_ui_calendar_page_snapshot(
     timezone_name = canonical_execution.settings.timezone
     timezone = ZoneInfo(timezone_name)
     now = datetime.now(timezone)
-    loaded = canonical_execution.load_events(scope="personal").value
+    snapshot = canonical_execution.load_calendar(scope="personal")
     return serialize_ui_calendar_page_snapshot(
-        loaded=loaded,
+        loaded=snapshot.events,
         now=now,
         timezone_name=timezone_name,
         write_enabled=canonical_execution.settings.write.enabled,
+        source_availability=[item.__dict__ for item in snapshot.sources],
+        freshness=snapshot.freshness,
+        provider_age_seconds=snapshot.age_seconds,
+        complete=snapshot.complete,
     )
 
 
@@ -214,6 +238,10 @@ def build_ui_calendar_unavailable_page_snapshot(
         "generated_at": _build_ui_generated_at(),
         "timezone": timezone_name,
         "status": "unavailable",
+        "freshness": "unavailable",
+        "provider_age_seconds": None,
+        "complete": False,
+        "source_availability": [],
         "detail": "Calendar is temporarily unavailable.",
         "today": {"date": today.isoformat(), "events": []},
         "upcoming": {"events": []},
@@ -232,6 +260,10 @@ def serialize_ui_calendar_page_snapshot(
     now: datetime,
     timezone_name: str,
     write_enabled: bool,
+    source_availability: list[dict[str, object]] | None = None,
+    freshness: str = "fresh",
+    provider_age_seconds: float = 0.0,
+    complete: bool = True,
 ) -> dict[str, object]:
     timezone = ZoneInfo(timezone_name)
     upcoming = [event for event in loaded if event.end > now]
@@ -245,6 +277,11 @@ def serialize_ui_calendar_page_snapshot(
     return {
         "generated_at": _build_ui_generated_at(),
         "timezone": timezone_name,
+        "freshness": freshness,
+        "provider_age_seconds": round(provider_age_seconds, 3),
+        "source_availability": source_availability or [],
+        "complete": complete,
+        "status": "available" if complete else "partial",
         "today": {
             "date": today.isoformat(),
             "events": [_serialize_ui_calendar_event(event) for event in today_events[:10]],

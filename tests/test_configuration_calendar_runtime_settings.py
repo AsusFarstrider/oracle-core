@@ -57,6 +57,12 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
         self.assertNotIn("https://secret.invalid/events.ics", repr(settings))
         with self.assertRaises(TypeError):
             settings.read.feeds["other"] = settings.read.feeds["household"]  # type: ignore[index]
+        self.assertEqual(settings.person_id_for_query("what is on my calendar"), "resident_one")
+        self.assertEqual(settings.person_id_for_query("what is Resident One doing Tuesday"), "resident_one")
+        self.assertEqual(
+            settings.calendar_id_for_query("what is on the Household calendar tomorrow"),
+            "household",
+        )
 
     def test_write_resolves_only_complete_write_edge_and_keeps_confirmation(self) -> None:
         settings = CalendarRuntimeSettings.from_effective_config(
@@ -116,9 +122,9 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(dispatched.result["events"][0]["summary"], "Oracle test")
         self.assertEqual(health["status"], "ok")
         self.assertEqual(ui["upcoming"]["events"][0]["summary"], "Oracle test")
-        self.assertGreaterEqual(fetch.call_count, 2)
+        self.assertEqual(fetch.call_count, 1)
 
-    def test_canonical_personal_read_uses_selected_nextcloud_write_auth_when_enabled(self) -> None:
+    def test_canonical_personal_read_does_not_borrow_write_auth(self) -> None:
         settings = CalendarRuntimeSettings.from_effective_config(
             self._effective_config(mode="both", feed_secret=True, write_secret=True)
         )
@@ -134,8 +140,28 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
             feed_url="https://secret.invalid/events.ics",
             timeout_seconds=9,
             timezone_name="Etc/UTC",
-            auth_user="oracle",
-            auth_password="calendar-write-password",
+            auth_user=None,
+            auth_password=None,
+        )
+
+    def test_canonical_personal_read_uses_feed_owned_read_auth(self) -> None:
+        settings = CalendarRuntimeSettings.from_effective_config(
+            self._effective_config(mode="both", feed_secret=True, write_secret=True, read_secret=True)
+        )
+        execution = CanonicalCalendarExecution(settings)
+
+        with patch(
+            "oracle_app.provider_bridges.nextcloud_calendar.NextcloudCalendarBridge.fetch_typed_events",
+            return_value=[],
+        ) as fetch:
+            execution.load_events(scope="personal")
+
+        fetch.assert_called_once_with(
+            feed_url="https://secret.invalid/events.ics",
+            timeout_seconds=9,
+            timezone_name="Etc/UTC",
+            auth_user="reader",
+            auth_password="calendar-read-password",
         )
 
     def test_canonical_calendar_commit_uses_typed_write_edge(self) -> None:
@@ -180,6 +206,23 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             CalendarRuntimeSettings.from_effective_config(effective)
 
+    def test_calendar_feed_rejects_unknown_household_user_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary) / "bundle"
+            shutil.copytree(EXAMPLE_ROOT, bundle)
+            self._write_enabled_calendar(bundle, mode="read")
+            calendar = json.loads((bundle / "domains" / "calendar.yaml").read_text(encoding="utf-8"))
+            calendar["providers"]["primary"]["feeds"][0]["user_ids"] = ["unknown_person"]
+            (bundle / "domains" / "calendar.yaml").write_text(json.dumps(calendar), encoding="utf-8")
+
+            inspection = inspect_candidate(bundle)
+
+        self.assertFalse(inspection.report.activation_eligible)
+        self.assertTrue(any(
+            finding.path.endswith("user_ids[0]")
+            for finding in inspection.report.validation_findings
+        ))
+
     def _effective_config(
         self,
         *,
@@ -187,6 +230,7 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
         include_role: bool = True,
         feed_secret: bool = False,
         write_secret: bool = False,
+        read_secret: bool = False,
     ) -> EffectiveConfig:
         with tempfile.TemporaryDirectory() as temporary:
             bundle = Path(temporary) / "bundle"
@@ -195,12 +239,14 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
             if not include_role:
                 role_path.unlink()
             elif mode is not None:
-                self._write_enabled_calendar(bundle, mode=mode)
+                self._write_enabled_calendar(bundle, mode=mode, read_auth=read_secret)
             secret_lines = []
             if feed_secret:
                 secret_lines.append("CALENDAR_FEED_URL=https://secret.invalid/events.ics")
             if write_secret:
                 secret_lines.append("CALENDAR_WRITE_CREDENTIAL=calendar-write-password")
+            if read_secret:
+                secret_lines.append("CALENDAR_READ_CREDENTIAL=calendar-read-password")
             if secret_lines:
                 (bundle / "secrets.env").write_text("\n".join(secret_lines) + "\n", encoding="utf-8")
             inspection = inspect_candidate(bundle)
@@ -223,7 +269,7 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
             )
 
     @staticmethod
-    def _write_enabled_calendar(bundle: Path, *, mode: str) -> None:
+    def _write_enabled_calendar(bundle: Path, *, mode: str, read_auth: bool = False) -> None:
         calendar = {
             "enabled": True,
             "provider": "primary",
@@ -235,6 +281,10 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
                             "id": "household",
                             "kind": "events",
                             "ics_url_secret": "CALENDAR_FEED_URL",
+                            **({
+                                "read_user": "reader",
+                                "read_credential_secret": "CALENDAR_READ_CREDENTIAL",
+                            } if read_auth else {}),
                         },
                         {
                             "id": "holidays",

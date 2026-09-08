@@ -96,8 +96,13 @@ Current seam:
 
 Current shape:
 
-- the domain owns request parsing and source detection
-- the RSS bridge owns fetch, XML parse, and date normalization mechanics
+- the domain owns request parsing, configured source selection, topic matching,
+  stable article identity, selection context, disagreement policy and replies
+- the RSS bridge owns feed fetch, XML parse, date normalization, and bounded
+  selected-article HTML extraction
+- selected-article URLs, redirects and final destinations are restricted to the
+  source feed host plus exact configured article hosts, standard HTTP(S) ports,
+  and public network addresses; content size and type are bounded
 
 ### Audiobook
 
@@ -187,6 +192,7 @@ Current seams:
 - [server/oracle_app/provider_bridges/weewx_weather_station.py](../../server/oracle_app/provider_bridges/weewx_weather_station.py)
 - [server/oracle_app/weather_forecast.py](../../server/oracle_app/weather_forecast.py)
 - [server/oracle_app/provider_bridges/nws_weather_forecast.py](../../server/oracle_app/provider_bridges/nws_weather_forecast.py)
+- [server/oracle_app/provider_bridges/remote_weather.py](../../server/oracle_app/provider_bridges/remote_weather.py)
 - [server/oracle_app/weather_remote.py](../../server/oracle_app/weather_remote.py)
 - [server/oracle_app/weather_history.py](../../server/oracle_app/weather_history.py)
 
@@ -195,7 +201,9 @@ Current shape:
 - current and historical weather rely on different provider surfaces than forecast
 - current and historical local-station provider mechanics now sit behind `WeeWxWeatherStationBridge`
 - forecast provider mechanics now sit behind `NwsWeatherForecastBridge`
-- remote location resolution is also provider-backed
+- remote location, observation, forecast, and alert transport/translation are
+  behind `NominatimNwsRemoteWeatherBridge`; domain language and reply policy stay
+  in `weather_remote.py`
 - this is not one interchangeable provider problem
 
 ## Default Bridge Selection Model

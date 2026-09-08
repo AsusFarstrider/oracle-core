@@ -89,6 +89,7 @@ class ConfigurationJsonSchemaTests(unittest.TestCase):
             "WhisperCppProvider",
             "PiperProvider",
             "OllamaProvider",
+            "OpenAILunaProvider",
             "SatelliteAudioConfiguration",
             "SatelliteUiConfiguration",
             "SatelliteWakeConfiguration",

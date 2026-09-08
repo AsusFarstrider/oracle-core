@@ -146,6 +146,8 @@ def _shape_dispatch_reply(dispatch: DispatchPlan) -> str:
                 return "I couldn't add that to the calendar."
             return "I couldn't complete that calendar request."
         stale_notice = str(result.get("stale_notice") or "").strip()
+        partial_notice = str(result.get("partial_notice") or "").strip()
+        notice = " ".join(item for item in (stale_notice, partial_notice) if item)
         action = str(result.get("action", "")).strip()
         events = result.get("events") or []
         if action == "commit_event":
@@ -153,19 +155,64 @@ def _shape_dispatch_reply(dispatch: DispatchPlan) -> str:
             if speech:
                 return speech
             return "Okay, I added it."
+        if action == "calendar_provenance":
+            labels = [str(item).strip() for item in result.get("source_labels") or [] if str(item).strip()]
+            if labels:
+                return f"That came from {', '.join(labels)}."
+            return "I don't have a recent calendar source to identify."
+        if action == "calendar_unsupported_mutation":
+            return "I can add calendar events, but I can't edit, move, reschedule, or delete them yet."
         if action == "find_event":
+            if result.get("ambiguous"):
+                names = [str(item.get("summary") or "").strip() for item in events[:3]]
+                names = [name for name in names if name]
+                return f"I found more than one possible event: {', '.join(names)}. Which one did you mean?"
             if not events:
-                return "I couldn't find that on your calendar."
+                return f"{notice} I couldn't find that on your calendar.".strip()
             event = events[0]
             summary = str(event.get("summary", "")).strip()
             start = _format_calendar_start(event)
             if summary and start:
                 answer = f"{summary} is {start}."
-                return f"{stale_notice} {answer}".strip()
+                return f"{notice} {answer}".strip()
             return "I found it on your calendar."
+        if action == "find_location":
+            if not events:
+                return f"{notice} I couldn't find an upcoming calendar event at that location.".strip()
+            event = events[0]
+            summary = str(event.get("summary") or "").strip()
+            start = _format_calendar_start(event)
+            return f"{notice} You need to be there for {summary} {start}.".strip()
+        if action == "next_event":
+            if not events:
+                if partial_notice:
+                    return f"{notice} I can't confirm what is next.".strip()
+                return f"{stale_notice} You have no upcoming calendar events.".strip()
+            answer = f"Next is {_format_calendar_event_brief(events[0]).rstrip('.')}."
+            return f"{notice} {answer}".strip()
+        if action == "availability":
+            if not events:
+                if partial_notice:
+                    return f"{notice} I can't confirm that you're free.".strip()
+                return f"{stale_notice} Yes, you're free during that time.".strip()
+            answer = "No, you have " + " ".join(_format_calendar_event_brief(event) for event in events)
+            return f"{notice} {answer}".strip()
+        if action == "after_event":
+            if result.get("ambiguous"):
+                return "I found more than one possible anchor event. Which one did you mean?"
+            if result.get("anchor_not_found"):
+                return f"{notice} I couldn't find that anchor event on your calendar.".strip()
+            if not events:
+                if partial_notice:
+                    return f"{notice} I can't confirm that nothing follows it.".strip()
+                return f"{stale_notice} You have nothing after that event in the requested window.".strip()
+            answer = "After that, " + " ".join(_format_calendar_event_brief(event) for event in events)
+            return f"{notice} {answer}".strip()
         if action == "list_events":
             if not events:
-                return "You have nothing on your calendar for that time."
+                if partial_notice:
+                    return f"{notice} I can't confirm that the time is empty.".strip()
+                return f"{stale_notice} You have nothing on your calendar for that time.".strip()
             spoken = [_format_calendar_event_brief(event) for event in events]
             spoken = [item for item in spoken if item]
             if not spoken:
@@ -173,12 +220,32 @@ def _shape_dispatch_reply(dispatch: DispatchPlan) -> str:
             count = len(spoken)
             thing_word = "thing" if count == 1 else "things"
             answer = f"You have {count} {thing_word} on your calendar. " + " ".join(spoken)
-            return f"{stale_notice} {answer}".strip()
+            return f"{notice} {answer}".strip()
 
     if dispatch.target == "facts":
+        action = str(result.get("action") or "").strip()
+        if action == "facts_provenance":
+            sources = [str(item).strip() for item in (result.get("source_names") or []) if str(item).strip()]
+            if sources:
+                return f"I got that from {', '.join(sources)}."
+            return "I don't have a recent factual source to identify."
+        if action == "facts_age":
+            raw_age = result.get("age_seconds")
+            if not isinstance(raw_age, (int, float)):
+                return "I don't have a recent factual lookup to date."
+            age_seconds = max(0, int(raw_age))
+            if age_seconds < 60:
+                return "I looked that up less than a minute ago."
+            if age_seconds < 3600:
+                minutes = max(1, age_seconds // 60)
+                return f"I looked that up about {minutes} minute{'s' if minutes != 1 else ''} ago."
+            hours = max(1, age_seconds // 3600)
+            return f"I looked that up about {hours} hour{'s' if hours != 1 else ''} ago."
         summary = str(result.get("summary") or "").strip()
         if bool(result.get("summarized_by_model")) and summary:
             return summary
+        if str(result.get("summarizer_status") or "") == "insufficient":
+            return "I found related information, but not enough to answer confidently."
         status = str(result.get("facts_status") or "").strip()
         if status == "answered":
             answer = result.get("answer") or {}
@@ -201,6 +268,11 @@ def _shape_dispatch_reply(dispatch: DispatchPlan) -> str:
         return "I couldn't answer that right now."
 
     if dispatch.target == "fallback_router":
+        semantic_status = str(result.get("semantic_status") or "").strip()
+        if dispatch.status == "executed" and semantic_status == "unsupported":
+            return "I don't support that kind of request."
+        if dispatch.status == "executed" and semantic_status == "unresolved":
+            return "I'm sorry, I didn't understand what you said."
         if dispatch.status == "failed":
             return "I'm sorry, I didn't understand what you said."
         return "I'm sorry, I didn't understand what you said."
@@ -302,22 +374,67 @@ def _shape_dispatch_reply(dispatch: DispatchPlan) -> str:
     if dispatch.target == "news":
         if dispatch.status == "failed":
             return "I couldn't get the latest headlines right now."
+        action = str(result.get("action") or "headlines")
+        if action == "news_selection_required":
+            count = int(result.get("available_count") or 0)
+            return f"Which story number did you mean? I have {count} to choose from."
+        if action == "news_selection_out_of_range":
+            count = int(result.get("available_count") or 0)
+            return f"That story number isn't in the current list. There are {count}."
+        if action == "news_provenance":
+            labels = [str(item) for item in result.get("source_labels") or [] if str(item).strip()]
+            return (
+                f"That came from {', '.join(labels)}."
+                if labels
+                else "I don't have a recent News source to identify."
+            )
+        if action == "news_publication_time":
+            published = _format_news_publication_time(result.get("published_at"))
+            if published:
+                return f"The article was published {published}. That does not establish when the event happened."
+            return "The source did not provide a publication time, so I can't establish when the event happened."
+        if action == "article":
+            headline = result.get("selected_headline") or {}
+            title = str(headline.get("title") or "that story").strip()
+            article = result.get("article") or {}
+            excerpt = _bounded_news_excerpt(str(article.get("excerpt") or ""))
+            stale_notice = str(result.get("stale_notice") or "").strip()
+            if not excerpt:
+                return f"I found {title}, but I couldn't retrieve the article itself right now."
+            source_label = str(article.get("source_label") or headline.get("source_label") or "the source")
+            answer = f"From {source_label}, {title}: {excerpt}"
+            return f"{stale_notice} {answer}".strip()
         headlines = result.get("headlines") or []
         source_label = str(result.get("source_label", "the news")).strip()
+        if action == "updates" and not headlines:
+            partial_notice = str(result.get("partial_notice") or "").strip()
+            answer = "I didn't find a newer configured-source headline about that."
+            return f"{partial_notice} {answer}".strip()
         if not headlines:
+            topic = str(result.get("topic") or "").strip()
+            if topic:
+                return f"I couldn't find a current configured-source headline about {topic}."
             return f"I couldn't find any current headlines from {source_label}."
         spoken = [str(item.get("title", "")).strip() for item in headlines[:3] if str(item.get("title", "")).strip()]
         if not spoken:
             return f"I couldn't find any current headlines from {source_label}."
         stale_notice = str(result.get("stale_notice") or "").strip()
+        partial_notice = str(result.get("partial_notice") or "").strip()
+        disagreement = result.get("disagreements") or []
+        disagreement_notice = (
+            "The configured sources use explicitly conflicting wording on one of these stories."
+            if disagreement
+            else ""
+        )
+        notice = " ".join(item for item in (stale_notice, partial_notice, disagreement_notice) if item)
         if len(spoken) == 1:
             answer = f"From {source_label}: {spoken[0]}."
-            return f"{stale_notice} {answer}".strip()
+            return f"{notice} {answer}".strip()
         if len(spoken) == 2:
             answer = f"From {source_label}: {spoken[0]}. Also, {spoken[1]}."
-            return f"{stale_notice} {answer}".strip()
+            return f"{notice} {answer}".strip()
         answer = f"From {source_label}: {spoken[0]}. Also, {spoken[1]}. And {spoken[2]}."
-        return f"{stale_notice} {answer}".strip()
+        return f"{notice} {answer}".strip()
 
     if dispatch.target == "network":
         if dispatch.status == "failed":
@@ -422,6 +539,11 @@ def _shape_dispatch_reply(dispatch: DispatchPlan) -> str:
                 return "I could not get the forecast right now."
             if error == "weather_history_unavailable":
                 return "I could not get that historical weather right now."
+            if error == "weather_alerts_unavailable":
+                return "I could not check weather watches and warnings right now."
+            if error in {"solar_unavailable", "solar_location_unresolved", "solar_event_unavailable"}:
+                detail = str(result.get("detail", "")).strip()
+                return detail or "I could not calculate that solar time."
             return "I couldn't complete that weather request."
         action = result.get("action")
         if action in {"current_weather", "remote_current_weather"}:
@@ -446,6 +568,10 @@ def _shape_dispatch_reply(dispatch: DispatchPlan) -> str:
             if speech:
                 return speech
             return "I could not get that historical weather right now."
+        if action in {"weather_solar", "weather_alerts"}:
+            speech = str(result.get("speech", "")).strip()
+            if speech:
+                return speech
         return "I couldn't complete that weather request."
 
     if dispatch.target == "music":
@@ -602,6 +728,22 @@ def _shorten_calendar_summary(value: str, *, max_words: int = 6, max_chars: int 
     if len(summary) > max_chars:
         summary = summary[: max_chars - 3].rstrip() + "..."
     return summary
+
+
+def _format_news_publication_time(value: object) -> str:
+    try:
+        published = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    return published.strftime("%A, %B %-d at %-I:%M %p")
+
+
+def _bounded_news_excerpt(value: str, *, max_chars: int = 650) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_chars:
+        return text
+    shortened = text[:max_chars].rsplit(" ", 1)[0].rstrip(" ,;:")
+    return f"{shortened}..."
 
 
 _FACTS_STOP_WORDS = {

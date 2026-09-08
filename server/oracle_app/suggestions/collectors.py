@@ -18,8 +18,15 @@ from oracle_app.health import (
     check_tts_health,
 )
 from oracle_app.network import build_ui_network_health_snapshot
+from oracle_app.memory.events import EventQuery, query_events
 
 from .storage import review_history
+
+
+_REVIEW_HISTORY_LIMIT = 50
+_HOME_ASSISTANT_ITEM_LIMIT = 100
+_LOG_CHARACTER_LIMIT = 30000
+_MEMORY_EVENT_LIMIT = 200
 
 
 def collect_sources(
@@ -27,22 +34,46 @@ def collect_sources(
     *,
     log_lines: int = 400,
     canonical_composition=None,
+    window_start: str | None = None,
+    window_end: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     selected = _selected_collectors(run_type)
     sections: dict[str, Any] = {}
     statuses: dict[str, Any] = {}
     for name, collector in selected:
+        observed_at = datetime.now().astimezone().isoformat()
         try:
             sections[name] = collector(
                 log_lines=log_lines,
                 canonical_composition=canonical_composition,
+                window_start=window_start,
+                window_end=window_end,
             )
-            statuses[name] = {"ok": True}
+            statuses[name] = _collector_status(name, sections[name], observed_at=observed_at)
         except Exception as exc:  # pragma: no cover - defensive collector boundary
             sections[name] = {"ok": False, "error": str(exc)}
-            statuses[name] = {"ok": False, "error": str(exc)}
-    sections["review_history"] = _collect_review_history()
-    statuses["review_history"] = {"ok": True}
+            statuses[name] = _collector_status(
+                name,
+                sections[name],
+                observed_at=observed_at,
+                unavailable=True,
+            )
+        if isinstance(sections[name], dict):
+            sections[name]["_availability"] = statuses[name]["status"]
+            sections[name]["_provenance"] = statuses[name]["provenance"]
+    review_observed_at = datetime.now().astimezone().isoformat()
+    try:
+        sections["review_history"] = _collect_review_history()
+        statuses["review_history"] = _collector_status(
+            "review_history", sections["review_history"], observed_at=review_observed_at
+        )
+    except Exception as exc:  # pragma: no cover - defensive collector boundary
+        sections["review_history"] = {"ok": False, "error": str(exc)}
+        statuses["review_history"] = _collector_status(
+            "review_history", sections["review_history"], observed_at=review_observed_at, unavailable=True
+        )
+    sections["review_history"]["_availability"] = statuses["review_history"]["status"]
+    sections["review_history"]["_provenance"] = statuses["review_history"]["provenance"]
     return sections, statuses
 
 
@@ -61,6 +92,8 @@ def _collect_oracle(
     *,
     log_lines: int,
     canonical_composition=None,
+    window_start: str | None = None,
+    window_end: str | None = None,
 ) -> dict[str, Any]:
     health_checks = {}
     composition = canonical_composition
@@ -109,11 +142,44 @@ def _collect_oracle(
     except Exception:
         sources = []
 
+    events = query_events(
+        EventQuery(
+            observed_after=window_start,
+            observed_before=window_end,
+            limit=_MEMORY_EVENT_LIMIT + 1,
+        )
+    )
+    bounded_events = events[:_MEMORY_EVENT_LIMIT]
+
     return {
         "collected_at": datetime.now().astimezone().isoformat(),
         "health": health_checks,
         "network_health": network_health,
         "configured_sources": sources,
+        "memory_events": {
+            "window_start": window_start,
+            "window_end": window_end,
+            "count": len(bounded_events),
+            "truncated": len(events) > len(bounded_events),
+            "items": [
+                {
+                    key: event.get(key)
+                    for key in (
+                        "event_id",
+                        "observed_at",
+                        "event_type",
+                        "category",
+                        "severity",
+                        "source_id",
+                        "provider",
+                        "domain",
+                        "status",
+                        "correlation_id",
+                    )
+                }
+                for event in bounded_events
+            ],
+        },
         "log_excerpt": _read_brain_logs(log_lines),
     }
 
@@ -122,9 +188,12 @@ def _collect_home_assistant(
     *,
     log_lines: int,
     canonical_composition=None,
+    window_start: str | None = None,
+    window_end: str | None = None,
 ) -> dict[str, Any]:
     del log_lines
     del canonical_composition
+    del window_start, window_end
     try:
         cache = load_home_assistant_cache()
     except HTTPException as exc:
@@ -153,7 +222,9 @@ def _collect_home_assistant(
         "ok": True,
         "entity_count": len(entities),
         "domain_counts": domains,
-        "unavailable_or_unknown": unavailable[:200],
+        "unavailable_or_unknown": unavailable[:_HOME_ASSISTANT_ITEM_LIMIT],
+        "unavailable_or_unknown_total": len(unavailable),
+        "unavailable_or_unknown_omitted": max(0, len(unavailable) - _HOME_ASSISTANT_ITEM_LIMIT),
         "cache_keys": sorted(cache.keys()) if isinstance(cache, dict) else [],
     }
 
@@ -162,8 +233,11 @@ def _collect_librenms(
     *,
     log_lines: int,
     canonical_composition=None,
+    window_start: str | None = None,
+    window_end: str | None = None,
 ) -> dict[str, Any]:
     del log_lines
+    del window_start, window_end
     execution = None if canonical_composition is None else canonical_composition.network_execution
     if execution is None:
         return {"enabled": False, "status": {"status": "unconfigured"}}
@@ -174,9 +248,11 @@ def _collect_librenms(
 
 
 def _collect_review_history() -> dict[str, Any]:
-    history = review_history(limit=100)
+    history = review_history(limit=_REVIEW_HISTORY_LIMIT + 1)
+    visible = history[:_REVIEW_HISTORY_LIMIT]
     return {
-        "count": len(history),
+        "count": len(visible),
+        "omitted": max(0, len(history) - len(visible)),
         "items": [
             {
                 "id": item["id"],
@@ -192,7 +268,7 @@ def _collect_review_history() -> dict[str, Any]:
                 "suppress_if_repeated": item["suppress_if_repeated"],
                 "similarity_key": item["similarity_key"],
             }
-            for item in history
+            for item in visible
         ],
     }
 
@@ -209,8 +285,68 @@ def _read_brain_logs(lines: int) -> dict[str, Any]:
     return {
         "ok": result.returncode == 0,
         "lines": bounded_lines,
-        "content": result.stdout[-60000:],
+        "content": result.stdout[-_LOG_CHARACTER_LIMIT:],
+        "content_characters": min(len(result.stdout), _LOG_CHARACTER_LIMIT),
+        "omitted_characters": max(0, len(result.stdout) - _LOG_CHARACTER_LIMIT),
         "error": result.stderr[-4000:],
+    }
+
+
+def _collector_status(
+    name: str,
+    section: Any,
+    *,
+    observed_at: str,
+    unavailable: bool = False,
+) -> dict[str, Any]:
+    issues: list[str] = []
+    if isinstance(section, dict):
+        if section.get("enabled") is False:
+            unavailable = True
+            issues.append("collector disabled or unconfigured")
+        if section.get("ok") is False:
+            unavailable = True
+            issues.append(str(section.get("error") or section.get("detail") or "collector unavailable"))
+        if name == "oracle":
+            for component, value in (section.get("health") or {}).items():
+                status = str((value or {}).get("status") or "").casefold() if isinstance(value, dict) else ""
+                if status in {"failed", "error", "unavailable"}:
+                    issues.append(f"{component}:{status}")
+            network = section.get("network_health")
+            if isinstance(network, dict) and str(network.get("status") or "").casefold() in {
+                "failed", "error", "unavailable"
+            }:
+                issues.append(f"network:{network.get('status')}")
+            logs = section.get("log_excerpt")
+            if isinstance(logs, dict) and logs.get("ok") is False:
+                issues.append("brain_logs:unavailable")
+        nested_status = section.get("status")
+        if isinstance(nested_status, dict) and str(nested_status.get("status") or "").casefold() in {
+            "disabled", "failed", "error", "unavailable", "unconfigured"
+        }:
+            unavailable = True
+            issues.append(f"status:{nested_status.get('status')}")
+    status = "unavailable" if unavailable else "partial" if issues else "available"
+    return {
+        "ok": status != "unavailable",
+        "status": status,
+        "issues": issues[:20],
+        "observed_at": observed_at,
+        "provenance": {
+            "collector": name,
+            "authority": {
+                "oracle": "canonical_brain_composition_and_brain_journal",
+                "home_assistant": "home_assistant_operational_cache",
+                "librenms": "canonical_network_status_snapshot",
+                "review_history": "oracle_memory_suggestion_reviews",
+            }.get(name, "oracle_suggestions_collector"),
+            "coverage": {
+                "oracle": "requested_window_memory_events_plus_current_snapshot_and_recent_journal",
+                "home_assistant": "current_operational_cache_snapshot",
+                "librenms": "current_network_status_snapshot",
+                "review_history": "bounded_prior_review_history",
+            }.get(name, "current_snapshot"),
+        },
     }
 
 

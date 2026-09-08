@@ -153,11 +153,27 @@ placed here merely because the Brain executes it.
 
 Configuration schema 2 admits only the Brain implementations Oracle currently owns:
 `whisper_cpp` and `fast_whisper` definitions for STT, `piper` for TTS, and
-`ollama` for shared inference. Provider maps are closed discriminated unions;
-selection must name a present typed definition. Executable/model/database paths
-remain at these owning runtime/storage edges. Inference endpoints must be
-credential-free HTTP(S) URLs. Shared request defaults and the fallback-router
-model/timeout override normalize into the immutable effective snapshot.
+`ollama` plus `openai_luna` for shared inference. Provider maps are closed
+discriminated unions; this is not an arbitrary OpenAI-compatible provider slot.
+Executable/model/database paths remain at these owning runtime/storage edges.
+Inference endpoints must be credential-free HTTP(S) URLs.
+
+Shared inference providers are definitions, not selection authority. The
+fallback router owns `fallback_router.enabled`, its explicit `provider_order`,
+and its total chain timeout in `brain.yaml`. Facts owns
+`summarizer_enabled`, `summarizer_provider_order`, and its total chain timeout in
+`domains/information.yaml`. An order may contain only present, enabled provider
+IDs and may not contain duplicates. Current household configuration explicitly
+retains `legacy_ollama` for both consumers; provider integration does not change
+the deployed selection.
+
+An `openai_luna` definition must explicitly set `enabled`; when enabled it names
+a canonical `credential_secret`. The secret is activation-required only when an
+enabled consumer selects that provider. A dormant definition may therefore have
+an absent secret, and an ambient or unreferenced OpenAI key cannot enable cloud
+traffic. The implementation accepts only `gpt-5.6-luna`, uses the Responses API
+with structured output, disables response storage, supplies no tools, and bounds
+output tokens and both provider and whole-chain timeouts.
 
 `runtime.wake_arbitration` owns Brain-wide arbitration behavior and
 `runtime.satellite_control_timeout_seconds` owns the Brain's outbound satellite
@@ -181,8 +197,10 @@ used by the supported Debian installer.
 
 The five top-level sections are present. `speech.stt`, `speech.tts`, and
 `inference.shared_backend` each require explicit `enabled`. There is no
-`speech.enabled` or `inference.enabled`. When enabled, a role selects its
-provider explicitly; when disabled, it may omit operational provider details.
+`speech.enabled` or `inference.enabled`. Speech roles select one provider.
+Shared inference instead selects an explicit ordered subset per approved
+consumer; its optional top-level `provider` remains the local-Ollama-only Music
+compatibility binding and can never select Luna.
 
 Brain instance identity is bootstrap/deployment metadata, not a `brain.yaml`
 field. It may scope locks, applied-generation observations, logs, and health but
@@ -338,6 +356,8 @@ household:
     locality: Example City
     region: Example Region
     country: US
+    latitude: 40.0
+    longitude: -75.0
 
 defaults:
   user_id: resident_one
@@ -582,9 +602,11 @@ mapping; freshness; cache; and bounded fallback policy.
 
 ### `domains/calendar.yaml`
 
-Owns calendar provider roles, shared account/calendar mappings, read/write
-policy, and confirmation settings. User-scoped credentials, if introduced,
-attach to the owning user capability.
+Owns calendar provider roles, shared and person-assigned feed mappings,
+read/write policy, and confirmation settings. Feed `user_ids` reference the
+canonical people in `household.yaml`; an empty list means shared household
+membership. Optional feed read credentials belong to that feed and do not
+become user credentials or borrow the independent write credential.
 
 ### `domains/home-assistant.yaml`
 
@@ -669,10 +691,14 @@ requires an explicit selection.
   use typed fixture IDs, queries, answer/evidence states, and credential-free
   provenance URLs.
 - `information.yaml:news` selects an `rss` definition and owns typed source IDs,
-  aliases, feed URLs, headline limits, and fresh/stale-on-error bounds.
-- `information.yaml:suggestions` selects an implemented `http`, `ssh_cli`, or
-  explicit `mock` OpenClaw adapter. The unimplemented websocket stub is not an
-  accepted value. HTTP endpoints, SSH/CLI runtime details, optional logical
+  aliases, feed URLs, exact additional `article_hosts`, headline limits, and
+  fresh/stale-on-error bounds. The feed host and listed article hosts are the
+  complete selected-article network allowlist; wildcards are invalid.
+- `information.yaml:suggestions` selects an implemented direct `openai_luna`,
+  OpenClaw `http`/`ssh_cli`, or explicit `mock` adapter. WebSocket is not an
+  accepted value. Direct Luna has a canonical credential reference, fixed
+  approved model, timeout, and output bound. HTTP
+  endpoints, SSH/CLI runtime details, optional logical
   secrets, timeout, agent/model selection, and result bounds remain inside this
   provider edge.
 
@@ -681,8 +707,9 @@ independent frozen runtime sections. A disabled section has no operational
 provider even when dormant definitions remain authored. Enabled facts resolves
 only its explicit typed provider; enabled news resolves its explicit selection
 and binds every source to that source's own referenced RSS definition;
-enabled suggestions resolves only the selected adapter and its required whole-
-URL or password secret. Resolved raw values are excluded from representations.
+enabled suggestions resolves only the selected adapter and its required Luna
+credential, whole-URL, or password secret. Resolved raw values are excluded
+from representations.
 An absent optional information role has no implicit runtime defaults and is not
 constructed.
 - `music.yaml` selects a typed `plex` definition containing a credential-free
@@ -717,9 +744,11 @@ encoded. Raw user and control credentials are excluded from representations.
   roles from typed `weewx` and `nws` definitions. WeeWX owns current/history
   endpoints, freshness, and the bounded typed SSH/archive fallback. NWS owns
   forecast mapping, user-agent, office, coordinates, and timeout. Home forecast
-  coordinates may instead come from `household.home_location`.
+  coordinates may instead come from `household.home_location`. Its provider-free
+  `solar` capability uses that home point and may add a bounded list of named
+  locations with explicit IDs, labels, aliases, coordinates, and IANA timezones.
 
-`WeatherRuntimeSettings.from_effective_config` preserves those four selections
+`WeatherRuntimeSettings.from_effective_config` preserves those capability selections
 as independent frozen Brain runtime sections. Each disabled capability selects
 no dormant definition. Current receives only its WeeWX current endpoint,
 timeout, and freshness; history receives only its history endpoint and resolves
@@ -727,23 +756,28 @@ the SSH password only when its selected WeeWX definition has that fallback;
 forecast receives its selected NWS settings and resolves the narrowly specified
 home-coordinate fallback from `household.home_location`; remote receives only
 the NWS request identity and timeout it uses for location-driven requests.
+Solar never calls geocoding and does not treat timezone aliases as coordinates.
 Provider-defined coordinates do not become remote defaults, and one capability
 never falls back to another. Raw SSH passwords are excluded from
 representations. An absent optional weather role creates no runtime defaults.
 - `calendar.yaml` selects typed `nextcloud` feeds and separate read/write
   policy. Each feed uses either a credential-free ICS URL or one whole-URL
-  logical secret. A write-capable definition is an all-or-none base URL, user,
-  logical credential, and calendar URI tuple; confirmation remains mandatory.
+  logical secret. It may add a display label, canonical household `user_ids`,
+  and an all-or-none `read_user` plus logical `read_credential_secret` pair. A
+  write-capable definition is an all-or-none base URL, user, logical credential,
+  and calendar URI tuple; confirmation remains mandatory.
 
 `CalendarRuntimeSettings.from_effective_config` constructs separate frozen read
 and write execution sections from the one selected provider. Disabled calendar
 selects no provider, and each disabled surface resolves none of its dormant
-secrets. Read resolves only the configured feed URLs and retains fresh/stale
-policy; write resolves only the complete DAV tuple and credential while
-retaining mandatory confirmation. The canonical household timezone is supplied
-as shared runtime context. Secret-backed feed URLs and write credentials are
-excluded from representations, and an absent optional calendar role creates no
-runtime defaults.
+secrets. Read resolves only configured feed URLs and feed-owned read credentials,
+retains shared/person membership plus fresh/stale policy, and defaults its fresh
+window to five minutes. Write resolves only the complete DAV tuple and credential
+while retaining mandatory confirmation. The canonical household timezone,
+people, and authenticated source associations are supplied as shared runtime
+context. Semantic source association is not provider authorization. Secret-
+backed feed URLs and read/write credentials are excluded from representations,
+and an absent optional calendar role creates no runtime defaults.
 - `home-assistant.yaml` selects the typed bridge endpoint and logical
   credentials. Its mapping registry admits only room, entity, action, camera,
   mode, and event mappings. Automation definitions reference typed event

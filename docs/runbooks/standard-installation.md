@@ -232,7 +232,7 @@ The enrolled operator runs `status` without sudo. Confirm independently:
 systemctl is-enabled oracle-brain.service
 systemctl is-active oracle-brain.service
 curl --fail --silent http://127.0.0.1:8011/health
-curl --fail --silent http://127.0.0.1:8011/health/config
+curl --fail --silent http://127.0.0.1:8011/api/admin/health/config
 curl --fail --silent http://127.0.0.1:8011/ui/ >/dev/null
 curl --fail --silent http://127.0.0.1:8011/admin/ >/dev/null
 curl --fail --silent http://127.0.0.1:8011/ui/satellite >/dev/null

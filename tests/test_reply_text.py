@@ -11,6 +11,26 @@ from oracle_app.schemas import DispatchPlan
 
 
 class ReplyTextTests(unittest.TestCase):
+    def test_fallback_unsupported_has_brain_owned_reply(self) -> None:
+        dispatch = DispatchPlan(
+            target="fallback_router",
+            hook="fallback_router.decide",
+            payload={"prompt": "tell me a joke"},
+            status="executed",
+            result={"semantic_status": "unsupported", "action": "fallback_unsupported"},
+        )
+        self.assertEqual(build_reply_text(dispatch), "I don't support that kind of request.")
+
+    def test_fallback_unresolved_preserves_concise_miss_reply(self) -> None:
+        dispatch = DispatchPlan(
+            target="fallback_router",
+            hook="fallback_router.decide",
+            payload={"prompt": "do the thing"},
+            status="executed",
+            result={"semantic_status": "unresolved", "action": "fallback_unresolved"},
+        )
+        self.assertEqual(build_reply_text(dispatch), "I'm sorry, I didn't understand what you said.")
+
     def test_home_assistant_reply(self) -> None:
         dispatch = DispatchPlan(
             target="home_assistant",

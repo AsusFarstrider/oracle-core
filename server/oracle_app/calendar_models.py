@@ -12,3 +12,6 @@ class CalendarEvent:
     end: datetime
     all_day: bool
     location: str
+    source_id: str = ""
+    source_label: str = ""
+    user_ids: tuple[str, ...] = ()

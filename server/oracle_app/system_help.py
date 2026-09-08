@@ -26,7 +26,7 @@ CAPABILITY_CATALOG: tuple[HelpCapability, ...] = (
     HelpCapability("conversions", "unit conversions", ("conversion", "conversions", "unit conversion", "units"), "convert supported fixed units, including mixed units and temperatures", ("convert 10 kilometers to miles", "what about 12 miles")),
     HelpCapability("repeat", "Repeat", ("repeat", "repeat that", "say that again"), "repeat the last eligible Oracle reply in this interaction", ("repeat that",)),
     HelpCapability("home", "house controls", ("home", "house", "devices", "lights", "home assistant"), "control and inspect configured household devices", ("turn on the living room lights",), handler_target="home_assistant"),
-    HelpCapability("calendar", "calendar", ("calendar", "calendars", "events"), "read the configured calendar and create, edit, or delete events", ("what's on my calendar tomorrow", "add lunch Friday at noon"), handler_target="calendar"),
+    HelpCapability("calendar", "calendar", ("calendar", "calendars", "events"), "read the configured calendar and create events", ("what's on my calendar tomorrow", "add lunch Friday at noon"), handler_target="calendar"),
     HelpCapability("music", "music", ("music", "songs", "albums", "playlists"), "search, play, and control configured music playback", ("play David Bowie", "pause the music"), handler_target="music"),
     HelpCapability("audiobooks", "audiobooks", ("audiobook", "audiobooks", "books"), "search, play, resume, and control configured audiobooks", ("play my audiobook",), handler_target="audiobook"),
     HelpCapability("weather", "weather", ("weather", "forecast", "forecasts"), "report configured current, forecast, remote, and bounded historical weather", ("what's the weather tomorrow",), handler_target="weather"),

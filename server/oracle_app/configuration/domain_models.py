@@ -4,6 +4,7 @@ from pathlib import PurePosixPath
 import re
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BeforeValidator, Field, field_validator, model_validator
 
@@ -118,6 +119,8 @@ class FactsConfiguration(ConfigurationModel):
     provider: CanonicalId | None = None
     providers: dict[CanonicalId, FactsProvider] = Field(default_factory=dict)
     summarizer_enabled: bool = False
+    summarizer_provider_order: list[CanonicalId] = Field(default_factory=list)
+    summarizer_total_timeout_seconds: PositiveSeconds = 30
     acknowledgement_enabled: bool = True
     timeout_seconds: PositiveSeconds = 8
     cache_enabled: bool = False
@@ -131,6 +134,8 @@ class FactsConfiguration(ConfigurationModel):
             providers=self.providers,
             label="facts",
         )
+        if len(self.summarizer_provider_order) != len(set(self.summarizer_provider_order)):
+            raise ValueError("Facts summarizer provider order must not contain duplicates.")
         return self
 
 
@@ -145,6 +150,23 @@ class NewsSource(ConfigurationModel):
     aliases: list[DisplayText] = Field(default_factory=list)
     provider: CanonicalId
     feed_url: CredentialFreeUrl
+    article_hosts: list[DisplayText] = Field(default_factory=list)
+
+    @field_validator("article_hosts")
+    @classmethod
+    def validate_article_hosts(cls, values: list[str]) -> list[str]:
+        normalized = [value.casefold().strip().rstrip(".") for value in values]
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("News article hosts must be unique.")
+        for host in normalized:
+            if (
+                not host
+                or len(host) > 253
+                or urlsplit(f"//{host}").hostname != host
+                or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789.-" for character in host)
+            ):
+                raise ValueError("News article hosts must be exact DNS names or IP addresses.")
+        return normalized
 
 
 class NewsConfiguration(ConfigurationModel):
@@ -219,8 +241,20 @@ class OpenClawMockProvider(ConfigurationModel):
     adapter: Literal["mock"]
 
 
+class OpenAILunaSuggestionsProvider(ConfigurationModel):
+    adapter: Literal["openai_luna"]
+    base_url: CredentialFreeUrl = "https://api.openai.com"
+    credential_secret: SecretReference
+    model: Literal["gpt-5.6-luna"] = "gpt-5.6-luna"
+    timeout_seconds: PositiveSeconds = 180
+    max_output_tokens: Annotated[int, Field(ge=256, le=8192)] = 4096
+
+
 SuggestionsProvider = Annotated[
-    OpenClawHttpProvider | OpenClawSshCliProvider | OpenClawMockProvider,
+    OpenAILunaSuggestionsProvider
+    | OpenClawHttpProvider
+    | OpenClawSshCliProvider
+    | OpenClawMockProvider,
     Field(discriminator="adapter"),
 ]
 
@@ -358,12 +392,50 @@ class WeatherCapability(ConfigurationModel):
     provider: CanonicalId | None = None
 
 
+class SolarWeatherLocation(ConfigurationModel):
+    id: CanonicalId
+    label: DisplayText
+    aliases: list[DisplayText] = Field(default_factory=list, max_length=12)
+    latitude: Annotated[float, Field(ge=-90, le=90)]
+    longitude: Annotated[float, Field(ge=-180, le=180)]
+    timezone: Annotated[str, Field(min_length=1, max_length=128)]
+
+    @field_validator("timezone")
+    @classmethod
+    def installed_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("Solar location timezone must be an installed IANA identifier.") from exc
+        return value
+
+
+class SolarWeatherCapability(ConfigurationModel):
+    enabled: bool = False
+    locations: list[SolarWeatherLocation] = Field(default_factory=list, max_length=24)
+
+    @model_validator(mode="after")
+    def unique_locations(self) -> SolarWeatherCapability:
+        ids = [item.id for item in self.locations]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Solar weather location IDs must be unique.")
+        terms: dict[str, str] = {}
+        for item in self.locations:
+            for raw in (item.id, item.label, *item.aliases):
+                term = " ".join(raw.casefold().split())
+                owner = terms.setdefault(term, item.id)
+                if owner != item.id:
+                    raise ValueError("Solar weather location names and aliases must be unambiguous.")
+        return self
+
+
 class WeatherConfiguration(ConfigurationModel):
     enabled: bool
     current: WeatherCapability = Field(default_factory=lambda: WeatherCapability(enabled=False))
     forecast: WeatherCapability = Field(default_factory=lambda: WeatherCapability(enabled=False))
     history: WeatherCapability = Field(default_factory=lambda: WeatherCapability(enabled=False))
     remote: WeatherCapability = Field(default_factory=lambda: WeatherCapability(enabled=False))
+    solar: SolarWeatherCapability = Field(default_factory=SolarWeatherCapability)
     providers: dict[CanonicalId, WeatherProvider] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -375,9 +447,9 @@ class WeatherConfiguration(ConfigurationModel):
             "remote": self.remote,
         }
         capabilities = tuple(named_capabilities.values())
-        if self.enabled and not any(capability.enabled for capability in capabilities):
+        if self.enabled and not any(capability.enabled for capability in capabilities) and not self.solar.enabled:
             raise ValueError("Enabled weather requires at least one enabled capability.")
-        if not self.enabled and any(capability.enabled for capability in capabilities):
+        if not self.enabled and (any(capability.enabled for capability in capabilities) or self.solar.enabled):
             raise ValueError("Disabled weather cannot enable a capability.")
         for capability in capabilities:
             _require_selected_provider(
@@ -401,13 +473,20 @@ class WeatherConfiguration(ConfigurationModel):
 class CalendarFeed(ConfigurationModel):
     id: CanonicalId
     kind: Literal["events", "holidays"]
+    label: DisplayText | None = None
+    user_ids: list[CanonicalId] = Field(default_factory=list)
     ics_url: CredentialFreeUrl | None = None
     ics_url_secret: SecretReference | None = None
+    read_user: Annotated[str, Field(min_length=1, max_length=256)] | None = None
+    read_credential_secret: SecretReference | None = None
 
     @model_validator(mode="after")
     def one_url_source(self) -> CalendarFeed:
         if (self.ics_url is None) == (self.ics_url_secret is None):
             raise ValueError("Calendar feed requires exactly one credential-free URL or whole-URL secret reference.")
+        if (self.read_user is None) != (self.read_credential_secret is None):
+            raise ValueError("Calendar feed read authentication must provide both user and credential secret.")
+        _reject_duplicates(self.user_ids, label="Calendar feed user IDs")
         return self
 
 
@@ -433,7 +512,7 @@ class CalendarPolicy(ConfigurationModel):
     read_enabled: bool = True
     write_enabled: bool = False
     confirmation_required: Literal[True] = True
-    fresh_seconds: PositiveSeconds = 60
+    fresh_seconds: PositiveSeconds = 300
     stale_if_error_seconds: PositiveSeconds = 600
 
 

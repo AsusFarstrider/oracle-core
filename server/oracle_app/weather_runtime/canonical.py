@@ -4,6 +4,7 @@ from typing import Any
 
 from oracle_app.configuration.weather_runtime_settings import WeatherRuntimeSettings
 from oracle_app.provider_bridges.nws_weather_forecast import NwsWeatherForecastBridge
+from oracle_app.provider_bridges.remote_weather import NominatimNwsRemoteWeatherBridge
 from oracle_app.provider_bridges.weewx_weather_station import WeeWxWeatherStationBridge
 from oracle_app.read_cache import BoundedReadCache
 from oracle_app.weather_current import (
@@ -12,6 +13,7 @@ from oracle_app.weather_current import (
 )
 from oracle_app.weather_forecast import _select_forecast_periods, format_forecast_summary
 from oracle_app.weather_history import (
+    HistoricalWeatherQuery,
     _build_historical_speech,
     _local_midnight_epoch,
     _weighted_average,
@@ -22,6 +24,7 @@ from oracle_app.weather_remote import (
     build_remote_current_weather_response,
     build_remote_forecast_response,
 )
+from oracle_app.weather_solar import build_solar_day_snapshot, build_solar_response
 
 
 class CanonicalWeatherExecution:
@@ -31,10 +34,12 @@ class CanonicalWeatherExecution:
         self.settings = settings
         self.station = WeeWxWeatherStationBridge()
         self.nws = NwsWeatherForecastBridge()
+        self.remote = NominatimNwsRemoteWeatherBridge()
         self._current_cache: BoundedReadCache[WeatherObservation] = BoundedReadCache()
         self._forecast_cache: BoundedReadCache[dict[str, Any]] = BoundedReadCache()
+        self._history_cache: BoundedReadCache[tuple[str, dict[str, Any]]] = BoundedReadCache()
 
-    def fetch_current(self):
+    def fetch_current(self, *, force_refresh: bool = False, allow_stale: bool = True):
         current = self.settings.current
         if not self.settings.enabled or not current.enabled or current.current_url is None:
             raise RuntimeError("Current weather is not configured")
@@ -47,10 +52,18 @@ class CanonicalWeatherExecution:
                 timeout_seconds=current.timeout_seconds or 8,
                 stale_after_seconds=current.stale_after_seconds or 1800,
             ),
+            force_refresh=force_refresh,
+            allow_stale=allow_stale,
         )
 
-    def build_current_response(self, query_text: str = "") -> tuple[str, dict[str, Any]]:
-        cached = self.fetch_current()
+    def build_current_response(
+        self,
+        query_text: str = "",
+        *,
+        force_refresh: bool = False,
+        allow_stale: bool = True,
+    ) -> tuple[str, dict[str, Any]]:
+        cached = self.fetch_current(force_refresh=force_refresh, allow_stale=allow_stale)
         observation = cached.value
         details = _format_current_details(observation)
         speech, query = build_current_weather_speech_from_details(
@@ -69,9 +82,11 @@ class CanonicalWeatherExecution:
             "freshness": cached.freshness,
             "cache_age_seconds": round(cached.age_seconds, 3),
             "stale_reason": cached.stale_reason,
+            "refresh_status": cached.refresh_status,
+            "failure_kind": cached.failure_kind,
         }
 
-    def fetch_forecast(self) -> dict[str, Any]:
+    def fetch_forecast(self, *, force_refresh: bool = False, allow_stale: bool = True) -> dict[str, Any]:
         forecast = self.settings.forecast
         if (
             not self.settings.enabled
@@ -91,16 +106,26 @@ class CanonicalWeatherExecution:
                 user_agent=forecast.user_agent or "",
                 timeout_seconds=forecast.timeout_seconds or 8,
             ),
+            force_refresh=force_refresh,
+            allow_stale=allow_stale,
         )
         return {
             **cached.value,
             "freshness": cached.freshness,
             "age_seconds": round(cached.age_seconds, 3),
             "stale_reason": cached.stale_reason,
+            "refresh_status": cached.refresh_status,
+            "failure_kind": cached.failure_kind,
         }
 
-    def build_forecast_response(self, query_text: str) -> tuple[str, dict[str, Any]]:
-        forecast = self.fetch_forecast()
+    def build_forecast_response(
+        self,
+        query_text: str,
+        *,
+        force_refresh: bool = False,
+        allow_stale: bool = True,
+    ) -> tuple[str, dict[str, Any]]:
+        forecast = self.fetch_forecast(force_refresh=force_refresh, allow_stale=allow_stale)
         periods: list[ForecastPeriod] = forecast["periods"]
         selected = _select_forecast_periods(query_text, periods)
         speech = format_forecast_summary(query_text, periods)
@@ -114,6 +139,8 @@ class CanonicalWeatherExecution:
             "freshness": forecast["freshness"],
             "age_seconds": forecast["age_seconds"],
             "stale_reason": forecast["stale_reason"],
+            "refresh_status": forecast["refresh_status"],
+            "failure_kind": forecast["failure_kind"],
             "selected_periods": [_period_payload(period) for period in selected],
         }
 
@@ -124,6 +151,31 @@ class CanonicalWeatherExecution:
         parsed = parse_historical_weather_query(query_text, now=now)
         if parsed is None:
             raise RuntimeError("Historical weather query could not be parsed")
+        cached = self._history_cache.read(
+            f"history:{history.provider_id}:{parsed.target_date.isoformat()}:{parsed.field or 'summary'}:{self.settings.config_revision}",
+            ttl_seconds=60 * 60,
+            stale_max_seconds=24 * 60 * 60,
+            loader=lambda: self._build_history_uncached(parsed),
+        )
+        speech, details = cached.value
+        if cached.freshness == "stale":
+            speech = (
+                "I couldn't refresh the weather history, so this is the latest saved result. "
+                f"{speech}"
+            )
+        return speech, {
+            **details,
+            "freshness": cached.freshness,
+            "cache_age_seconds": round(cached.age_seconds, 3),
+            "stale_reason": cached.stale_reason,
+            "refresh_status": cached.refresh_status,
+            "failure_kind": cached.failure_kind,
+        }
+
+    def _build_history_uncached(
+        self, parsed: HistoricalWeatherQuery
+    ) -> tuple[str, dict[str, Any]]:
+        history = self.settings.history
         static_entry = self.station.load_typed_history_entry(
             parsed.target_date,
             history_url=history.history_url,
@@ -183,13 +235,54 @@ class CanonicalWeatherExecution:
         return build_remote_current_weather_response(
             query_text,
             runtime_settings=self.settings.remote,
+            remote_bridge=self.remote,
         )
 
     def build_remote_forecast_response(self, query_text: str):
         return build_remote_forecast_response(
             query_text,
             runtime_settings=self.settings.remote,
+            remote_bridge=self.remote,
         )
+
+    def build_solar_response(self, query_text: str, *, now=None):
+        return build_solar_response(query_text, settings=self.settings.solar, now=now)
+
+    def build_solar_snapshot(self, *, now=None):
+        return build_solar_day_snapshot(settings=self.settings.solar, now=now)
+
+    def fetch_alerts(self, *, force_refresh: bool = False, allow_stale: bool = True):
+        forecast = self.settings.forecast
+        if (
+            not self.settings.enabled
+            or not forecast.enabled
+            or forecast.latitude is None
+            or forecast.longitude is None
+            or forecast.user_agent is None
+        ):
+            raise RuntimeError("Weather alerts are not configured")
+        return self.remote.fetch_alerts(
+            latitude=forecast.latitude,
+            longitude=forecast.longitude,
+            user_agent=forecast.user_agent,
+            timeout_seconds=forecast.timeout_seconds or 8,
+            force_refresh=force_refresh,
+            allow_stale=allow_stale,
+        )
+
+    def build_alerts_response(self):
+        payload = self.fetch_alerts()
+        alerts = payload["alerts"]
+        if not alerts:
+            speech = "There are no active National Weather Service watches or warnings for home."
+        else:
+            material = [item for item in alerts if item.get("severity") in {"Extreme", "Severe", "Moderate"}]
+            selected = material or alerts
+            names = [str(item.get("event") or "weather alert") for item in selected[:3]]
+            speech = f"There {'is' if len(names) == 1 else 'are'} {len(names)} active weather {'alert' if len(names) == 1 else 'alerts'}: {', '.join(names)}."
+        if payload["freshness"] == "stale":
+            speech = f"I couldn't refresh weather alerts, so this is the latest saved update. {speech}"
+        return speech, payload
 
 
 def _value(row: dict[str, object] | None, key: str):
@@ -204,4 +297,5 @@ def _period_payload(period: ForecastPeriod) -> dict[str, Any]:
         "is_daytime": period.is_daytime,
         "temperature_f": period.temperature_f,
         "short_forecast": period.short_forecast,
+        "probability_of_precipitation_pct": period.probability_of_precipitation_pct,
     }

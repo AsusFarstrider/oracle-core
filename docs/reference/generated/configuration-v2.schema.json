@@ -279,6 +279,11 @@
         "FallbackRouterConfiguration": {
           "additionalProperties": false,
           "properties": {
+            "enabled": {
+              "default": true,
+              "title": "Enabled",
+              "type": "boolean"
+            },
             "model": {
               "anyOf": [
                 {
@@ -293,6 +298,16 @@
               "default": null,
               "title": "Model"
             },
+            "provider_order": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                "type": "string"
+              },
+              "title": "Provider Order",
+              "type": "array"
+            },
             "timeout_seconds": {
               "anyOf": [
                 {
@@ -306,6 +321,13 @@
               ],
               "default": null,
               "title": "Timeout Seconds"
+            },
+            "total_timeout_seconds": {
+              "default": 30.0,
+              "exclusiveMinimum": 0,
+              "maximum": 86400,
+              "title": "Total Timeout Seconds",
+              "type": "number"
             }
           },
           "title": "FallbackRouterConfiguration",
@@ -546,6 +568,11 @@
               "title": "Base Url",
               "type": "string"
             },
+            "enabled": {
+              "default": true,
+              "title": "Enabled",
+              "type": "boolean"
+            },
             "keep_alive": {
               "anyOf": [
                 {
@@ -623,6 +650,68 @@
           "title": "OllamaRequestOptions",
           "type": "object"
         },
+        "OpenAILunaProvider": {
+          "additionalProperties": false,
+          "properties": {
+            "base_url": {
+              "const": "https://api.openai.com",
+              "default": "https://api.openai.com",
+              "title": "Base Url",
+              "type": "string"
+            },
+            "credential_secret": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Z][A-Z0-9_]*$",
+                  "type": "string",
+                  "x-oracle-secret-reference": true
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Credential Secret"
+            },
+            "enabled": {
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "max_output_tokens": {
+              "default": 512,
+              "maximum": 4096,
+              "minimum": 16,
+              "title": "Max Output Tokens",
+              "type": "integer"
+            },
+            "model": {
+              "const": "gpt-5.6-luna",
+              "default": "gpt-5.6-luna",
+              "title": "Model",
+              "type": "string"
+            },
+            "timeout_seconds": {
+              "default": 20.0,
+              "exclusiveMinimum": 0,
+              "maximum": 86400,
+              "title": "Timeout Seconds",
+              "type": "number"
+            },
+            "type": {
+              "const": "openai_luna",
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "enabled"
+          ],
+          "title": "OpenAILunaProvider",
+          "type": "object"
+        },
         "PiperProvider": {
           "additionalProperties": false,
           "properties": {
@@ -683,13 +772,17 @@
                 "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$": {
                   "discriminator": {
                     "mapping": {
-                      "ollama": "#/$defs/OllamaProvider"
+                      "ollama": "#/$defs/OllamaProvider",
+                      "openai_luna": "#/$defs/OpenAILunaProvider"
                     },
                     "propertyName": "type"
                   },
                   "oneOf": [
                     {
                       "$ref": "#/$defs/OllamaProvider"
+                    },
+                    {
+                      "$ref": "#/$defs/OpenAILunaProvider"
                     }
                   ]
                 }
@@ -1135,6 +1228,60 @@
               ],
               "title": "Kind",
               "type": "string"
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Label"
+            },
+            "read_credential_secret": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Z][A-Z0-9_]*$",
+                  "type": "string",
+                  "x-oracle-secret-reference": true
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Read Credential Secret"
+            },
+            "read_user": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Read User"
+            },
+            "user_ids": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                "type": "string"
+              },
+              "title": "User Ids",
+              "type": "array"
             }
           },
           "required": [
@@ -1154,7 +1301,7 @@
               "type": "boolean"
             },
             "fresh_seconds": {
-              "default": 60,
+              "default": 300,
               "maximum": 86400,
               "minimum": 1,
               "title": "Fresh Seconds",
@@ -2074,6 +2221,23 @@
               "title": "Summarizer Enabled",
               "type": "boolean"
             },
+            "summarizer_provider_order": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                "type": "string"
+              },
+              "title": "Summarizer Provider Order",
+              "type": "array"
+            },
+            "summarizer_total_timeout_seconds": {
+              "default": 30,
+              "maximum": 86400,
+              "minimum": 1,
+              "title": "Summarizer Total Timeout Seconds",
+              "type": "integer"
+            },
             "timeout_seconds": {
               "default": 8,
               "maximum": 86400,
@@ -2171,6 +2335,15 @@
               "title": "Aliases",
               "type": "array"
             },
+            "article_hosts": {
+              "items": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": "Article Hosts",
+              "type": "array"
+            },
             "display_name": {
               "maxLength": 256,
               "minLength": 1,
@@ -2205,6 +2378,57 @@
             "feed_url"
           ],
           "title": "NewsSource",
+          "type": "object"
+        },
+        "OpenAILunaSuggestionsProvider": {
+          "additionalProperties": false,
+          "properties": {
+            "adapter": {
+              "const": "openai_luna",
+              "title": "Adapter",
+              "type": "string"
+            },
+            "base_url": {
+              "default": "https://api.openai.com",
+              "maxLength": 2048,
+              "minLength": 1,
+              "title": "Base Url",
+              "type": "string"
+            },
+            "credential_secret": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "title": "Credential Secret",
+              "type": "string",
+              "x-oracle-secret-reference": true
+            },
+            "max_output_tokens": {
+              "default": 4096,
+              "maximum": 8192,
+              "minimum": 256,
+              "title": "Max Output Tokens",
+              "type": "integer"
+            },
+            "model": {
+              "const": "gpt-5.6-luna",
+              "default": "gpt-5.6-luna",
+              "title": "Model",
+              "type": "string"
+            },
+            "timeout_seconds": {
+              "default": 180,
+              "maximum": 86400,
+              "minimum": 1,
+              "title": "Timeout Seconds",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "adapter",
+            "credential_secret"
+          ],
+          "title": "OpenAILunaSuggestionsProvider",
           "type": "object"
         },
         "OpenClawHttpProvider": {
@@ -2664,11 +2888,15 @@
                     "mapping": {
                       "http": "#/$defs/OpenClawHttpProvider",
                       "mock": "#/$defs/OpenClawMockProvider",
+                      "openai_luna": "#/$defs/OpenAILunaSuggestionsProvider",
                       "ssh_cli": "#/$defs/OpenClawSshCliProvider"
                     },
                     "propertyName": "adapter"
                   },
                   "oneOf": [
+                    {
+                      "$ref": "#/$defs/OpenAILunaSuggestionsProvider"
+                    },
                     {
                       "$ref": "#/$defs/OpenClawHttpProvider"
                     },
@@ -5777,6 +6005,81 @@
           "title": "NwsWeatherProvider",
           "type": "object"
         },
+        "SolarWeatherCapability": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "locations": {
+              "items": {
+                "$ref": "#/$defs/SolarWeatherLocation"
+              },
+              "maxItems": 24,
+              "title": "Locations",
+              "type": "array"
+            }
+          },
+          "title": "SolarWeatherCapability",
+          "type": "object"
+        },
+        "SolarWeatherLocation": {
+          "additionalProperties": false,
+          "properties": {
+            "aliases": {
+              "items": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 12,
+              "title": "Aliases",
+              "type": "array"
+            },
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Id",
+              "type": "string"
+            },
+            "label": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Label",
+              "type": "string"
+            },
+            "latitude": {
+              "maximum": 90,
+              "minimum": -90,
+              "title": "Latitude",
+              "type": "number"
+            },
+            "longitude": {
+              "maximum": 180,
+              "minimum": -180,
+              "title": "Longitude",
+              "type": "number"
+            },
+            "timezone": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Timezone",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "latitude",
+            "longitude",
+            "timezone"
+          ],
+          "title": "SolarWeatherLocation",
+          "type": "object"
+        },
         "WeatherCapability": {
           "additionalProperties": false,
           "properties": {
@@ -5959,6 +6262,9 @@
         },
         "remote": {
           "$ref": "#/$defs/WeatherCapability"
+        },
+        "solar": {
+          "$ref": "#/$defs/SolarWeatherCapability"
         }
       },
       "required": [

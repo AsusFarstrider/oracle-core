@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from oracle_app.configuration.domain_models import (
+    OpenAILunaSuggestionsProvider,
     OpenClawHttpProvider,
     OpenClawMockProvider,
     OpenClawSshCliProvider,
@@ -8,10 +9,11 @@ from oracle_app.configuration.domain_models import (
 from oracle_app.configuration.information_runtime_settings import SuggestionsRuntimeSettings
 from oracle_app.provider_bridges.openclaw import generate_suggestions
 from oracle_app.provider_bridges.openclaw.schemas import OpenClawBridgeOptions
+from oracle_app.provider_bridges.openai_suggestions import generate_suggestions_openai_luna
 
 
 class CanonicalSuggestionsExecution:
-    """Typed OpenClaw edge selected from one immutable configuration snapshot."""
+    """Typed Suggestions inference edge selected from one immutable configuration snapshot."""
 
     def __init__(self, settings: SuggestionsRuntimeSettings) -> None:
         self.settings = settings
@@ -21,27 +23,74 @@ class CanonicalSuggestionsExecution:
         return self.settings.enabled
 
     def max_suggestions(self, requested: int | None) -> int:
-        return int(requested or self.settings.max_suggestions)
+        configured = int(self.settings.max_suggestions)
+        return min(int(requested or configured), configured)
 
     def status(self) -> dict[str, object]:
         provider = self.settings.provider
         adapter = "" if provider is None else provider.adapter
         configured = self.enabled and provider is not None
+        direct_luna = isinstance(provider, OpenAILunaSuggestionsProvider)
+        openclaw = isinstance(provider, (OpenClawHttpProvider, OpenClawSshCliProvider))
         return {
             "ok": configured,
-            "provider": "openclaw",
+            "provider": (
+                "openai_luna"
+                if direct_luna
+                else "openclaw"
+                if openclaw
+                else "mock"
+                if isinstance(provider, OpenClawMockProvider)
+                else "suggestions"
+            ),
             "adapter": adapter,
             "configured": configured,
+            "max_suggestions": int(self.settings.max_suggestions),
             "base_url_configured": isinstance(provider, OpenClawHttpProvider)
             and bool(self.settings.resolved_base_url),
             "ssh_target_configured": isinstance(provider, OpenClawSshCliProvider)
             and bool(provider.target),
             "endpoint_path_configured": isinstance(provider, OpenClawHttpProvider)
             and bool(provider.endpoint_path),
+            "credential_configured": direct_luna and bool(self.settings.resolved_api_key),
             "detail": (
-                "OpenClaw transport is configured."
+                "Suggestions inference is configured."
                 if configured
                 else "Suggestions is disabled in canonical configuration."
+            ),
+            "mode": (
+                "direct"
+                if direct_luna
+                else provider.cli_mode
+                if isinstance(provider, OpenClawSshCliProvider)
+                else provider.adapter
+                if provider is not None
+                else ""
+            ),
+            "model_authority": (
+                "oracle_provider_configuration"
+                if direct_luna or isinstance(provider, OpenClawSshCliProvider)
+                else "provider_endpoint"
+                if isinstance(provider, OpenClawHttpProvider)
+                else "mock"
+                if isinstance(provider, OpenClawMockProvider)
+                else "none"
+            ),
+            "gateway_start_enabled": isinstance(provider, OpenClawSshCliProvider)
+            and provider.start_gateway,
+            "model": (
+                provider.model
+                if isinstance(provider, (OpenAILunaSuggestionsProvider, OpenClawSshCliProvider))
+                else None
+            ),
+            "model_location": (
+                "cloud"
+                if direct_luna
+                else "local"
+                if openclaw
+                else "test"
+                if isinstance(provider, OpenClawMockProvider)
+                else ""
             ),
         }
 
@@ -52,6 +101,19 @@ class CanonicalSuggestionsExecution:
         max_suggestions: int,
         use_mock: bool,
     ) -> dict[str, object]:
+        provider = self.settings.provider
+        if not self.enabled or provider is None:
+            raise ValueError("Canonical Suggestions is disabled or not configured.")
+        if not use_mock and isinstance(provider, OpenAILunaSuggestionsProvider):
+            return generate_suggestions_openai_luna(
+                packet,
+                base_url=provider.base_url,
+                model=provider.model,
+                api_key=str(self.settings.resolved_api_key or ""),
+                timeout_seconds=provider.timeout_seconds,
+                max_output_tokens=provider.max_output_tokens,
+                max_suggestions=max_suggestions,
+            ).model_dump()
         return generate_suggestions(
             packet,
             self._bridge_options(

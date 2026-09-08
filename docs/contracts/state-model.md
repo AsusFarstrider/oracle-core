@@ -51,7 +51,7 @@ Audio/runtime rules:
 | Pending confirmation | `server/oracle_app/state.py` | Helper-based create/load/clear keyed by `source + session_id` | Brain confirmation/system layer | `source + session_id` | Ephemeral | Missing context fails explicitly instead of returning an unresumable pending flow. |
 | Pending music clarification | `server/oracle_app/state.py` | Helper-based create/load/clear keyed by `source + session_id`; read by routing and music handler | Brain music clarification layer | `source + session_id` | Ephemeral | Missing context fails explicitly instead of silently dropping pending state. |
 | Pending audiobook clarification | `server/oracle_app/state.py` | Helper-based create/load/clear keyed by `source + session_id`; read by routing and audiobook handler | Brain audiobook clarification layer | `source + session_id` | Ephemeral | Missing context fails explicitly instead of silently dropping pending state. |
-| Effective interaction session | `server/oracle_app/session_state.py` | Typed create/refresh/inspect/reset lifecycle under the shared interaction synchronization boundary | Brain conversation/session layer | `source + effective_session_id` | Ephemeral; 90-second inactivity timeout | Sole identity and lifecycle authority for pending, active, user, history, dispatch, Home Assistant linkage, audit, and interim-event compartments. |
+| Effective interaction session | `server/oracle_app/session_state.py` | Typed create/refresh/inspect/reset lifecycle under the shared interaction synchronization boundary | Brain conversation/session layer | `source + effective_session_id` | Ephemeral; 90-second inactivity timeout | Sole identity and lifecycle authority for pending, active, user, utility, informational-subject, history, dispatch, Home Assistant linkage, audit, and interim-event compartments. |
 | Conversation context | `server/oracle_app/conversation.py` | Separate history/dispatch compartment with snapshot reads; synchronized and cleared by the effective-session lifecycle | Brain conversation/session layer | `source + effective_session_id` | Ephemeral; owning session lifecycle | Includes six-turn history plus dispatch context. It has no independent TTL or identity authority. |
 | Home Assistant conversation linkage | `server/oracle_app/conversation.py` | Stored and loaded through dedicated compartment helpers under the interaction synchronization boundary | Brain conversation/session layer | `source + effective_session_id` | Ephemeral; owning session lifecycle | Must not leak across sessions; requests without complete identity do not persist linkage. |
 | Interim command events | `server/oracle_app/command_events.py` | Per-session bounded event compartment under the interaction synchronization boundary | Brain conversation/session layer | `source + effective_session_id` | Ephemeral; owning session lifecycle | At most 20 events per session; expiry/reset clears the owning event list atomically with session compartments. |
@@ -66,7 +66,7 @@ Audio/runtime rules:
 | Satellite foreground-audio handoff state | `satellite/pi_runtime/models.py` plus `satellite/pi_runtime/local_control.py` coordinator helpers | Per-event handoff object created once for reply, cues, alerts, and sleep-expiry decisions | Satellite Pi runtime layer | Local satellite only | Ephemeral | This is not durable playback truth; it only normalizes one foreground borrowing or replacement decision at the local seam. |
 | Satellite playback authority session | Local runtime authority model over music, audiobook, reply, and external playback backends | Local runtime state surfaced through control-service snapshots; brain may inspect but must not own truth | Satellite audio/runtime layer | Local satellite only | Ephemeral; restart-safe locally desirable | Minimum fields: `backend_type`, `state`, `resumable`, media/source identity, and position where applicable. |
 | Satellite playback-authority snapshot cache | `satellite/control_service_runtime/cache.py` plus `ControlServer.runtime_lock` | One short-lived deep snapshot is built single-flight under the existing control-service lock; concurrent passive readers reuse it and every playback/reply mutation invalidates it | Satellite playback control layer | Local satellite only | Ephemeral/reconstructable; one-second maximum reuse | Performance cache only. It is never playback truth, never survives restart, and cannot authorize or route a command. Cold player-state subprocesses remain explicitly time-bounded. |
-| Satellite control command cache | `satellite/control_service_runtime/cache.py` plus the server-wide runtime boundary in `satellite/control_service_runtime/server.py` | Locked in-memory command idempotency cache keyed by `command_id`; duplicate in-flight IDs execute once through atomic get-or-store, while one re-entrant server lock serializes adapter and playback-authority operations across distinct commands | Satellite control-service layer | Local satellite only | Ephemeral | Deduplicates retries for a 60-second TTL window; reads return snapshots. The server lock, rather than the cache, protects shared mutable adapters across threaded requests. |
+| Satellite control command cache | `satellite/control_service_runtime/cache.py` plus the server-wide runtime boundary in `satellite/control_service_runtime/server.py` | Locked in-memory command idempotency cache keyed by `command_id`; duplicate in-flight IDs execute once through atomic get-or-store, while one re-entrant server lock serializes adapter and playback-authority operations across distinct commands | Satellite control-service layer | Local satellite only | Ephemeral | Deduplicates explicitly warranted same-identity retries for a 60-second TTL window; reads return snapshots. One logical Brain operation may supply and retain its caller-generated `command_id`. An ambiguous mutation timeout defaults to `outcome_unknown` plus passive authority investigation, not a fresh identity or automatic replay. The server lock, rather than the cache, protects shared mutable adapters across threaded requests. Durable retry identity remains Stage 9. |
 | Satellite wake/session state | `satellite/pi_wake_satellite.py` | In-process local variables tracking wake cooldown, active conversation session, alert poll timing, and duck/restore state | Satellite wake/capture layer | Local satellite process only | Ephemeral | Includes `active_session_id`, `last_conversation_activity_at`, `next_wake_time`, `next_alert_poll_at`, and duck-volume restore state. |
 | Home Assistant cache | `data/home-assistant-cache.json` | File-backed cache loaded by HA routing helpers | Brain Home Assistant integration layer | Global brain cache | Restart-safe cache; not durable truth | Cache is operational convenience only, not source of truth. |
 | Oracle Memory | `data/oracle-memory.sqlite3` | Memory-owned SQLite schema and helpers | Brain Memory layer | Global operational store | Durable operational memory | Records structured operational reality only; does not route, dispatch, execute, or generate replies. |
@@ -135,6 +135,25 @@ string choices. They use pending domain `utilities`, which resolves back to the
 `system` owner. Session expiry, explicit reset, and successful non-system topic
 changes clear utility context; source and effective-session keys prevent
 cross-device or cross-session reuse.
+
+Stage 7 adds one bounded informational-subject compartment to the same effective
+session. It holds at most one active Facts, Weather, Calendar, or News subject,
+uses a closed domain-specific field vocabulary, and has its own bounded timeout
+within the 90-second session lifetime. Allowed content is stable subject/source/
+evidence identifiers plus the minimum bounded label, query, location, window,
+person, calendar, event, topic, or article-selection metadata required by later
+domain follow-up. Provider payloads, credentials, arbitrary history, mutable
+domain objects, and Suggestions/OpenClaw evidence packets are forbidden.
+
+Pending informational clarification uses the existing pending compartment and
+30-second precedence, with a closed payload containing its target domain,
+clarification kind, bounded prompt/options, original text, and optional subject
+identifier. Pending state precedes strong active context; strong active context
+precedes informational subject context. Explicit reset and a successful change
+to a different non-system domain clear the informational subject. Same-domain
+work, bounded system interaction, and fallback interpretation do not clear it.
+Source and effective-session identity prevent cross-device reuse. This is not a
+new conversation history or durable Memory authority.
 
 ### Active audiobook playback registry
 

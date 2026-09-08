@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import logging
-
-from oracle_app.command_events import append_command_interim_event
 from oracle_app.configuration.domain_models import StaticFactsProvider, WikipediaFactsProvider
 from oracle_app.configuration.information_runtime_settings import FactsRuntimeSettings
 from oracle_app.facts_cache import load_cached_facts_result, store_facts_result_in_cache
 from oracle_app.facts_wikipedia_policy import WikipediaQuestionPolicy
 from oracle_app.inference import InferenceClient
+from oracle_app.facts_summarizer import FactsSummarizationResult
 from oracle_app.provider_bridges.facts_static import StaticFactsBridge
 from oracle_app.provider_bridges.facts_wikipedia import WikipediaFactsBridge
 from oracle_app.schemas import (
@@ -60,19 +59,13 @@ class CanonicalFactsExecution:
         *,
         source: str | None = None,
         session_id: str | None = None,
-    ) -> str | None:
+    ) -> FactsSummarizationResult | None:
         if not self.settings.summarizer_enabled:
             return None
         if result.status not in {"answered", "evidence_only"}:
             return None
-        if self.settings.acknowledgement_enabled:
-            append_command_interim_event(
-                source=source,
-                session_id=session_id,
-                event_type="facts_summarizer_ack",
-                domain="facts",
-                message="One second while I look that up.",
-            )
+        if not self.inference.can_attempt("facts_summarizer"):
+            return None
         try:
             from oracle_app.facts_summarizer import summarize_facts_result
 

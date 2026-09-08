@@ -560,7 +560,7 @@ class SatellitePlaybackResumeTests(unittest.TestCase):
     @patch("pi_runtime.request_runtime.send_command")
     @patch("pi_runtime.request_runtime.send_stt", return_value="what is photosynthesis")
     @patch("pi_runtime.request_runtime.get_active_session_id", return_value=("session-1", 123.0))
-    def test_request_pipeline_plays_interim_facts_ack_once_while_command_is_in_flight(
+    def test_request_pipeline_finishes_interim_facts_ack_before_fast_final_reply(
         self,
         _mock_session,
         _mock_send_stt,
@@ -573,6 +573,7 @@ class SatellitePlaybackResumeTests(unittest.TestCase):
     ) -> None:
         logger = __import__("logging").getLogger("satellite-interim-ack-test")
         polled = threading.Event()
+        command_completed = threading.Event()
         ack_played = threading.Event()
         args = types.SimpleNamespace(
             oracle_url="http://oracle",
@@ -599,12 +600,27 @@ class SatellitePlaybackResumeTests(unittest.TestCase):
 
         def fetch_events(*_args, **_kwargs):
             polled.set()
+            events = [
+                {
+                    "event_id": 6,
+                    "event_type": "facts_summarizer_ack",
+                    "source": "test_satellite_alpha",
+                    "session_id": "session-1",
+                    "correlation_id": "corr-old",
+                    "domain": "facts",
+                    "message": "Stale acknowledgement.",
+                }
+            ]
+            if not command_completed.is_set():
+                return events
             return [
+                *events,
                 {
                     "event_id": 7,
                     "event_type": "facts_summarizer_ack",
                     "source": "test_satellite_alpha",
                     "session_id": "session-1",
+                    "correlation_id": "corr-test",
                     "domain": "facts",
                     "message": "One second while I look that up.",
                 }
@@ -612,7 +628,7 @@ class SatellitePlaybackResumeTests(unittest.TestCase):
 
         def send_command_in_flight(*_args, **_kwargs):
             polled.wait(timeout=1.0)
-            ack_played.wait(timeout=1.0)
+            command_completed.set()
             return CommandOutcome(
                 transcript="what is photosynthesis",
                 spoken_reply="Photosynthesis converts light into chemical energy.",
@@ -634,6 +650,7 @@ class SatellitePlaybackResumeTests(unittest.TestCase):
             logger=logger,
             runtime_state=runtime_state,
             pcm_bytes=b"\x00\x00" * 64,
+            correlation_id="corr-test",
         )
 
         self.assertEqual(result.outcome.spoken_reply, "Photosynthesis converts light into chemical energy.")

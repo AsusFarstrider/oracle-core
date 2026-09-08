@@ -267,7 +267,7 @@ class RoutineRuntimeSettingsTests(unittest.TestCase):
             ),
         )
 
-        alert = Mock(alert_id="timer-alert-1")
+        alert = Mock(alert_id="timer-alert-1", occurrence_id="timer-occurrence-1")
         with patch(
             "oracle_app.orchestration_routine_canonical.create_alert_batch",
             return_value=([alert], False),
@@ -281,11 +281,22 @@ class RoutineRuntimeSettingsTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["status"], "queued")
         self.assertEqual(result["alert_id"], "timer-alert-1")
+        self.assertEqual(result["occurrence_id"], "timer-occurrence-1")
         self.assertEqual(create_batch.call_args.kwargs["kind"], "timer")
         self.assertEqual(create_batch.call_args.kwargs["sources"], ["living_room_voice"])
         self.assertEqual(
             create_batch.call_args.kwargs["idempotency_key"],
             "routine-timer-sound:routine-1:timer_sound",
+        )
+        self.assertEqual(
+            create_batch.call_args.kwargs["metadata"],
+            {
+                "caller": "orchestration",
+                "operation": "timer_sound",
+                "completion_policy": "delivery_accepted",
+                "completion_owner_type": "routine",
+                "completion_owner_id": "routine-1:timer_sound",
+            },
         )
 
     def test_canonical_waiting_run_fails_closed_after_revision_change(self) -> None:

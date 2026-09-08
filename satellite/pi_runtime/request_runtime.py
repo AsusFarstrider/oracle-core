@@ -145,7 +145,12 @@ def _start_interim_ack_poller(
     def _poll() -> None:
         after_event_id = 0
         played = False
-        while not stop_event.is_set() and not played:
+        draining_after_stop = False
+        while not played:
+            if stop_event.is_set():
+                if draining_after_stop:
+                    break
+                draining_after_stop = True
             try:
                 events = fetch_command_events(
                     args.oracle_url,
@@ -157,6 +162,8 @@ def _start_interim_ack_poller(
                 )
             except Exception as exc:
                 logger.debug("interim_ack_poll_failed source=%s session_id=%s detail=%s", source, session_id, exc)
+                if draining_after_stop:
+                    break
                 stop_event.wait(_interim_ack_poll_interval_seconds(args))
                 continue
             for event in events:
@@ -167,6 +174,8 @@ def _start_interim_ack_poller(
                 except (TypeError, ValueError):
                     pass
                 if str(event.get("event_type") or "") != "facts_summarizer_ack":
+                    continue
+                if str(event.get("correlation_id") or "") != correlation_id:
                     continue
                 message = str(event.get("message") or "").strip()
                 if not message:
@@ -191,7 +200,7 @@ def _start_interim_ack_poller(
                     logger.warning("interim_ack_playback_failed source=%s session_id=%s detail=%s", source, session_id, exc)
                 played = True
                 break
-            if not played:
+            if not played and not draining_after_stop:
                 stop_event.wait(_interim_ack_poll_interval_seconds(args))
 
     thread = threading.Thread(target=_poll, name="oracle-interim-ack-poller", daemon=True)
@@ -355,7 +364,9 @@ def run_request_pipeline(
         if interim_ack_poller is not None:
             stop_event, thread = interim_ack_poller
             stop_event.set()
-            thread.join(timeout=1.0)
+            # The final reply is queued behind an acknowledgement already in
+            # progress. Never overlap or interrupt the Facts acknowledgement.
+            thread.join()
     command_elapsed_ms = (time.perf_counter() - command_started_at) * 1000.0
     logger.info("Reply: %s", outcome.spoken_reply)
     playback_effect = (outcome.effects or {}).get("satellite_playback")

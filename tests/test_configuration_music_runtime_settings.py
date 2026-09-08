@@ -119,10 +119,32 @@ class MusicRuntimeSettingsTests(unittest.TestCase):
             side_effect=TimeoutError("timed out"),
         ) as urlopen:
             with self.assertRaises(ControlPlaneError) as raised:
-                execution.execute_satellite_command("living_room_voice", "play_media", {"plex_key": "track-1"})
+                execution.execute_satellite_command(
+                    "living_room_voice",
+                    "play_media",
+                    {"plex_key": "track-1"},
+                    command_id="logical-command-1",
+                )
 
-        self.assertEqual(raised.exception.error_code, "control_timeout")
-        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(raised.exception.error_code, "control_outcome_unknown")
+        self.assertEqual(raised.exception.command_id, "logical-command-1")
+        self.assertEqual(raised.exception.outcome, "outcome_unknown")
+        self.assertEqual(raised.exception.passive_state, {"reachable": False, "detail": "ControlPlaneError"})
+        self.assertEqual(urlopen.call_count, 2)
+
+    def test_caller_generated_command_identity_is_sent_unchanged(self) -> None:
+        settings = MusicRuntimeSettings.from_effective_config(self._effective_config(enabled=True))
+        execution = CanonicalMusicExecution(settings, satellite_control_timeout_seconds=6)
+        response = unittest.mock.MagicMock()
+        response.read.return_value = b'{"ok": true, "command_id": "logical-command-2", "state": "paused"}'
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        with patch("oracle_app.music_runtime.control.request.urlopen", return_value=response) as urlopen:
+            execution.execute_satellite_command(
+                "living_room_voice", "pause", command_id="logical-command-2"
+            )
+        request_payload = json.loads(urlopen.call_args.args[0].data)
+        self.assertEqual(request_payload["command_id"], "logical-command-2")
 
     def test_canonical_music_health_uses_typed_execution(self) -> None:
         settings = MusicRuntimeSettings.from_effective_config(self._effective_config(enabled=True))

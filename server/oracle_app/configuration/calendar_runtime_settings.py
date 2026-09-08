@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from types import MappingProxyType
 from typing import Mapping
 
@@ -13,9 +14,21 @@ from .household_runtime_settings import HouseholdRuntimeSettings
 class CalendarFeedRuntimeSettings:
     id: str
     kind: str
+    label: str
+    user_ids: tuple[str, ...]
     credential_free_url: str | None
     url_secret: str | None
+    read_user: str | None
+    read_credential_secret: str | None
     resolved_url: str = field(repr=False)
+    read_credential: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
+class CalendarPersonRuntimeSettings:
+    id: str
+    display_name: str
+    aliases: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -55,8 +68,39 @@ class CalendarRuntimeSettings:
     provider_type: str | None
     timezone: str
     timeout_seconds: int | None
+    default_person_id: str | None
+    people: Mapping[str, CalendarPersonRuntimeSettings]
+    source_person_ids: Mapping[str, str]
     read: CalendarReadRuntimeSettings
     write: CalendarWriteRuntimeSettings
+
+    def person_id_for_query(self, text: str, *, source_id: str | None = None) -> str | None:
+        normalized = " ".join(str(text or "").casefold().split())
+        matches: set[str] = set()
+        for person in self.people.values():
+            for term in (person.id, person.display_name, *person.aliases):
+                if re.search(rf"\b{re.escape(' '.join(term.casefold().split()))}(?:'s)?\b", normalized):
+                    matches.add(person.id)
+        if len(matches) == 1:
+            return next(iter(matches))
+        personal_markers = (" my ", " am i ", " do i ", " what am i ", " i need ")
+        padded = f" {normalized} "
+        if any(marker in padded for marker in personal_markers):
+            return self.source_person_ids.get(str(source_id or "")) or self.default_person_id
+        return None
+
+    def calendar_id_for_query(self, text: str) -> str | None:
+        normalized = " ".join(str(text or "").casefold().split())
+        matches = {
+            feed.id
+            for feed in self.read.feeds_for_kind("events")
+            if feed.label.strip()
+            and re.search(
+                rf"\b(?:{re.escape(' '.join(feed.label.casefold().split()))}\s+calendar|calendar\s+{re.escape(' '.join(feed.label.casefold().split()))})\b",
+                normalized,
+            )
+        }
+        return next(iter(matches)) if len(matches) == 1 else None
 
     @classmethod
     def from_effective_config(cls, effective: EffectiveConfig) -> CalendarRuntimeSettings:
@@ -89,6 +133,21 @@ class CalendarRuntimeSettings:
             provider_type=None if provider is None else provider.type,
             timezone=household.household.timezone,
             timeout_seconds=None if provider is None else provider.timeout_seconds,
+            default_person_id=household.default_user_id,
+            people=MappingProxyType({
+                user.id: CalendarPersonRuntimeSettings(
+                    id=user.id,
+                    display_name=user.display_name,
+                    aliases=tuple(user.aliases),
+                )
+                for user in household.users.values()
+                if user.enabled
+            }),
+            source_person_ids=MappingProxyType({
+                source.id: source.associated_user_id
+                for source in household.sources.values()
+                if source.enabled and source.associated_user_id is not None
+            }),
             read=read,
             write=write,
         )
@@ -110,12 +169,24 @@ def _read_settings(
                 resolved_url = effective.secrets.resolve(feed.ics_url_secret)
             if resolved_url is None:
                 raise ValueError(f"Enabled canonical calendar feed {feed.id!r} lacks its URL value.")
+            read_credential = (
+                effective.secrets.resolve(feed.read_credential_secret)
+                if feed.read_credential_secret is not None
+                else None
+            )
+            if feed.read_credential_secret is not None and read_credential is None:
+                raise ValueError(f"Enabled canonical calendar feed {feed.id!r} lacks its read credential.")
             feeds[feed.id] = CalendarFeedRuntimeSettings(
                 id=feed.id,
                 kind=feed.kind,
+                label=feed.label or feed.id.replace("_", " ").title(),
+                user_ids=tuple(feed.user_ids),
                 credential_free_url=None if feed.ics_url is None else str(feed.ics_url),
                 url_secret=feed.ics_url_secret,
+                read_user=feed.read_user,
+                read_credential_secret=feed.read_credential_secret,
                 resolved_url=resolved_url,
+                read_credential=read_credential,
             )
     return CalendarReadRuntimeSettings(
         enabled=enabled,

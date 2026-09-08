@@ -47,6 +47,9 @@ class WeatherRuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.history.ssh_fallback.password, "weather-history-password")  # type: ignore[union-attr]
         self.assertEqual(settings.remote.provider_id, "remote_weather")
         self.assertEqual(settings.remote.user_agent, "Oracle remote weather")
+        self.assertTrue(settings.solar.enabled)
+        self.assertEqual(settings.solar.home_location_id, "home")
+        self.assertEqual(settings.solar.locations["home"].timezone, "Etc/UTC")
         self.assertNotIn("weather-history-password", repr(settings))
 
     def test_provider_coordinates_override_household_only_for_home_forecast(self) -> None:
@@ -189,11 +192,19 @@ class WeatherRuntimeSettingsTests(unittest.TestCase):
         }
 
         with patch(
-            "oracle_app.weather_remote._resolve_remote_location",
+            "oracle_app.provider_bridges.remote_weather.NominatimNwsRemoteWeatherBridge.resolve_location",
             return_value=location,
         ) as resolve, patch(
-            "oracle_app.weather_remote._fetch_station_observation",
-            return_value=(point, observation),
+            "oracle_app.provider_bridges.remote_weather.NominatimNwsRemoteWeatherBridge.fetch_current",
+            return_value={
+                "location": "Boston, MA", "requested_location": "boston",
+                "observation_timestamp": datetime.now(timezone.utc).isoformat(), "age_seconds": 0,
+                "freshness_class": "fresh", "source_name": "National Weather Service",
+                "source_type": "nws_observation", "temperature_f": 50,
+                "humidity_pct": 50, "barometer_inhg": 30, "wind_speed_mph": 0,
+                "wind_gust_mph": None, "wind_direction_deg": 0, "rain_rate_in_h": None,
+                "station_id": "KBOS", "station_name": "Boston", "text_description": "Clear",
+            },
         ) as fetch:
             speech, details = execution.build_remote_current_response(
                 "what is the weather in boston"
@@ -278,6 +289,7 @@ class WeatherRuntimeSettingsTests(unittest.TestCase):
         weather = {
             "enabled": True,
             **capabilities,
+            "solar": {"enabled": not current_only, "locations": []},
             "providers": {
                 "local_current": {
                     "type": "weewx",

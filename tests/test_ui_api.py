@@ -78,7 +78,7 @@ FACTS_ADMIN_CONFIG = {
 def _facts_execution():
     return SimpleNamespace(
         settings=SimpleNamespace(summarizer_enabled=True),
-        inference=object(),
+        inference=SimpleNamespace(can_attempt=lambda consumer: consumer == "facts_summarizer"),
         lookup=lambda request: lookup_facts(request, settings=FACTS_ADMIN_CONFIG),
     )
 

@@ -143,16 +143,23 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
             status="planned",
         )
 
-        with patch("oracle_app.inference.call_generate") as generate:
-            generate.return_value = {
-                "response": '{"domain":"facts","normalized_text":"tell me a joke","user_id":""}'
-            }
+        fallback_bridge = consumers.inference._consumer_providers[(  # noqa: SLF001 - composition fixture
+            "fallback_router",
+            "local_ollama",
+        )]
+        with patch.object(fallback_bridge, "generate") as generate:
+            from oracle_app.inference_bridges import InferenceProviderResponse
+
+            generate.return_value = InferenceProviderResponse(
+                '{"status":"unsupported","domain":"","normalized_text":"","user_id":""}',
+                "routing-model",
+            )
             result = execute_dispatch(dispatch, registry=registry)
 
         self.assertEqual(result.status, "executed")
-        self.assertEqual(result.result["proposed_domain"], "facts")
-        self.assertEqual(generate.call_args.kwargs["base_url"], "http://127.0.0.1:11434")
-        self.assertEqual(generate.call_args.kwargs["model"], "routing-model")
+        self.assertEqual(result.result["semantic_status"], "unsupported")
+        self.assertEqual(fallback_bridge.base_url, "http://127.0.0.1:11434")
+        self.assertEqual(fallback_bridge.model, "routing-model")
 
     def test_explicit_disabled_fallback_fails_without_legacy_fallback(self) -> None:
         consumers = self._consumers()
@@ -192,6 +199,7 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
                     brain["inference"]["shared_backend"]["enabled"] = True
                     brain["inference"]["shared_backend"]["provider"] = "local_ollama"
                     brain["inference"]["shared_backend"]["fallback_router"] = {
+                        "provider_order": ["local_ollama"],
                         "model": "routing-model",
                         "timeout_seconds": 9,
                     }

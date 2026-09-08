@@ -516,6 +516,7 @@ async function loadOverview() {
       fetchJson("/api/admin/health/calendar"),
       fetchJson("/api/admin/health/music"),
       fetchJson("/api/admin/health/audiobook"),
+      fetchJson("/api/admin/health/inference"),
       fetchJson("/api/admin/health/ollama"),
       fetchJson("/api/admin/health/news"),
       fetchJson("/api/admin/health/tts"),
@@ -530,6 +531,7 @@ async function loadOverview() {
       calendar,
       music,
       audiobook,
+      inference,
       ollama,
       news,
       tts,
@@ -543,6 +545,7 @@ async function loadOverview() {
       buildServiceItem("Calendar", calendar),
       buildServiceItem("Music", music),
       buildServiceItem("Audiobook", audiobook),
+      buildServiceItem("Inference", inference),
       buildServiceItem("Ollama", ollama),
       buildServiceItem("News", news),
       buildServiceItem("TTS", tts),
@@ -569,7 +572,7 @@ async function loadOverview() {
           </div>
           <div class="row-card">
             <span class="metric-label">Configured</span>
-            <strong>${health?.home_assistant_configured ? "Home Assistant" : "No HA"} / ${health?.ollama_configured ? "Ollama" : "No Ollama"}</strong>
+            <strong>${health?.home_assistant_configured ? "Home Assistant" : "No HA"} / ${health?.inference_configured ? "Inference" : "No inference"}</strong>
           </div>
           <div class="row-card">
             <span class="metric-label">Playback</span>
@@ -999,7 +1002,7 @@ function formatActivityWindow(window) {
 async function loadControl() {
   setStatus(elements.controlStatus, "Loading control surface.");
   try {
-    const [sources, playback, homeAssistant, stt, tts, music, audiobook, calendar, ollama, news] = await Promise.all([
+    const [sources, playback, homeAssistant, stt, tts, music, audiobook, calendar, inference, ollama, news] = await Promise.all([
       fetchJson("/api/admin/sources"),
       fetchJson("/api/admin/playback-authority"),
       fetchJson("/api/admin/health/home-assistant"),
@@ -1008,6 +1011,7 @@ async function loadControl() {
       fetchJson("/api/admin/health/music"),
       fetchJson("/api/admin/health/audiobook"),
       fetchJson("/api/admin/health/calendar"),
+      fetchJson("/api/admin/health/inference"),
       fetchJson("/api/admin/health/ollama"),
       fetchJson("/api/admin/health/news"),
     ]);
@@ -1021,6 +1025,7 @@ async function loadControl() {
       buildServiceItem("Music routing", music),
       buildServiceItem("Audiobookshelf", audiobook),
       buildServiceItem("Calendar", calendar),
+      buildServiceItem("Inference", inference),
       buildServiceItem("Ollama", ollama),
       buildServiceItem("News", news),
       {
@@ -2551,7 +2556,7 @@ async function loadSuggestions() {
             <div class="suggestion-form__row suggestion-form__compact">
               <label>
                 <span>Limit</span>
-                <input name="max_suggestions" type="number" min="1" max="100" value="10">
+                <input name="max_suggestions" type="number" min="1" max="${escapeAttribute(String(status.max_suggestions || 10))}" value="${escapeAttribute(String(status.max_suggestions || 10))}">
               </label>
               <label class="suggestion-checkbox">
                 <input name="use_mock" type="checkbox">
@@ -2575,9 +2580,15 @@ async function loadSuggestions() {
           </div>
           <div class="service-list">
             <div class="row-card"><span class="metric-label">Adapter</span><strong>${escapeHtml(status.adapter || "unknown")}</strong></div>
+            <div class="row-card"><span class="metric-label">Mode</span><strong>${escapeHtml(status.mode || "unknown")}</strong></div>
+            <div class="row-card"><span class="metric-label">Model authority</span><strong>${escapeHtml(status.model_authority || "unknown")}</strong></div>
             <div class="row-card"><span class="metric-label">Run</span><strong>${escapeHtml(latestRun?.run_id || "none")}</strong></div>
+            <div class="row-card"><span class="metric-label">Evidence collection</span><strong>${escapeHtml(latestRun?.collection_status || "unknown")}</strong></div>
             <div class="row-card"><span class="metric-label">Suggestions</span><strong>${escapeHtml(String(latestRun?.suggestion_count ?? suggestions.length))}</strong></div>
+            <div class="row-card"><span class="metric-label">Reviewed repeats suppressed</span><strong>${escapeHtml(String(latestRun?.suppressed_count ?? 0))}</strong></div>
           </div>
+          ${latestRun ? renderSuggestionCollectorStatus(latestRun.collector_status || {}) : ""}
+          ${latestRun?.failure_class ? `<div class="notice">Failure class: ${escapeHtml(latestRun.failure_class)}</div>` : ""}
           ${latestRun?.error ? `<div class="notice">${escapeHtml(latestRun.error)}</div>` : ""}
         </article>
       </section>
@@ -2666,6 +2677,22 @@ function renderSuggestionList(suggestions) {
     .join("");
 }
 
+function renderSuggestionCollectorStatus(statuses) {
+  const entries = Object.entries(statuses || {});
+  if (!entries.length) return '<p class="small-copy">No collector status has been recorded.</p>';
+  return `
+    <div class="service-list">
+      ${entries.map(([name, value]) => `
+        <div class="row-card">
+          <span class="metric-label">${escapeHtml(name)}</span>
+          <strong>${escapeHtml(value?.status || (value?.ok ? "available" : "unavailable"))}</strong>
+          ${Array.isArray(value?.issues) && value.issues.length ? `<small>${escapeHtml(value.issues.join("; "))}</small>` : ""}
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function wireSuggestions() {
   document.querySelector("#suggestions-generate-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2738,6 +2765,7 @@ async function loadSuggestionDetail(id) {
       </div>
     </div>
     ${item.similar_to_id ? `<div class="notice">Similar to previously reviewed suggestion ${escapeHtml(item.similar_to_id)}.</div>` : ""}
+    <div class="notice">Advisory only. Stored for human review; no Oracle action is executed.</div>
     <div class="suggestion-detail-grid">
       <div>
         <p class="metric-label">Summary</p>
@@ -2746,6 +2774,9 @@ async function loadSuggestionDetail(id) {
         <p>${escapeHtml(item.suggested_action)}</p>
         <p class="metric-label">Evidence</p>
         <ul>${(item.evidence || []).map((entry) => `<li>${escapeHtml(entry)}</li>`).join("") || "<li>No evidence provided.</li>"}</ul>
+        <p class="metric-label">Provenance</p>
+        <p>${escapeHtml(item.source)} via run ${escapeHtml(item.run_id)}; collection ${escapeHtml(item.run?.collection_status || "unknown")}.</p>
+        ${renderSuggestionCollectorStatus(item.run?.collector_status || {})}
       </div>
       <div>
         <p class="metric-label">Raw OpenClaw JSON</p>

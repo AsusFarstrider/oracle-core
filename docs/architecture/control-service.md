@@ -76,6 +76,15 @@ That cache is intentionally narrow:
 
 The brain resolves music and audiobook requests, while the satellite control service executes local playback-control actions and reports current playback-authority state.
 
+One logical Brain operation may retain a caller-generated `command_id` across
+its transport boundary. If a mutating request times out after transmission, the
+Brain reports `outcome_unknown` with that identity and performs a sanitized
+passive playback-authority read. It does not automatically retry with either a
+fresh or repeated identity. A same-identity replay is permitted only for an
+existing operation whose semantics explicitly require retry and only while the
+control service's current ephemeral cache is known to cover it. Durable retry
+receipts and cross-restart identity remain outside this layer until Stage 9.
+
 ## V2 Configuration Reconciliation
 
 The control service starts from one immutable satellite projection/local-secret

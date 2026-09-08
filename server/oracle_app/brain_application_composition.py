@@ -95,7 +95,11 @@ class CanonicalBrainApplicationComposition:
             validate_standard_storage_settings(
                 runtime.brain.memory_storage.database_path,
             )
-        core_consumers = BrainCoreRuntimeConsumers.from_runtime_settings(runtime.brain)
+        core_consumers = BrainCoreRuntimeConsumers.from_runtime_settings(
+            runtime.brain,
+            facts=None if runtime.information is None else runtime.information.facts,
+            secrets=runtime.effective_config.secrets,
+        )
         if startup.installation_layout is not None:
             projection_store = GenerationStore(
                 startup.installation_layout.configuration,

@@ -1,31 +1,27 @@
 # Facts Domain Contract
 
-Status: V1 implementation contract.
+Status: ratified and implemented through V2 Stage 7 Slice 5. Existing provider-
+neutral retrieval, cache, deterministic degradation, and evidence authority
+remain in force.
 
-The `facts` domain owns factual and informational lookup behavior inside
-Oracle. It replaces the removed user-facing `chat` target for factual and
-informational questions, but it must not become a control path or a provider-specific API
-surface.
+## Purpose and ownership
 
-## Ownership
+The `facts` domain owns bounded factual and explanatory lookup from configured
+evidence providers. It is not general Conversation, a creative-writing surface,
+a control path, or a provider-specific API.
 
-The facts domain owns:
+Facts owns question interpretation, provider-neutral request construction,
+provider selection/orchestration, normalized result handling, evidence-aware
+presentation, bounded follow-up, and final Oracle reply shaping. Fact provider
+bridges own provider-specific retrieval, payloads, identifiers, URLs, provenance
+normalization, transport, and provider-error translation.
 
-- user-facing factual lookup semantics;
-- provider-neutral request construction;
-- provider selection and orchestration;
-- normalized response handling;
-- final Oracle reply shaping.
+Domain code must not depend on raw provider response shapes. An inference model
+is a presentation helper, never the facts provider or factual authority.
 
-Fact provider bridges own provider-specific retrieval details, including
-Wikipedia page shapes, Wikidata identifiers, future Alexandria payloads, static
-fixture formats, URLs, and provenance normalization.
+## Route scope
 
-Oracle domain code must not depend on raw provider response shapes.
-
-## Route Scope
-
-Facts may handle questions such as:
+Facts may handle evidence-backed requests such as:
 
 - "What is a black hole?"
 - "Who wrote Frankenstein?"
@@ -33,230 +29,140 @@ Facts may handle questions such as:
 - "How does photosynthesis work?"
 - "Explain the Roman Republic."
 
-Facts must not handle:
+Facts does not own device/service control, network diagnostics, Calendar,
+Weather, News, media playback, home automation, runbooks, arbitrary geocoding,
+current operational data owned elsewhere, creative generation, role-play, jokes,
+stories, or open-ended conversation. Deterministic owners win before Facts.
+Unsupported neighboring capabilities must fail truthfully rather than being
+silently stretched into a Facts lookup.
 
-- device control;
-- service control;
-- network diagnostics;
-- calendar lookup;
-- music or audiobook playback control;
-- home automation;
-- runbook execution.
+## Provider-neutral states
 
-If a deterministic Oracle domain owns the request, that domain wins before
-facts.
-
-## Provider-Neutral States
-
-Every facts provider bridge must normalize into one of these states:
+Every Facts provider bridge normalizes to one of:
 
 - `answered`;
 - `evidence_only`;
 - `no_result`;
-- `provider_error`;
+- `provider_error`; or
 - `disabled`.
 
-Facts replies must fail gracefully for `no_result`, `provider_error`, and
-`disabled`.
+These states remain distinct. `no_result` is not a provider outage;
+`provider_error` is not lack of evidence; and `disabled` does not activate a
+legacy or alternate authority.
 
-## Model Boundary
+## Evidence and presentation
 
-The local model may later summarize normalized facts payloads, but it is not the
-facts provider and must not be treated as factual authority.
+The normalized result preserves its original answer, evidence, provider,
+retrieval method, provenance, and meaningful source/retrieval timestamps. Facts
+answers the exact question first and may then identify its evidence. Related but
+insufficient evidence must produce an honest insufficiency response rather than
+a generic article introduction or a model-authored guess.
 
-When summarization is enabled, the model is the primary presentation layer for
-facts replies. It receives only the normalized provider answer, evidence
-snippets, provenance, and the user query. It must answer only from that supplied
-evidence.
+Facts summarization is optional and provider/model independent. It receives only
+the normalized answer, bounded evidence snippets, provenance needed for faithful
+presentation, and the user query. Stage 7 remains evidence-only: a model may not
+supplement the packet from training knowledge or undisclosed retrieval.
 
-Summarization is optional and controlled by `ORACLE_FACTS_SUMMARIZER_ENABLED` /
-`facts_summarizer_enabled`.
+A valid model result is either a supported concise `summary` or `insufficient`.
+Valid insufficiency is semantic success and must not trigger another inference
+provider. Operational or contract-invalid output may use the next provider in
+the Facts-specific configured order under
+[`ollama-policy.md`](ollama-policy.md). A successful summary is stored separately
+and marked as model-presented; it never replaces the provider-normalized fields
+or enters the Facts retrieval cache.
 
-Summarization applies only to:
+When summarization is disabled, unavailable, or exhausted, Oracle remains useful
+deterministically. For `answered`, it selects a concise relevant sentence from
+the normalized answer. For `evidence_only`, it uses bounded evidence when useful
+or reports that it found related information without a reliable answer.
+`no_result`, `provider_error`, and `disabled` each receive their own concise
+truthful response. An inference failure is not rewritten as a facts-provider
+failure.
 
-- `answered`;
-- `evidence_only`.
+An enabled voice Facts lookup emits its normal acknowledgement immediately when
+the Facts handler accepts execution, before retrieval begins. This is provider-
+independent interaction UX: direct routing and valid fallback re-entry behave
+the same, and cache state, inference availability/provider, or predicted latency
+do not change it. The final answer queues behind an acknowledgement already in
+progress; it never interrupts or overlaps it. The event is source/session
+scoped, is not part of final `reply_text`, and contains only the fixed message
+and safe routing fields—never payloads, prompts, evidence, provenance, tokens,
+or secrets. Provenance/age responses that do not perform a lookup and admin
+diagnostic lookup do not emit this voice event.
 
-The dispatch result must preserve the original provider-normalized `answer`,
-`evidence`, `provider`, and `retrieval` fields. A successful summarization adds
-a separate `summary` field and sets `summarized_by_model = true`.
+## Bounded informational follow-up
 
-Summaries must answer the exact user question. For specific-property questions
-such as lifespan, author, date, or location, a generic article introduction is
-not acceptable unless it directly answers the requested property. If the
-provider evidence is related but insufficient, the model should say Oracle could
-not find a reliable answer from the supplied evidence.
+Facts may retain a typed, expiring informational subject in the canonical
+effective session so a bounded same-source follow-up can reuse the subject or
+ask for a supported clarification. It must not retain unbounded conversation,
+raw provider payloads, or hidden model history. Explicit new wording, pending
+clarification/confirmation, reset, expiry, ambiguity, source/user isolation, and
+topic changes retain the existing session precedence rules. Repeat eligibility
+does not expand to arbitrary provider text.
 
-If summarization fails or produces an invalid/generic answer, Oracle must fall
-back to the provider-normalized result and keep `summarized_by_model = false`.
-A summarizer failure is not a provider failure.
+## Provider-neutral cache
 
-When `ORACLE_FACTS_ACK_ENABLED` / `facts_ack_enabled` is enabled, Oracle may
-emit a source/session-scoped interim `facts_summarizer_ack` command event
-immediately before calling the local model for facts summarization. This event
-is latency-cover feedback for voice clients. It is not part of final
-`reply_text`, and it must not be emitted for facts states that do not invoke the
-summarizer.
+Facts lookup caching stores only normalized provider results. It does not store
+model summaries, raw provider payloads, credentials, or secrets. Cache identity
+includes normalized query, provider, provider-relevant settings, and request
+evidence options.
 
-Voice satellites may poll `/api/conversation/command-events` while their canonical command
-request is in flight and play a matching `facts_summarizer_ack` event once.
-Final answer playback comes from canonical `/api/conversation/command` `reply_text`.
+`answered`, `evidence_only`, and `no_result` may be cached. `provider_error` and
+`disabled` must not be cached. Expired, corrupt, malformed, or incompatible
+entries are misses. Cache failure is not provider failure. Maintenance prunes
+invalid/expired entries, rejects old versions, retains at most the 512 newest
+valid entries, and writes with locked atomic replacement. Cache hits preserve evidence and
+provenance and may add retrieval notes so diagnostics can distinguish reuse from
+live retrieval.
 
-The interim event must contain only safe routing/presentation fields such as
-event type, source, session id, domain, message, and timestamp. It must not
-include provider raw payloads, prompts, evidence blobs, provenance details,
-tokens, or secrets.
+## Admin diagnostics
 
-When summarization is disabled or unavailable, Oracle may shape `reply_text`
-from the normalized provider answer by selecting a concise sentence that matches
-the user's question intent. This is presentation-only behavior: the dispatch
-payload must still retain the full normalized provider answer and evidence for
-UI, diagnostics, provenance, and later summarization.
+A read-only admin Facts endpoint may expose normalized lookup, provider
+selection, evidence/provenance, cache behavior, inference outcome class, and
+safe provider/model identity. It uses the same domain execution dependency and
+must not expose raw provider payloads, prompts, tokens, credentials, or
+provider-specific internals; emit voice events; dispatch actions; or change the
+canonical command reply path.
 
-## Admin Diagnostics
+## Provider bridges
 
-Oracle may expose a read-only admin facts lookup endpoint for debugging facts
-quality, provider selection, evidence, provenance, cache behavior, and
-summarizer behavior.
+Current bridges include static fixtures and the Wikipedia API. Future Wikidata
+or Alexandria bridges remain possible without changing Facts semantics.
 
-The diagnostic surface must use the same provider-neutral facts request/result
-shape as the normal facts domain. It must not expose raw provider payloads,
-prompts, tokens, secrets, credentials, or provider-specific API internals.
+The static bridge supports explicit `answered`, `evidence_only`, `no_result`,
+and `provider_error` fixtures and honors provider-neutral evidence options.
 
-Diagnostic summarization is presentation/debug visibility only. It must not
-emit voice interim acknowledgment events, dispatch actions, or change the
-canonical `/api/conversation/command` reply path.
+The Wikipedia bridge executes a Facts-owned search plan, retrieves candidates
+and summaries, and normalizes provider-specific title, language, URL, answer,
+evidence, and provenance into Oracle's result. Search/summary misses become
+`no_result`; timeouts, transport failures, malformed JSON, and malformed payloads
+become `provider_error`.
 
-## Provider-Neutral Cache
+## Configuration and current compatibility
 
-Facts lookup caching is optional and controlled by `ORACLE_FACTS_CACHE_ENABLED`
-/ `facts_cache_enabled` plus `ORACLE_FACTS_CACHE_TTL_SECONDS` /
-`facts_cache_ttl_seconds`.
+Facts is explicitly enabled and provider-selected in the fixed `facts` section
+of canonical `domains/information.yaml`. Its retrieval/cache settings and its
+inference enablement/provider order are typed domain-owned choices. Credential
+presence, environment variables, and local compatibility files do not enable
+Facts or inference and cannot override canonical selection.
 
-The cache stores only normalized `FactsProviderResult` payloads. It must not
-store local-model summaries, raw provider payloads, provider credentials, or
-Oracle secrets.
+Canonical composition constructs one immutable Facts execution dependency used
+by voice dispatch and diagnostics. Physical grouping with News and Suggestions
+does not merge their runtime, provider, cache, inference, or failure contracts.
+An absent/disabled Facts capability remains disabled and never falls back to
+`chat` or another authority.
 
-Cache keys must include:
+Facts now executes its owned exact `summary|insufficient` contract through the
+configured Luna/Ollama order. Valid insufficiency is terminal; operational and
+contract failure alone may advance. The prompt and validator prohibit outside
+model knowledge, invented numbers and malicious evidence instructions. A model
+summary is never inserted into the retrieval cache.
 
-- normalized query text;
-- provider id;
-- provider-relevant settings such as Wikipedia language;
-- request evidence options that affect the normalized payload.
-
-Cached results must preserve provider, evidence, provenance, retrieval method,
-and detail fields. A cache hit may add retrieval notes such as `cache_hit` and
-`cached_at=<timestamp>` so diagnostics can distinguish live provider retrieval
-from cached normalized results.
-
-`answered`, `evidence_only`, and `no_result` results may be cached.
-`provider_error` and `disabled` results must not be cached.
-
-Expired, corrupt, malformed, or unreadable cache entries are misses. Cache
-failure must not become a facts provider failure.
-
-The facts owner prunes expired and malformed entries, rejects older cache
-versions, and retains at most 512 newest valid entries. Maintenance runs at
-Brain startup and opportunistically after cache writes. Writes use locked
-atomic replacement so concurrent requests cannot lose an otherwise valid
-entry or expose partial JSON. Cache diagnostics are read-only and do not make
-the cache provider truth.
-
-## V1 Provider Shape
-
-Temporary providers may include:
-
-- static fixtures;
-- Wikipedia API;
-- Wikidata API;
-- future Alexandria API.
-
-These are bridges. Adding or replacing a provider must not require rewriting the
-facts domain.
-
-## Wikipedia API Provider
-
-`wikipedia_api` is a temporary facts provider bridge.
-
-The facts domain owns question-intent shaping, search-plan construction,
-candidate scoring, and lifespan-evidence selection. The bridge:
-
-- executes the domain-provided Wikipedia search plan and retrieves candidate
-  page titles;
-- uses the Wikipedia REST page summary payload for answer/evidence;
-- normalizes the result into Oracle's `FactsProviderResult`;
-- keeps Wikipedia-specific URL, title, language, and payload details inside the
-  provider bridge.
-
-Configuration:
-
-```env
-ORACLE_FACTS_PROVIDER=wikipedia_api
-ORACLE_FACTS_WIKIPEDIA_LANGUAGE=en
-ORACLE_FACTS_WIKIPEDIA_TIMEOUT_SECONDS=8
-```
-
-Search misses and page-summary 404s normalize to `no_result`. Transport
-failures, timeouts, malformed JSON, or malformed summary payloads normalize to
-`provider_error`.
-
-## Static Provider Fixtures
-
-The static provider is the V1 test and development bridge. It reads configured
-`facts_static_items` and normalizes them into the same provider-neutral result
-shape as any future provider.
-
-Fixture items may explicitly exercise all required result states:
-
-```json
-{
-  "id": "largest_animal",
-  "status": "answered",
-  "queries": ["what is the largest animal"],
-  "answer": {"text": "The blue whale is the largest animal known to have ever existed."},
-  "evidence": [
-    {
-      "title": "Blue whale",
-      "snippet": "The blue whale is the largest animal known to have ever existed.",
-      "source_name": "Static Fixture",
-      "source_type": "static",
-      "provenance": {"url": "https://example.invalid/static/blue-whale"}
-    }
-  ]
-}
-```
-
-Supported fixture `status` values:
-
-- `answered`;
-- `evidence_only`;
-- `no_result`;
-- `provider_error`.
-
-If `status` is omitted, a fixture with answer text becomes `answered`, a fixture
-with evidence but no answer becomes `evidence_only`, and a non-match becomes
-`no_result`.
-
-The static provider must honor provider-neutral request options such as
-`include_evidence` and `max_evidence_items`.
-
-## Current Compatibility
-
-Explicit facts routing is opt-in through `ORACLE_FACTS_ENABLED` /
-`facts_enabled` while the provider bridge rollout is incomplete. Fallback
-interpretation may still propose `facts`; with facts disabled, the facts domain
-returns the canonical disabled response instead of falling back to `chat`.
-
-In V2, current environment/local-file selection is importer-only after cutover.
-Facts configuration is the fixed `facts` section of
-`domains/information.yaml`, with explicit enablement and domain-owned provider
-selection. The physical grouping with news and Suggestions does not merge their
-runtime behavior or failure contracts.
-
-The canonical Brain constructs one immutable facts execution dependency from
-that section. Route enablement, voice dispatch, static or Wikipedia provider
-selection, cache policy, summarizer acknowledgement, and the read-only admin
-lookup consume that dependency directly. They do not reconstruct a compatibility
-settings dictionary or consult compatibility getters. An absent or disabled
-canonical facts capability remains disabled; it never falls back to another
-authority.
+The handler retains only a bounded subject, evidence/source identifiers and
+retrieval timestamp in canonical informational context. Obvious pronoun,
+provenance and lookup-age follow-ups use that same-source context; ambiguity
+requires clarification. Wikipedia date questions may use the existing page-
+extract path when the selected summary lacks a date, with the requested date
+qualifier preserved to prevent unrelated page dates from becoming answers.
+Normalized retrieval, cache behavior and deterministic no-inference replies
+remain the compatibility baseline.

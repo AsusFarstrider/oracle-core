@@ -1,4 +1,5 @@
 # Minimal Oracle Brain production runtime.
+astral==3.2
 fastapi==0.116.1
 pydantic==2.13.4
 ruamel.yaml==0.19.1

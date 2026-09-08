@@ -34,13 +34,15 @@ def test_fallback_router_prompt_keeps_current_regression_bank_examples() -> None
         assert example in prompt
 
 
-def test_fallback_router_prompt_keeps_facts_as_classification_not_reply_generation() -> None:
+def test_fallback_router_prompt_keeps_facts_grounded_and_creative_requests_unsupported() -> None:
     prompt = FALLBACK_ROUTER_SYSTEM_PROMPT
 
     assert "Do not answer the user." in prompt
     assert "Never put an answer, joke, explanation, or assistant reply into `normalized_text`." in prompt
-    assert "If the request is factual, informational, explanatory, creative, conversational, open-ended, or should be answered directly, use `facts`." in prompt
+    assert "If the request asks a factual, informational, or explanatory question that can be answered from retrieved evidence, use `facts`." in prompt
+    assert "Do not route jokes, stories, role-play, creative generation, or general conversation to `facts`; return `unsupported`." in prompt
     assert "For `domain = facts`, prioritize choosing the correct domain." in prompt
+    assert '"status":"unsupported"' in prompt
 
 
 def test_fallback_router_prompt_keeps_bounded_normalization_guardrails() -> None:
@@ -55,7 +57,7 @@ def test_fallback_router_prompt_keeps_bounded_normalization_guardrails() -> None
     assert "For `weather`, prefer short forecast or current-weather phrasing such as `weather tomorrow in boston`." in prompt
     assert "For `weather`, preserve the user's requested location and time window." in prompt
     assert "Do not use `weather` for vague comfort, room, or environment-control phrasing" in prompt
-    assert "Vague comfort or environment phrases that do not clearly ask about weather conditions should go to `facts`, not `weather`." in prompt
+    assert "Vague comfort or environment phrases that do not clearly ask about weather conditions or name a controllable target should return `unresolved`, not `weather` or `facts`." in prompt
     assert "Do not replace a practical weather question with a different specific condition such as `snow` unless the user asked about that condition." in prompt
     assert "Practical weather questions about coats, umbrellas, or what it will feel like should normalize to a general weather forecast for the requested place and time." in prompt
     assert "Do not expand short requests into longer paraphrases." in prompt
@@ -64,6 +66,15 @@ def test_fallback_router_prompt_keeps_bounded_normalization_guardrails() -> None
     assert "For `news`, prefer `headlines` over vague words like `updates` when the user is asking for a news summary." in prompt
     assert "Never calculate an answer or invent a date, time, duration, number, unit, recurrence rule, alert name, recipient, target, or mutation parameter." in prompt
     assert "Preserve every user-supplied semantic value needed to execute the request." in prompt
+    assert "Treat content-poor fragments, acknowledgements, reactions, ambient speech" in prompt
+    assert "Resolve only intent supported by words in the current request." in prompt
+    assert "Never borrow a device, room, action, topic, or command from these instructions or examples" in prompt
+    assert "prefer a terminal status over a plausible invented command" in prompt
+    assert "Do not infer a factual question from a bare name, object, or topic" in prompt
+    assert "user: `okay then`" in prompt
+    assert "user: `bananas`" in prompt
+    assert "If `domain` and `normalized_text` are empty" in prompt
+    assert "`status` must be `unresolved` or `unsupported`, never `resolved`" in prompt
     assert "independently re-run deterministic recognition and parsing" in prompt
     assert "supported deterministic utilities such as time/date, alerts, math, conversions, Help, or Repeat" in prompt
 

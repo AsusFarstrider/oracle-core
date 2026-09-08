@@ -11,6 +11,7 @@ from .schemas import (
     AudiobookHealthResponse,
     CalendarHealthResponse,
     HomeAssistantHealthResponse,
+    InferenceHealthResponse,
     LibreNmsHealthResponse,
     MusicHealthResponse,
     NewsHealthResponse,
@@ -18,6 +19,41 @@ from .schemas import (
     SttHealthResponse,
     TtsHealthResponse,
 )
+
+
+def check_inference_health(*, inference=None) -> InferenceHealthResponse:
+    if inference is None:
+        return InferenceHealthResponse(
+            status="disabled",
+            service="oracle-brain",
+            configured=False,
+            fallback_router_order=[],
+            facts_summarizer_order=[],
+            providers=[],
+            detail="Shared inference consumers are disabled.",
+        )
+    fallback_order = list(inference.settings.consumer_orders.get("fallback_router", ()))
+    facts_order = list(inference.settings.consumer_orders.get("facts_summarizer", ()))
+    rows = list(inference.operational_status())
+    if not fallback_order and not facts_order:
+        status = "disabled"
+        detail = "Shared inference consumers are disabled."
+    elif any(not bool(row["available_for_attempt"]) for row in rows):
+        status = "degraded"
+        detail = "One or more configured consumer/provider relationships are cooling down after failure."
+    else:
+        status = "ok"
+        detail = "Configured inference relationships are eligible for bounded attempts; this does not perform generation."
+    return InferenceHealthResponse(
+        status=status,
+        service="oracle-brain",
+        configured=bool(fallback_order or facts_order),
+        fallback_router_order=fallback_order,
+        facts_summarizer_order=facts_order,
+        providers=rows,
+        local_music_provider=inference.settings.local_provider_id,
+        detail=detail,
+    )
 
 
 def check_audiobook_health(

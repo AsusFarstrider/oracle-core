@@ -16,7 +16,8 @@ The provider-bridge package is fully reconciled by the ledger. Its formal
 domain translators remain provider bridges. Network observation DTOs/probes are
 classified by their actual role. Canonical service/router/SSH execution lives
 behind typed network platform adapters; obsolete provider-bridge control
-executors have been deleted. OpenClaw remains Suggestions advisory transport.
+executors have been deleted. Suggestions owns one advisory contract above
+direct OpenAI/Luna and optional OpenClaw/local-model transports.
 No speculative adapter is promoted by
 this record: the existing WebSocket module remains recorded only as part of the
 currently selectable/validated OpenClaw adapter surface and is not made active.
@@ -29,8 +30,12 @@ The Slice 3 boundary is now:
   provider payload parsing, light normalization, and domain-scoped provider
   errors;
 - web routes alone translate provider/domain failures to HTTP responses;
-- `InferenceClient` is the one canonical typed Ollama dependency, while each
-  consumer retains its prompt and decision policy;
+- the current `InferenceClient` is the one canonical typed dependency and now
+  contains the bounded Luna/Ollama execution boundary, independent fallback and
+  Facts orders, operational/contract failover, and cooldown recovery;
+- fallback and Facts callers adopt that semantic execution method in Slices 4
+  and 5 respectively; Music remains on the same client's explicit local-Ollama
+  compatibility method and cannot select Luna;
 - health composition, caches, media streaming, network policy/platform execution, and satellite
   playback retain the owners named in the ledger.
 

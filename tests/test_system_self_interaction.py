@@ -111,7 +111,10 @@ def test_repeat_eligibility_excludes_provider_text_secrets_and_mutations() -> No
 def test_help_catalog_reports_enabled_disabled_deferred_and_task_guidance() -> None:
     enabled_calendar = SimpleNamespace(canonical_execution=object())
     registry = _Registry({"calendar": enabled_calendar, "music": SimpleNamespace(canonical_execution=None)})
-    assert "read the configured calendar" in render_help("capability", "calendar", registry=registry)["speech"]
+    calendar_help = render_help("capability", "calendar", registry=registry)["speech"]
+    assert "read the configured calendar and create events" in calendar_help
+    assert "edit" not in calendar_help
+    assert "delete" not in calendar_help
     assert "not enabled" in render_help("capability", "music", registry=registry)["speech"]
     assert "after V2" in render_help("capability", "stopwatch", registry=registry)["speech"]
     assert "only tomorrow's occurrence" in render_help("task", "change_tomorrow_alarm", registry=registry)["speech"]

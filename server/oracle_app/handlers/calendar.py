@@ -4,9 +4,11 @@ from typing import Any
 
 from oracle_app import state
 from oracle_app.calendar import parse_calendar_query
+from oracle_app.calendar_context import resolve_calendar_context, retain_calendar_context
 from oracle_app.calendar_runtime import CanonicalCalendarExecution
 from oracle_app.calendar_write import build_or_continue_event_draft
 from oracle_app.schemas import DispatchPlan
+from oracle_app.session_state import clear_pending_state, get_pending_state, set_pending_state
 
 
 class CalendarHandler:
@@ -151,7 +153,58 @@ class CalendarHandler:
             }
             return dispatch
 
-        query = parse_calendar_query(normalized, timezone_name=timezone_name)
+        person_id = (
+            self.canonical_execution.settings.person_id_for_query(normalized, source_id=source)
+            if self.canonical_execution is not None
+            else None
+        )
+        calendar_id = (
+            self.canonical_execution.settings.calendar_id_for_query(normalized)
+            if self.canonical_execution is not None
+            else None
+        )
+        pending_query = None
+        informational_pending = get_pending_state(source, session_id, domain="informational")
+        if (
+            isinstance(informational_pending, dict)
+            and informational_pending.get("target_domain") == "calendar"
+            and informational_pending.get("clarification_kind") == "calendar_event_choice"
+        ):
+            options = [str(item) for item in informational_pending.get("options") or []]
+            matches = [option for option in options if option.casefold() == normalized.casefold()]
+            if len(matches) != 1:
+                dispatch.status = "pending_clarification"
+                dispatch.result = {
+                    "action": "find_event",
+                    "prompt": str(informational_pending.get("prompt") or "Which event did you mean?"),
+                    "options": options,
+                }
+                return dispatch
+            clear_pending_state(source, session_id, domain="informational", reason="calendar_event_selected")
+            pending_query = parse_calendar_query(
+                f"when is {matches[0]}",
+                timezone_name=timezone_name,
+                person_id=person_id,
+                calendar_id=calendar_id,
+            )
+        context_resolution = resolve_calendar_context(
+            normalized,
+            source=source,
+            session_id=session_id,
+            timezone_name=timezone_name,
+            person_id=person_id,
+            calendar_id=calendar_id,
+        )
+        if context_resolution.result is not None:
+            dispatch.status = "executed"
+            dispatch.result = context_resolution.result
+            return dispatch
+        query = pending_query or context_resolution.query or parse_calendar_query(
+            normalized,
+            timezone_name=timezone_name,
+            person_id=person_id,
+            calendar_id=calendar_id,
+        )
         if query is None:
             dispatch.status = "failed"
             dispatch.result = {
@@ -176,8 +229,36 @@ class CalendarHandler:
             }
             return dispatch
 
+        if result.get("ambiguous"):
+            options = list(dict.fromkeys(
+                str(item.get("summary") or "").strip()
+                for item in result.get("events") or []
+                if isinstance(item, dict) and str(item.get("summary") or "").strip()
+            ))[:5]
+            if len(options) >= 2:
+                prompt = f"I found {', '.join(options)}. Which event did you mean?"
+                set_pending_state(
+                    source,
+                    session_id,
+                    pending_type="clarification",
+                    domain="informational",
+                    payload={
+                        "target_domain": "calendar",
+                        "clarification_kind": "calendar_event_choice",
+                        "prompt": prompt,
+                        "options": options,
+                        "original_text": normalized,
+                        "subject_id": "calendar_event_choice",
+                    },
+                )
+                dispatch.status = "pending_clarification"
+                dispatch.result = {"action": "find_event", "prompt": prompt, "options": options}
+                return dispatch
+
         dispatch.status = "executed"
         dispatch.result = result
+        if str(result.get("action") or "") != "calendar_unsupported_mutation":
+            retain_calendar_context(result, source=source, session_id=session_id)
         return dispatch
 
 

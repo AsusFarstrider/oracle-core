@@ -2,17 +2,45 @@ from __future__ import annotations
 
 import json
 import logging
-import socket
+import re
 from typing import Any
-from urllib import error
 
-from oracle_app.inference import InferenceClient
+from oracle_app.inference import (
+    InferenceAttempt,
+    InferenceClient,
+    InferenceContractError,
+    InferenceExecutionError,
+)
 from oracle_app.constants import FALLBACK_ROUTER_SYSTEM_PROMPT
 from oracle_app.runtime_contracts import ContractValidationError, build_failure_result, validate_fallback_router_decision
 from oracle_app.schemas import DispatchPlan
 
 
 logger = logging.getLogger("oracle-brain.fallback-router")
+
+
+FALLBACK_ROUTER_RESULT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "string", "enum": ["resolved", "unresolved", "unsupported"]},
+        "domain": {
+            "type": "string",
+            "enum": ["", "facts", "home_assistant", "calendar", "music", "news", "audiobook", "weather", "system"],
+        },
+        "normalized_text": {"type": "string", "maxLength": 4096},
+        "user_id": {"type": "string", "maxLength": 128},
+    },
+    "required": ["status", "domain", "normalized_text", "user_id"],
+    "additionalProperties": False,
+}
+
+_TEMPORAL_MARKERS = frozenset(
+    {"today", "tomorrow", "tonight", "yesterday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
+)
+_UNIT_MARKERS = frozenset(
+    {"second", "seconds", "minute", "minutes", "hour", "hours", "day", "days", "week", "weeks", "degree", "degrees", "percent", "am", "pm"}
+)
+_NEGATION_MARKERS = frozenset({"no", "not", "never", "dont", "don't", "cannot", "cant", "can't", "without"})
 
 
 def _extract_json_object(text: str) -> str:
@@ -45,6 +73,43 @@ def parse_fallback_router_decision(raw_text: str) -> dict[str, str] | None:
         return None
 
 
+def validate_fallback_router_result(raw_text: str, *, original_text: str) -> dict[str, str]:
+    decision = parse_fallback_router_decision(raw_text)
+    if decision is None:
+        raise InferenceContractError("Fallback router returned invalid output.")
+    if decision["status"] == "resolved":
+        _validate_faithful_normalization(original_text, decision["normalized_text"])
+    return decision
+
+
+def _validate_faithful_normalization(original_text: str, normalized_text: str) -> None:
+    original = _semantic_tokens(original_text)
+    normalized = _semantic_tokens(normalized_text)
+    required = {
+        token
+        for token in original
+        if token in _TEMPORAL_MARKERS or token in _UNIT_MARKERS or token in _NEGATION_MARKERS or any(char.isdigit() for char in token)
+    }
+    missing = sorted(required - normalized)
+    if missing:
+        raise InferenceContractError("Fallback router normalization lost required semantic values.")
+
+
+def _semantic_tokens(value: str) -> set[str]:
+    lowered = str(value or "").lower().replace("’", "'")
+    return set(re.findall(r"[a-z]+(?:'[a-z]+)?|\d+(?::\d+)?(?:\.\d+)?", lowered))
+
+
+def _attempt_payload(attempt: InferenceAttempt) -> dict[str, str | None]:
+    return {
+        "provider_id": attempt.provider_id,
+        "provider_type": attempt.provider_type,
+        "model": attempt.model,
+        "outcome": attempt.outcome,
+        "detail_code": attempt.detail_code,
+    }
+
+
 class FallbackRouterHandler:
     target = "fallback_router"
 
@@ -72,114 +137,70 @@ class FallbackRouterHandler:
                 detail="Fallback routing is disabled.",
             )
             return dispatch
-        if self._inference.base_url is None or self._inference.fallback_model is None:
-            raise ValueError("Canonical fallback routing lacks inference settings.")
+        prompt = str(dispatch.payload.get("prompt") or "").strip()
         try:
-            result = self._inference.generate(
-                str(dispatch.payload.get("prompt") or ""),
+            execution = self._inference.execute(
+                "fallback_router",
+                prompt=prompt,
                 system=FALLBACK_ROUTER_SYSTEM_PROMPT,
-                format="json",
-                fallback_router=True,
+                json_schema=FALLBACK_ROUTER_RESULT_SCHEMA,
+                validate=lambda raw: validate_fallback_router_result(raw, original_text=prompt),
             )
-            decision = parse_fallback_router_decision(str(result.get("response", "")).strip())
-            if decision is None:
-                raise ValueError("invalid_router_output")
-        except (ValueError, ContractValidationError) as exc:
+            decision = execution.value
+        except InferenceExecutionError as exc:
             dispatch.status = "failed"
-            detail = "Fallback router returned invalid output."
-            if isinstance(exc, ContractValidationError):
-                detail = exc.detail
+            error_code = {
+                "consumer_disabled": "fallback_router_disabled",
+                "total_timeout": "fallback_router_timeout",
+                "providers_exhausted": "fallback_router_providers_exhausted",
+            }.get(exc.code, "fallback_router_providers_exhausted")
             dispatch.result = build_failure_result(
                 action="router_failure",
-                failure_class="router_failure",
+                failure_class="transport_failure" if exc.code == "total_timeout" else "router_failure",
                 owning_component="brain.fallback_router",
-                error="fallback_router_invalid_output",
-                detail=detail,
+                error=error_code,
+                detail="Fallback routing is unavailable right now.",
+                attempts=[_attempt_payload(attempt) for attempt in exc.attempts],
             )
             logger.warning(
                 "fallback_router_failed source=%s session_id=%s failure_class=%s owning_component=%s failure_code=%s",
                 source,
                 session_id,
-                "router_failure",
+                "transport_failure" if exc.code == "total_timeout" else "router_failure",
                 "brain.fallback_router",
-                "fallback_router_invalid_output",
-            )
-            return dispatch
-        except error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            dispatch.status = "failed"
-            dispatch.result = build_failure_result(
-                action="router_failure",
-                failure_class="transport_failure",
-                owning_component="brain.fallback_router",
-                error="fallback_router_http_error",
-                detail=detail,
-                status_code=exc.code,
-            )
-            logger.warning(
-                "fallback_router_failed source=%s session_id=%s failure_class=%s owning_component=%s failure_code=%s",
-                source,
-                session_id,
-                "transport_failure",
-                "brain.fallback_router",
-                "fallback_router_http_error",
-            )
-            return dispatch
-        except error.URLError as exc:
-            dispatch.status = "failed"
-            dispatch.result = build_failure_result(
-                action="router_failure",
-                failure_class="transport_failure",
-                owning_component="brain.fallback_router",
-                error="fallback_router_unreachable",
-                detail=str(exc.reason),
-            )
-            logger.warning(
-                "fallback_router_failed source=%s session_id=%s failure_class=%s owning_component=%s failure_code=%s",
-                source,
-                session_id,
-                "transport_failure",
-                "brain.fallback_router",
-                "fallback_router_unreachable",
-            )
-            return dispatch
-        except (TimeoutError, socket.timeout):
-            dispatch.status = "failed"
-            dispatch.result = build_failure_result(
-                action="router_failure",
-                failure_class="transport_failure",
-                owning_component="brain.fallback_router",
-                error="fallback_router_timeout",
-                detail="Fallback router did not respond before the timeout.",
-            )
-            logger.warning(
-                "fallback_router_failed source=%s session_id=%s failure_class=%s owning_component=%s failure_code=%s",
-                source,
-                session_id,
-                "transport_failure",
-                "brain.fallback_router",
-                "fallback_router_timeout",
+                error_code,
             )
             return dispatch
 
         dispatch.status = "executed"
         dispatch.result = {
-            "action": "route_proposed",
+            "action": "route_proposed" if decision["status"] == "resolved" else f"fallback_{decision['status']}",
+            "semantic_status": decision["status"],
             "proposed_domain": decision["domain"],
             "normalized_text": decision["normalized_text"],
             "user_id": decision["user_id"],
+            "inference": {
+                "provider_id": execution.provider_id,
+                "provider_type": execution.provider_type,
+                "model": execution.model,
+                "request_id": execution.request_id,
+                "attempts": [_attempt_payload(attempt) for attempt in execution.attempts],
+            },
         }
         logger.info(
-            "fallback_router_succeeded source=%s session_id=%s proposed_domain=%s",
+            "fallback_router_succeeded source=%s session_id=%s semantic_status=%s proposed_domain=%s provider_id=%s model=%s",
             source,
             session_id,
+            decision["status"],
             decision["domain"],
+            execution.provider_id,
+            execution.model,
         )
         return dispatch
 
 
 def warm_fallback_router_model(inference: InferenceClient) -> None:
-    inference.warm(fallback_router=True)
+    inference.warm_consumer("fallback_router")
 
 
 def attempt_fallback_router_warmup(inference: InferenceClient) -> None:

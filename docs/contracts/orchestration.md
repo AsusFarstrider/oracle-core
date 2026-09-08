@@ -26,6 +26,11 @@ Registered composite operations include provider-neutral notification calls;
 their text and audience remain owned by canonical notification definitions.
 A registered timer-sound operation queues the existing source-scoped standard
 timer alert and cannot select arbitrary audio or bypass alert delivery.
+A routine-owned timer sound is a one-presentation cue: delivery acceptance
+records the normal ringing transition, then the routine owner completes the
+same occurrence through the shared alert lifecycle. Standalone timers do not
+carry this policy and continue to require normal person or destination
+acknowledgement. This does not create a second alert or playback authority.
 A step may select a path only through bounded comparisons against declared
 typed inputs, never through arbitrary expressions. A declared spoken-duration
 input reuses Oracle's session-scoped conversational input and shared duration

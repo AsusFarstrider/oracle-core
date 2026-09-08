@@ -133,12 +133,31 @@ Disallowed:
 
 The current grounded role split is:
 
-- `weather_current_provider`
+- `weather_station_provider` for local current and bounded history
 - `weather_forecast_provider`
+- `weather_remote_location` for geocoding, remote observation/forecast, and
+  interactive alert transport
 
-This is allowed because current and forecast behavior already rely on distinct provider responsibilities in the current code.
+This is allowed because local station, home forecast, and location-driven
+remote behavior rely on distinct provider responsibilities in current code.
+Provider-free solar calculation is not a provider role.
 
 This weather exception must not be generalized into a default multi-bridge architecture.
+
+### Shared-Inference Ordering Exception
+
+Shared inference is a second narrow exception. The fallback-router and Facts-
+summarization roles may each select an ordered subset of the two approved
+provider implementations, Luna and Ollama. This is failover behind a consumer-
+owned semantic contract, not multi-provider consultation: a valid semantic
+result is terminal, and only operational or contract failure may advance to the
+next provider.
+
+This exception does not authorize multiple interchangeable providers for other
+roles, a provider marketplace, voting, automatic discovery, or provider-specific
+decisions in consuming domains. Music's retained local-Ollama helpers and the
+OpenClaw Suggestions edge are explicitly outside this exception. The complete
+semantic law is in [`ollama-policy.md`](ollama-policy.md).
 
 ## Config Selection Rule
 
@@ -174,6 +193,47 @@ Disallowed:
 - creating a single giant cross-domain provider error taxonomy
 
 Provider detail may be retained internally or in debug detail fields, but it must not become the semantic contract the domain depends on.
+
+## Informational Read Evidence Rule
+
+Facts, Weather, Calendar, News, and Suggestions retain separate result shapes,
+but every Stage 7 informational owner must preserve the evidence needed to tell
+the truth about its result. Where applicable that includes source identity,
+source observation or publication time, retrieval time, requested scope,
+availability, freshness, partial/degraded state, and permitted stale reuse.
+
+A bridge must not launder old source data by replacing its observation or
+publication time with cache retrieval time. A domain may cache or coalesce
+equivalent reads before upstream I/O, but an explicit refresh must reach the
+actual provider cache and a failed refresh cannot be reported as fresh success.
+Configuration/programming errors are not stale provider results.
+
+News selected-article retrieval is not an open-web capability. The initial RSS
+link, every redirect, and the final response URL must remain on the source's
+exact configured host allowlist and resolve only to public network addresses.
+The bridge accepts only bounded HTML and returns a bounded text excerpt. Page
+content is evidence, never an instruction source, and the bridge must not bypass
+access controls or infer event time from article publication time.
+
+Bounded follow-up is domain-owned and uses typed, expiring, source-isolated
+session references to the selected informational subject or evidence. Bridges do
+not own conversation history or session policy. Calendar source/person ownership,
+News article selection, Weather location/window, Facts subject/provenance, and
+Suggestions review state remain distinct concepts rather than one universal
+informational schema.
+
+The Suggestions domain owns one bounded packet/prompt/result contract above two
+explicit backend families. A direct `openai_luna` adapter uses Oracle's existing
+OpenAI transport with `store: false`; it receives no tools, workspace, memory or
+persistent conversation. The OpenClaw bridge accepts only typed HTTP, SSH CLI,
+or explicit mock transport; WebSocket is unsupported. SSH agent and infer modes
+use the model named by the selected canonical provider and agent mode receives a
+fresh run-derived session ID. Oracle performs no automatic backend failover,
+voting or model arbitration. It labels packet collector authority, coverage,
+availability and omissions, validates the returned advisory items, and
+distinguishes collection, transport, agent-execution and response-validation
+failure. A returned recommended action is stored as advisory text only and
+never enters dispatch or execution.
 
 ## Non-Responsibility Rule
 
@@ -258,8 +318,8 @@ The current codebase already shows the boundary Oracle should strengthen.
 
 Relevant grounded examples:
 
-- `calendar` now uses an explicit bridge in [server/oracle_app/provider_bridges/nextcloud_calendar.py](../../server/oracle_app/provider_bridges/nextcloud_calendar.py)
-- `news` now uses an explicit bridge in [server/oracle_app/provider_bridges/rss_news.py](../../server/oracle_app/provider_bridges/rss_news.py) while keeping source selection in the domain
+- `calendar` uses an explicit bridge in [server/oracle_app/provider_bridges/nextcloud_calendar.py](../../server/oracle_app/provider_bridges/nextcloud_calendar.py); its domain execution selects shared/person-assigned feeds, caches and reports each feed independently, and supplies only that feed's optional read credentials to the bridge. The separate write credential is never a read fallback
+- `news` uses an explicit bridge in [server/oracle_app/provider_bridges/rss_news.py](../../server/oracle_app/provider_bridges/rss_news.py) for RSS and bounded selected-article retrieval while keeping source/topic selection, stable identity, context, update/disagreement policy and replies in the domain
 - `audiobook` now uses an explicit bridge in [server/oracle_app/provider_bridges/audiobookshelf_audiobook.py](../../server/oracle_app/provider_bridges/audiobookshelf_audiobook.py) through the existing [server/oracle_app/audiobook_runtime/client.py](../../server/oracle_app/audiobook_runtime/client.py) surface
 - `music` now uses an explicit bridge in [server/oracle_app/provider_bridges/plex_music.py](../../server/oracle_app/provider_bridges/plex_music.py) through the existing [server/oracle_app/music_runtime/client.py](../../server/oracle_app/music_runtime/client.py) surface while keeping control-plane access in [server/oracle_app/music_runtime/control.py](../../server/oracle_app/music_runtime/control.py)
   Music selections expose generic provider references; Plex identity aliases
@@ -274,7 +334,10 @@ Relevant grounded examples:
   [server/oracle_app/provider_bridges/network_observations.py](../../server/oracle_app/provider_bridges/network_observations.py),
   with conversion to the established read-model dictionaries at the network
   domain boundary
-- `weather` already implies multiple provider roles across [server/oracle_app/weather_current.py](../../server/oracle_app/weather_current.py), [server/oracle_app/weather_forecast.py](../../server/oracle_app/weather_forecast.py), and [server/oracle_app/weather_remote.py](../../server/oracle_app/weather_remote.py)
+- `weather` uses its bounded roles through
+  [server/oracle_app/provider_bridges/weewx_weather_station.py](../../server/oracle_app/provider_bridges/weewx_weather_station.py),
+  [server/oracle_app/provider_bridges/nws_weather_forecast.py](../../server/oracle_app/provider_bridges/nws_weather_forecast.py), and
+  [server/oracle_app/provider_bridges/remote_weather.py](../../server/oracle_app/provider_bridges/remote_weather.py)
 
 These examples inform the contract, but they do not override it.
 

@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from oracle_app.configuration import EffectiveConfig, InformationRuntimeSettings, inspect_candidate
 from oracle_app.configuration.domain_models import (
+    OpenAILunaSuggestionsProvider,
     OpenClawHttpProvider,
     OpenClawSshCliProvider,
     RssNewsProvider,
@@ -165,6 +166,41 @@ class InformationRuntimeSettingsTests(unittest.TestCase):
         self.assertIsNone(settings.suggestions.resolved_base_url)
         self.assertNotIn("ssh-password-value", repr(settings))
 
+    def test_resolves_only_selected_direct_luna_credential(self) -> None:
+        settings = InformationRuntimeSettings.from_effective_config(
+            self._effective_config(
+                information_updates={
+                    "suggestions": {
+                        "enabled": True,
+                        "provider": "direct_luna",
+                        "providers": {
+                            "direct_luna": {
+                                "adapter": "openai_luna",
+                                "credential_secret": "OPENAI_LUNA_API_KEY",
+                                "model": "gpt-5.6-luna",
+                            },
+                            "dormant_openclaw": {
+                                "adapter": "ssh_cli",
+                                "target": "advisor-host",
+                                "password_secret": "DORMANT_OPENCLAW_PASSWORD",
+                                "cli_path": "/usr/local/bin/openclaw",
+                                "cli_mode": "agent",
+                                "agent": "oracle_advisor",
+                            },
+                        },
+                        "max_suggestions": 10,
+                    }
+                },
+                secrets="OPENAI_LUNA_API_KEY=direct-secret-value\n",
+            )
+        )
+
+        self.assertIsInstance(settings.suggestions.provider, OpenAILunaSuggestionsProvider)
+        self.assertEqual(settings.suggestions.resolved_api_key, "direct-secret-value")
+        self.assertIsNone(settings.suggestions.resolved_password)
+        self.assertNotIn("direct-secret-value", repr(settings.suggestions))
+        self.assertNotIn("direct-secret-value", repr(settings))
+
     def test_canonical_facts_route_dispatch_and_admin_use_typed_execution(self) -> None:
         information = InformationRuntimeSettings.from_effective_config(
             self._effective_config(
@@ -294,7 +330,15 @@ class InformationRuntimeSettingsTests(unittest.TestCase):
 
         self.assertEqual(route.target, "news")
         self.assertEqual(dispatched.result["source"], "local_news")
-        self.assertEqual(dispatched.result["headlines"], headlines)
+        self.assertEqual(dispatched.result["headlines"][0]["title"], "Typed headline")
+        self.assertEqual(
+            dispatched.result["headlines"][0]["link"],
+            "https://example.invalid/story",
+        )
+        self.assertEqual(dispatched.result["headlines"][0]["source_id"], "local_news")
+        self.assertEqual(dispatched.result["headlines"][0]["source_label"], "Local News")
+        self.assertTrue(dispatched.result["headlines"][0]["article_id"].startswith("news-"))
+        self.assertIsNotNone(dispatched.result["headlines"][0]["retrieved_at"])
         self.assertEqual(health["configured_sources"], ["local_news"])
         fetch.assert_called_once()
 

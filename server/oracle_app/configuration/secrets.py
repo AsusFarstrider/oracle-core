@@ -176,6 +176,12 @@ def collect_secret_references(bundle: LoadedBundle) -> tuple[SecretReferenceUse,
         for provider_id, provider in suggestions.providers.items():
             selected = suggestions.enabled and suggestions.provider == provider_id
             add(
+                getattr(provider, "credential_secret", None),
+                "domains/information.yaml",
+                f"suggestions.providers.{provider_id}.credential_secret",
+                selected,
+            )
+            add(
                 getattr(provider, "password_secret", None),
                 "domains/information.yaml",
                 f"suggestions.providers.{provider_id}.password_secret",
@@ -186,6 +192,31 @@ def collect_secret_references(bundle: LoadedBundle) -> tuple[SecretReferenceUse,
                 "domains/information.yaml",
                 f"suggestions.providers.{provider_id}.base_url_secret",
                 selected,
+            )
+
+    brain = bundle.roles.get("brain.yaml")
+    if brain is not None:
+        shared_inference = brain.inference.shared_backend  # type: ignore[attr-defined]
+        active_inference_ids: set[str] = set()
+        if shared_inference.enabled and shared_inference.fallback_router.enabled:
+            active_inference_ids.update(shared_inference.fallback_router.provider_order)
+        if (
+            information is not None
+            and information.facts.enabled  # type: ignore[attr-defined]
+            and information.facts.summarizer_enabled  # type: ignore[attr-defined]
+        ):
+            active_inference_ids.update(information.facts.summarizer_provider_order)  # type: ignore[attr-defined]
+        for provider_id, provider in shared_inference.providers.items():
+            credential_secret = getattr(provider, "credential_secret", None)
+            add(
+                credential_secret,
+                "brain.yaml",
+                f"inference.shared_backend.providers.{provider_id}.credential_secret",
+                bool(
+                    shared_inference.enabled
+                    and getattr(provider, "enabled", False)
+                    and provider_id in active_inference_ids
+                ),
             )
 
     music = bundle.roles.get("domains/music.yaml")

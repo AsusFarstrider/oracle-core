@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 SuggestionStatus = Literal[
@@ -27,10 +27,10 @@ RunType = Literal[
 
 class SuggestionGenerateRequest(BaseModel):
     run_type: RunType = "all_sources"
-    reason: str | None = None
-    custom_prompt: str | None = None
-    window_start: str | None = None
-    window_end: str | None = None
+    reason: str | None = Field(default=None, max_length=500)
+    custom_prompt: str | None = Field(default=None, max_length=4000)
+    window_start: str | None = Field(default=None, max_length=64)
+    window_end: str | None = Field(default=None, max_length=64)
     max_suggestions: int | None = Field(default=None, ge=1, le=100)
     use_mock: bool = False
     wait_for_completion: bool = False
@@ -43,6 +43,20 @@ class SuggestionReviewRequest(BaseModel):
     rejection_reason: str | None = None
     future_automation_candidate: bool = False
     suppress_if_repeated: bool = False
+
+    @model_validator(mode="after")
+    def validate_review_evidence(self) -> SuggestionReviewRequest:
+        if self.status in {"rejected", "false_positive"} and not str(
+            self.rejection_reason or ""
+        ).strip():
+            raise ValueError(f"{self.status} review requires a rejection reason")
+        if self.status == "corrected" and not str(self.correction_text or "").strip():
+            raise ValueError("corrected review requires correction text")
+        if self.suppress_if_repeated and self.status not in {
+            "rejected", "corrected", "ignored", "false_positive"
+        }:
+            raise ValueError("repeat suppression requires a negative or corrective review")
+        return self
 
 
 class OpenClawSuggestionItem(BaseModel):
@@ -57,6 +71,7 @@ class OpenClawSuggestionItem(BaseModel):
         "automation",
         "security",
         "maintenance",
+        "observability",
         "unknown",
     ] = "unknown"
     source: Literal["oracle", "home_assistant", "librenms", "mixed"] = "mixed"

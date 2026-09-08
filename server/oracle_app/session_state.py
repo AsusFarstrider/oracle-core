@@ -15,12 +15,14 @@ logger = logging.getLogger("oracle-brain.session")
 
 DEFAULT_SESSION_TIMEOUT_SECONDS = 90.0
 DEFAULT_PENDING_TIMEOUT_SECONDS = 30.0
+DEFAULT_INFORMATIONAL_CONTEXT_TIMEOUT_SECONDS = 90.0
 
 _VALID_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _SOURCE_SLUG_RE = re.compile(r"[^A-Za-z0-9]+")
 _ALLOWED_ANCHOR_STRENGTHS = {"strong", "weak"}
 _ALLOWED_PENDING_TYPES = {"confirmation", "clarification"}
-_ALLOWED_PENDING_DOMAINS = {"confirmation", "music", "audiobook", "home_assistant", "calendar", "ui_context", "utilities"}
+_ALLOWED_PENDING_DOMAINS = {"confirmation", "music", "audiobook", "home_assistant", "calendar", "ui_context", "utilities", "informational"}
+_ALLOWED_INFORMATIONAL_DOMAINS = {"facts", "weather", "calendar", "news"}
 _ALLOWED_UTILITY_CONTEXT_KINDS = {
     "alert_subject",
     "calculation",
@@ -51,6 +53,24 @@ _FORBIDDEN_SESSION_REFERENCE_KEYS = {
     "service_health",
 }
 _UTILITY_PENDING_FIELDS = {"clarification_kind", "context_kind", "prompt", "options", "original_text", "subject_text"}
+_INFORMATIONAL_PENDING_FIELDS = {
+    "target_domain", "clarification_kind", "prompt", "options", "original_text", "subject_id",
+}
+_INFORMATIONAL_CONTEXT_FIELDS = {
+    "facts": {"subject_id", "subject_text", "query_text", "source_ids", "evidence_ids", "retrieved_at"},
+    "weather": {
+        "subject_id", "location_id", "location_label", "window_start", "window_end",
+        "query_kind", "source_ids", "evidence_ids",
+    },
+    "calendar": {
+        "subject_id", "subject_text", "user_id", "calendar_ids", "event_ids",
+        "window_start", "window_end", "source_ids", "evidence_ids",
+    },
+    "news": {
+        "subject_id", "subject_text", "topic", "article_ids", "selected_article_id",
+        "source_ids", "source_labels", "evidence_ids", "published_at", "retrieved_at",
+    },
+}
 
 _SESSIONS: dict[str, dict[str, Any]] = {}
 _FALLBACK_BY_SOURCE: dict[str, str] = {}
@@ -162,6 +182,26 @@ def _validate_pending_state_input(
             return "utility_pending_original_text_too_long"
         if len(str(payload.get("subject_text") or "")) > 256:
             return "utility_pending_subject_text_too_long"
+    if domain == "informational":
+        extra_fields = sorted(set(payload) - _INFORMATIONAL_PENDING_FIELDS)
+        if extra_fields:
+            return f"unsupported_informational_pending_fields:{','.join(extra_fields)}"
+        target_domain = str(payload.get("target_domain") or "").strip().lower()
+        if target_domain not in _ALLOWED_INFORMATIONAL_DOMAINS:
+            return "informational_pending_target_domain_required"
+        clarification_kind = str(payload.get("clarification_kind") or "").strip()
+        prompt = str(payload.get("prompt") or "").strip()
+        options = payload.get("options")
+        if not clarification_kind or not prompt or len(prompt) > 1024:
+            return "informational_pending_clarification_and_bounded_prompt_required"
+        if not isinstance(options, (list, tuple)) or (len(options) != 0 and not 2 <= len(options) <= 5):
+            return "informational_pending_requires_zero_or_two_to_five_options"
+        if any(not isinstance(item, str) or not item.strip() or len(item) > 256 for item in options):
+            return "informational_pending_options_must_be_bounded_strings"
+        if len(str(payload.get("original_text") or "")) > 4096:
+            return "informational_pending_original_text_too_long"
+        if len(str(payload.get("subject_id") or "")) > 256:
+            return "informational_pending_subject_id_too_long"
     if _coerce_timeout(timeout_seconds, default=0.0) <= 0:
         return "pending_timeout_must_be_positive"
     return None
@@ -218,6 +258,39 @@ def _validate_utility_context_input(*, kind: str, payload: dict[str, Any]) -> st
     return None
 
 
+def _validate_informational_context_input(*, domain: str, subject: dict[str, Any], timeout_seconds: float) -> str | None:
+    allowed_fields = _INFORMATIONAL_CONTEXT_FIELDS.get(domain)
+    if allowed_fields is None:
+        return f"unsupported_informational_domain:{domain or '-'}"
+    if not isinstance(subject, dict) or not subject:
+        return "informational_subject_required"
+    extra_fields = sorted(set(subject) - allowed_fields)
+    if extra_fields:
+        return f"unsupported_informational_subject_fields:{','.join(extra_fields)}"
+    forbidden_key = _has_forbidden_session_reference(subject)
+    if forbidden_key is not None:
+        return f"forbidden_informational_reference:{forbidden_key}"
+    if not str(subject.get("subject_id") or "").strip():
+        return "informational_subject_id_required"
+    for key, value in subject.items():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            if len(value) > (4096 if key == "query_text" else 512):
+                return f"informational_subject_value_too_long:{key}"
+            continue
+        if isinstance(value, (list, tuple)):
+            if len(value) > 16:
+                return f"informational_subject_list_too_long:{key}"
+            if any(not isinstance(item, str) or not item.strip() or len(item) > 256 for item in value):
+                return f"informational_subject_list_requires_bounded_strings:{key}"
+            continue
+        return f"informational_subject_string_or_list_required:{key}"
+    if _coerce_timeout(timeout_seconds, default=0.0) <= 0:
+        return "informational_context_timeout_must_be_positive"
+    return None
+
+
 def _build_session(
     *,
     source: str,
@@ -244,6 +317,7 @@ def _build_session(
         "pending_state": None,
         "user_context": None,
         "utility_context": {},
+        "informational_context": None,
     }
 
 
@@ -253,12 +327,14 @@ def _copy_session(session: dict[str, Any]) -> dict[str, Any]:
     pending = session.get("pending_state")
     user_context = session.get("user_context")
     utility_context = session.get("utility_context")
+    informational_context = session.get("informational_context")
     return {
         "session_meta": meta,
         "active_context": dict(active) if isinstance(active, dict) else active,
         "pending_state": deepcopy(pending) if isinstance(pending, dict) else pending,
         "user_context": dict(user_context) if isinstance(user_context, dict) else user_context,
         "utility_context": deepcopy(utility_context) if isinstance(utility_context, dict) else {},
+        "informational_context": deepcopy(informational_context) if isinstance(informational_context, dict) else None,
     }
 
 
@@ -276,6 +352,35 @@ def _session_expired(session: dict[str, Any], *, now_monotonic: float) -> bool:
     refreshed = float((meta or {}).get("refreshed_monotonic") or 0.0)
     timeout = float((meta or {}).get("session_timeout_seconds") or DEFAULT_SESSION_TIMEOUT_SECONDS)
     return now_monotonic - refreshed > timeout
+
+
+def _expire_informational_context_if_needed(
+    source: str,
+    session_id: str,
+    session: dict[str, Any],
+    *,
+    now_monotonic: float,
+) -> bool:
+    context = session.get("informational_context")
+    if not isinstance(context, dict):
+        return False
+    refreshed = float(context.get("refreshed_monotonic") or context.get("created_monotonic") or 0.0)
+    timeout = _coerce_timeout(
+        context.get("timeout_seconds"),
+        default=DEFAULT_INFORMATIONAL_CONTEXT_TIMEOUT_SECONDS,
+    )
+    if now_monotonic - refreshed <= timeout:
+        return False
+    domain = str(context.get("domain") or "").strip()
+    session["informational_context"] = None
+    _record_audit(
+        _session_key(source, session_id),
+        "informational",
+        event="informational_context_expired",
+        reason="informational_context_timeout",
+        detail=domain or "informational",
+    )
+    return True
 
 
 def _expire_pending_state_if_needed(
@@ -490,6 +595,12 @@ def get_session(source: str | None, session_id: str | None) -> dict[str, Any] | 
         session,
         now_monotonic=now_monotonic,
     )
+    _expire_informational_context_if_needed(
+        normalized_source,
+        normalized_session_id,
+        session,
+        now_monotonic=now_monotonic,
+    )
     return _copy_session(session)
 
 
@@ -520,6 +631,12 @@ def inspect_session(source: str | None, session_id: str | None) -> dict[str, Any
         live_session,
         now_monotonic=now_monotonic,
     )
+    informational_expired = _expire_informational_context_if_needed(
+        normalized_source,
+        normalized_session_id,
+        live_session,
+        now_monotonic=now_monotonic,
+    )
     session = _copy_session(live_session)
     key = _session_key(normalized_source, normalized_session_id)
     meta = session.get("session_meta") or {}
@@ -527,6 +644,7 @@ def inspect_session(source: str | None, session_id: str | None) -> dict[str, Any
     active = session.get("active_context")
     user_context = session.get("user_context")
     utility_context = session.get("utility_context")
+    informational_context = session.get("informational_context")
     followup = describe_followup_resolution(normalized_source, normalized_session_id)
     session_timeout_seconds = _coerce_timeout(meta.get("session_timeout_seconds"), default=DEFAULT_SESSION_TIMEOUT_SECONDS)
     session_refreshed_monotonic = float(meta.get("refreshed_monotonic") or 0.0)
@@ -549,6 +667,7 @@ def inspect_session(source: str | None, session_id: str | None) -> dict[str, Any
         "pending_state": pending,
         "user_context": user_context,
         "utility_context": utility_context,
+        "informational_context": informational_context,
         "lifecycle": _copy_audit(key),
         "derived": {
             "session_active": True,
@@ -557,6 +676,9 @@ def inspect_session(source: str | None, session_id: str | None) -> dict[str, Any
             "anchor_strength": str((active or {}).get("anchor_strength") or "") if isinstance(active, dict) else "",
             "active_user_id": str((user_context or {}).get("active_user_id") or "") if isinstance(user_context, dict) else "",
             "utility_context_kinds": sorted(utility_context) if isinstance(utility_context, dict) else [],
+            "informational_context_active": informational_context is not None,
+            "informational_context_expired": informational_expired,
+            "informational_domain": str((informational_context or {}).get("domain") or "") if isinstance(informational_context, dict) else "",
             "follow_up_resolution_order": str(followup.get("resolution_order") or "general_routing"),
             "waiting_on_user": bool(followup.get("waiting_on_user")),
             "next_route_target": str(followup.get("route_target") or ""),
@@ -607,7 +729,13 @@ def describe_followup_resolution(source: str | None, session_id: str | None) -> 
     pending = session.get("pending_state")
     if isinstance(pending, dict):
         pending_domain = str(pending.get("domain") or "").strip().lower()
-        route_target = "system" if pending_domain in {"confirmation", "utilities"} else pending_domain
+        pending_payload = pending.get("payload") if isinstance(pending.get("payload"), dict) else {}
+        route_target = (
+            str(pending_payload.get("target_domain") or "").strip().lower()
+            if pending_domain == "informational"
+            else "system" if pending_domain in {"confirmation", "utilities"}
+            else pending_domain
+        )
         return {
             "resolution_order": "pending_state",
             "waiting_on_user": True,
@@ -622,6 +750,17 @@ def describe_followup_resolution(source: str | None, session_id: str | None) -> 
         if route_target and anchor_strength == "strong":
             return {
                 "resolution_order": "active_context",
+                "waiting_on_user": False,
+                "route_target": route_target,
+                "pending_domain": "",
+            }
+
+    informational = session.get("informational_context")
+    if isinstance(informational, dict):
+        route_target = str(informational.get("domain") or "").strip().lower()
+        if route_target in _ALLOWED_INFORMATIONAL_DOMAINS:
+            return {
+                "resolution_order": "informational_context",
                 "waiting_on_user": False,
                 "route_target": route_target,
                 "pending_domain": "",
@@ -890,6 +1029,141 @@ def clear_utility_context_for_topic_change(
 
 
 @synchronized_interaction
+def get_informational_context(
+    source: str | None,
+    session_id: str | None,
+    *,
+    domain: str | None = None,
+) -> dict[str, Any] | None:
+    session = get_session(source, session_id)
+    if session is None:
+        return None
+    context = session.get("informational_context")
+    if not isinstance(context, dict):
+        return None
+    normalized_domain = str(domain or "").strip().lower()
+    if normalized_domain and str(context.get("domain") or "") != normalized_domain:
+        return None
+    return deepcopy(context)
+
+
+@synchronized_interaction
+def set_informational_context(
+    source: str | None,
+    session_id: str | None,
+    *,
+    domain: str,
+    subject: dict[str, Any],
+    timeout_seconds: float = DEFAULT_INFORMATIONAL_CONTEXT_TIMEOUT_SECONDS,
+) -> bool:
+    normalized_source = _normalize_source(source)
+    normalized_session_id = normalize_client_session_id(session_id)
+    normalized_domain = str(domain or "").strip().lower()
+    if normalized_source is None or normalized_session_id is None:
+        return False
+    validation_error = _validate_informational_context_input(
+        domain=normalized_domain,
+        subject=subject,
+        timeout_seconds=timeout_seconds,
+    )
+    if validation_error is not None:
+        logger.warning(
+            "informational_context_rejected source=%s session_id=%s domain=%s reason=%s",
+            normalized_source,
+            normalized_session_id,
+            normalized_domain or "-",
+            validation_error,
+        )
+        return False
+    now_monotonic = time.monotonic()
+    _prune_expired(now_monotonic)
+    key = _session_key(normalized_source, normalized_session_id)
+    session = _SESSIONS.get(key)
+    if session is None:
+        session = _build_session(
+            source=normalized_source,
+            client_session_id=normalized_session_id,
+            effective_session_id=normalized_session_id,
+            fallback_generated=False,
+            now_monotonic=now_monotonic,
+        )
+        _SESSIONS[key] = session
+    now_wall = _utc_now_iso()
+    session["informational_context"] = {
+        "domain": normalized_domain,
+        "subject": deepcopy(subject),
+        "created_at": now_wall,
+        "refreshed_at": now_wall,
+        "created_monotonic": now_monotonic,
+        "refreshed_monotonic": now_monotonic,
+        "timeout_seconds": _coerce_timeout(
+            timeout_seconds,
+            default=DEFAULT_INFORMATIONAL_CONTEXT_TIMEOUT_SECONDS,
+        ),
+    }
+    session["session_meta"]["refreshed_monotonic"] = now_monotonic
+    session["session_meta"]["refreshed_at"] = now_wall
+    _record_audit(
+        key,
+        "informational",
+        event="informational_context_set",
+        reason=f"{normalized_domain}_subject_set",
+        detail=str(subject.get("subject_id") or "")[:256],
+    )
+    return True
+
+
+@synchronized_interaction
+def clear_informational_context(
+    source: str | None,
+    session_id: str | None,
+    *,
+    reason: str = "cleared",
+) -> bool:
+    normalized_source = _normalize_source(source)
+    normalized_session_id = normalize_client_session_id(session_id)
+    if normalized_source is None or normalized_session_id is None:
+        return False
+    now_monotonic = time.monotonic()
+    _prune_expired(now_monotonic)
+    key = _session_key(normalized_source, normalized_session_id)
+    session = _SESSIONS.get(key)
+    context = session.get("informational_context") if isinstance(session, dict) else None
+    if not isinstance(context, dict):
+        return False
+    session["informational_context"] = None
+    session["session_meta"]["refreshed_monotonic"] = now_monotonic
+    session["session_meta"]["refreshed_at"] = _utc_now_iso()
+    _record_audit(
+        key,
+        "informational",
+        event="informational_context_cleared",
+        reason=reason,
+        detail=str(context.get("domain") or "informational"),
+    )
+    return True
+
+
+def clear_informational_context_for_topic_change(
+    source: str | None,
+    session_id: str | None,
+    *,
+    route_target: str,
+) -> bool:
+    normalized_target = str(route_target or "").strip().lower()
+    if not normalized_target or normalized_target in {"system", "fallback_router"}:
+        return False
+    current = get_informational_context(source, session_id)
+    if current is None or str(current.get("domain") or "") == normalized_target:
+        return False
+    return clear_informational_context(
+        source,
+        session_id,
+        reason=f"explicit_topic_change:{normalized_target}",
+    )
+
+
+@synchronized_interaction
 def set_pending_state(
     source: str | None,
     session_id: str | None,
@@ -1106,7 +1380,8 @@ def clear_session_state(source: str | None, session_id: str | None, *, reason: s
     active_cleared = clear_active_context(source, session_id, reason=reason)
     user_cleared = clear_user_context(source, session_id)
     utility_cleared = clear_utility_context(source, session_id, reason=reason)
-    for domain in ("confirmation", "music", "audiobook", "home_assistant", "calendar", "ui_context", "utilities"):
+    informational_cleared = clear_informational_context(source, session_id, reason=reason)
+    for domain in ("confirmation", "music", "audiobook", "home_assistant", "calendar", "ui_context", "utilities", "informational"):
         pending_cleared = clear_pending_state(source, session_id, domain=domain, reason=reason) or pending_cleared
     normalized_source = _normalize_source(source)
     normalized_session_id = normalize_client_session_id(session_id)
@@ -1141,6 +1416,7 @@ def clear_session_state(source: str | None, session_id: str | None, *, reason: s
         "active_context_cleared": active_cleared,
         "user_context_cleared": user_cleared,
         "utility_context_cleared": utility_cleared,
+        "informational_context_cleared": informational_cleared,
         "conversation_cleared": owned_cleared["conversation_cleared"],
         "command_events_cleared": owned_cleared["command_events_cleared"],
         "audit_cleared": audit_cleared,

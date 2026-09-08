@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -33,6 +34,8 @@ def generate_suggestion_run(
     if canonical_execution is None or not canonical_execution.enabled:
         raise HTTPException(status_code=409, detail="Suggestions is disabled in canonical configuration.")
     max_suggestions = canonical_execution.max_suggestions(request.max_suggestions)
+    execution_status = canonical_execution.status()
+    selected_provider = str(execution_status.get("provider") or "suggestions")
     window_start, window_end = _resolve_window(request)
     run_id = create_run(
         run_type=request.run_type,
@@ -42,17 +45,36 @@ def generate_suggestion_run(
         custom_prompt=request.custom_prompt,
         mock=request.use_mock,
     )
-    packet, collector_status = build_packet(
-        run_id=run_id,
-        run_type=request.run_type,
-        window_start=window_start,
-        window_end=window_end,
-        reason=request.reason,
-        custom_prompt=request.custom_prompt,
-        max_suggestions=max_suggestions,
-        canonical_composition=canonical_composition,
-    )
+    try:
+        packet, collector_status = build_packet(
+            run_id=run_id,
+            run_type=request.run_type,
+            window_start=window_start,
+            window_end=window_end,
+            reason=request.reason,
+            custom_prompt=request.custom_prompt,
+            max_suggestions=max_suggestions,
+            canonical_composition=canonical_composition,
+        )
+    except Exception as exc:
+        detail = f"Suggestions evidence collection failed: {type(exc).__name__}."
+        update_run(
+            run_id,
+            status="failed",
+            openclaw_status="not_called",
+            collector_status={},
+            error=detail,
+            suggestion_count=0,
+            collection_status="failed",
+            failure_class="integration_failure",
+        )
+        return _integration_failure(run_id, detail, request.use_mock)
     save_current_exchange(run_id, packet=packet)
+
+    packet_collection_status = str(
+        ((packet.get("collection") or {}).get("status") if isinstance(packet.get("collection"), dict) else "")
+        or "unknown"
+    )
 
     bridge_options = {
         "max_suggestions": max_suggestions,
@@ -60,11 +82,37 @@ def generate_suggestion_run(
         "adapter": (
             "mock"
             if request.use_mock
-            else canonical_execution.status()["adapter"]
+            else execution_status["adapter"]
             if canonical_execution is not None
             else ""
         ),
     }
+    if packet_collection_status == "unavailable":
+        result = {
+            "ok": False,
+            "provider": selected_provider,
+            "adapter": bridge_options.get("adapter"),
+            "raw_response": {},
+            "suggestions": [],
+            "errors": ["All requested Suggestions evidence collectors are unavailable."],
+            "failure_class": "collection_unavailable",
+            "mock": bool(request.use_mock),
+        }
+        save_current_exchange(run_id, response=result)
+        update_run(
+            run_id,
+            status="failed",
+            openclaw_status="not_called",
+            collector_status=collector_status,
+            error=result["errors"][0],
+            suggestion_count=0,
+            collection_status=packet_collection_status,
+            failure_class="collection_unavailable",
+        )
+        return {
+            **result,
+            "run": get_run(run_id),
+        }
     if request.wait_for_completion:
         return _complete_suggestion_run(
             run_id=run_id,
@@ -86,7 +134,7 @@ def generate_suggestion_run(
             "canonical_execution": canonical_execution,
         },
         daemon=True,
-        name=f"openclaw-suggestions-{run_id[:8]}",
+        name=f"suggestions-{run_id[:8]}",
     )
     thread.start()
     return {
@@ -95,7 +143,7 @@ def generate_suggestion_run(
         "run": get_run(run_id),
         "suggestions": [],
         "errors": [],
-        "provider": "openclaw",
+        "provider": selected_provider,
         "adapter": bridge_options.get("adapter"),
         "mock": bool(request.use_mock),
     }
@@ -112,26 +160,51 @@ def _complete_suggestion_run(
 ) -> dict[str, Any]:
     if canonical_execution is None:
         raise RuntimeError("Canonical Suggestions execution is unavailable.")
-    result = canonical_execution.generate(
-        packet,
-        max_suggestions=int(bridge_options["max_suggestions"]),
-        use_mock=use_mock,
-    )
+    try:
+        result = canonical_execution.generate(
+            packet,
+            max_suggestions=int(bridge_options["max_suggestions"]),
+            use_mock=use_mock,
+        )
+    except Exception as exc:
+        detail = f"Suggestions provider integration failed: {type(exc).__name__}."
+        execution_status = canonical_execution.status()
+        result = {
+            "ok": False,
+            "provider": execution_status.get("provider", "suggestions"),
+            "adapter": bridge_options.get("adapter"),
+            "raw_response": {},
+            "suggestions": [],
+            "errors": [detail],
+            "failure_class": "integration_failure",
+            "mock": bool(use_mock),
+        }
     redacted_result = redact_secrets(result)
-    save_current_exchange(run_id, response=redacted_result)
 
     suggestions: list[dict[str, Any]] = []
     errors = [str(item) for item in result.get("errors") or []]
     if bool(result.get("ok")):
         raw_items = [item for item in result.get("suggestions") or [] if isinstance(item, dict)]
-        suggestions = insert_suggestions(run_id, raw_items, mock=bool(result.get("mock") or use_mock))
+        intake = insert_suggestions(run_id, raw_items, mock=bool(result.get("mock") or use_mock))
+        suggestions = intake.created
+        suppressed = intake.suppressed
         status = "completed"
-        openclaw_status = "ok"
-        error_text = None
+        openclaw_status = "partial" if errors else "ok"
+        error_text = "; ".join(errors) if errors else None
+        failure_class = "response_validation" if errors else None
     else:
+        suppressed = []
         status = "failed"
         openclaw_status = "failed"
-        error_text = "; ".join(errors) or "OpenClaw did not return suggestions."
+        error_text = "; ".join(errors) or "Suggestions provider did not return suggestions."
+        failure_class = str(result.get("failure_class") or "provider_failure")
+
+    redacted_result["oracle_intake"] = {
+        "stored_count": len(suggestions),
+        "suppressed_count": len(suppressed),
+        "suppressed": suppressed,
+    }
+    save_current_exchange(run_id, response=redacted_result)
 
     update_run(
         run_id,
@@ -140,15 +213,39 @@ def _complete_suggestion_run(
         collector_status=collector_status,
         error=error_text,
         suggestion_count=len(suggestions),
+        suppressed_count=len(suppressed),
+        collection_status=str(
+            ((packet.get("collection") or {}).get("status") if isinstance(packet.get("collection"), dict) else "")
+            or "unknown"
+        ),
+        failure_class=failure_class,
     )
     return {
         "ok": bool(result.get("ok")),
         "run": get_run(run_id),
         "suggestions": suggestions,
+        "suppressed": suppressed,
+        "suppressed_count": len(suppressed),
         "errors": errors,
-        "provider": result.get("provider", "openclaw"),
+        "provider": result.get("provider", "suggestions"),
         "adapter": result.get("adapter"),
+        "failure_class": failure_class,
         "mock": bool(result.get("mock") or use_mock),
+    }
+
+
+def _integration_failure(run_id: str, detail: str, use_mock: bool) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "run": get_run(run_id),
+        "suggestions": [],
+        "suppressed": [],
+        "suppressed_count": 0,
+        "errors": [detail],
+        "provider": "suggestions",
+        "adapter": None,
+        "failure_class": "integration_failure",
+        "mock": bool(use_mock),
     }
 
 
@@ -163,7 +260,7 @@ def get_suggestion_or_404(suggestion_id: str) -> dict[str, Any]:
     item = get_suggestion(suggestion_id)
     if item is None:
         raise HTTPException(status_code=404, detail=f"Unknown suggestion {suggestion_id}")
-    return item
+    return {**item, "run": get_run(str(item["run_id"]))}
 
 
 def get_run_or_404(run_id: str) -> dict[str, Any]:
@@ -213,7 +310,7 @@ def openclaw_status(
         return canonical_execution.status()
     return {
         "ok": False,
-        "provider": "openclaw",
+        "provider": "suggestions",
         "adapter": "",
         "configured": False,
         "base_url_configured": False,
@@ -225,4 +322,18 @@ def openclaw_status(
 
 def _resolve_window(request: SuggestionGenerateRequest) -> tuple[str, str]:
     default_start, default_end = default_window()
-    return request.window_start or default_start, request.window_end or default_end
+    start = _window_timestamp(request.window_start or default_start, "window_start")
+    end = _window_timestamp(request.window_end or default_end, "window_end")
+    if start > end:
+        raise HTTPException(status_code=422, detail="Suggestions window_start must not follow window_end.")
+    return start.isoformat(), end.isoformat()
+
+
+def _window_timestamp(value: str, field: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Suggestions {field} must be an ISO timestamp.") from exc
+    if parsed.tzinfo is None:
+        raise HTTPException(status_code=422, detail=f"Suggestions {field} must include a timezone.")
+    return parsed.astimezone(timezone.utc)

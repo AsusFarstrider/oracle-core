@@ -11,7 +11,7 @@ from .capabilities.media import AudiobookCapability, MusicCapability, ProbableAu
 from .capabilities.registry import CapabilityRegistry
 from .capabilities.session import (
     PendingAudiobookCapability, PendingCalendarCapability,
-    PendingConfirmationCapability, PendingHomeCapability, PendingMusicCapability,
+    PendingConfirmationCapability, PendingHomeCapability, PendingInformationalCapability, PendingMusicCapability,
     PendingUtilityCapability,
 )
 from .capabilities.system import (
@@ -43,6 +43,7 @@ def build_route_capability_registry(
     registry.register(SystemCommandCapability())
     registry.register(PendingConfirmationCapability())
     registry.register(PendingUtilityCapability())
+    registry.register(PendingInformationalCapability())
     registry.register(ImpliedHomeCapability(household_settings))
     registry.register(TimeDateQueryCapability())
     registry.register(MathAndConversionCapability())

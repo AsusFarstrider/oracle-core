@@ -654,6 +654,18 @@ select {
   gap: 24px;
 }
 
+.weather-solar-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.weather-solar-events,
+.weather-alert-list {
+  display: grid;
+  gap: 12px;
+}
+
 .weather-detail-full {
   display: grid;
 }
@@ -2505,6 +2517,7 @@ select {
   .weather-stat-band,
   .weather-forecast-grid,
   .weather-detail-grid,
+  .weather-solar-grid,
   .weather-detail-list,
   .audio-lookup-panel__row,
   .audio-mode-actions,
@@ -2728,4 +2741,22 @@ select {
     width: auto;
     border-radius: 28px 28px 18px 18px;
   }
+}
+.calendar-provider-truth {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+}
+
+.calendar-provider-truth.is-partial {
+  border-color: rgba(222, 151, 66, 0.55);
+}
+
+.calendar-provider-truth p {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
 }

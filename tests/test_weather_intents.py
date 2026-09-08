@@ -114,12 +114,36 @@ class WeatherIntentTests(unittest.TestCase):
     def test_classify_weather_intent_non_weather_text(self) -> None:
         self.assertIsNone(classify_weather_intent("tell me a short joke"))
 
+    def test_classify_local_practical_questions_without_inference(self) -> None:
+        for text in (
+            "do I need a coat this morning",
+            "should we take coats tonight",
+            "should I bring an umbrella tomorrow",
+            "will it snow Tuesday",
+            "how cold will it be tonight",
+            "what will it feel like outside tomorrow",
+        ):
+            with self.subTest(text=text):
+                intent = classify_weather_intent(text)
+                self.assertIsNotNone(intent)
+                self.assertEqual(intent.action, "weather_forecast")  # type: ignore[union-attr]
+
+    def test_classify_solar_and_interactive_alert_queries(self) -> None:
+        self.assertEqual(classify_weather_intent("when is civil dusk").action, "weather_solar")  # type: ignore[union-attr]
+        self.assertEqual(classify_weather_intent("are there weather warnings").action, "weather_alerts")  # type: ignore[union-attr]
+
+    def test_solar_words_do_not_claim_unrelated_commands_or_creative_text(self) -> None:
+        self.assertIsNone(classify_weather_intent("paint a sunset over the lake"))
+        self.assertIsNone(classify_weather_intent("set an alarm for sunset"))
+
     def test_build_weather_hook_maps_known_actions(self) -> None:
         self.assertEqual(build_weather_hook("current_weather"), "weather.current_weather")
         self.assertEqual(build_weather_hook("remote_current_weather"), "weather.remote_current_weather")
         self.assertEqual(build_weather_hook("weather_forecast"), "weather.weather_forecast")
         self.assertEqual(build_weather_hook("remote_weather_forecast"), "weather.remote_weather_forecast")
         self.assertEqual(build_weather_hook("weather_history"), "weather.weather_history")
+        self.assertEqual(build_weather_hook("weather_solar"), "weather.weather_solar")
+        self.assertEqual(build_weather_hook("weather_alerts"), "weather.weather_alerts")
 
 
 if __name__ == "__main__":

@@ -136,15 +136,15 @@
     },
     {
       "role_id": "weather_remote_location",
-      "kind": "direct_integration_exception",
-      "owner": "weather remote-query domain",
-      "implementations": ["server/oracle_app/weather_remote.py"],
-      "consumers": ["remote location geocoding", "remote observation lookup"],
+      "kind": "provider_bridge",
+      "owner": "weather remote provider boundary",
+      "implementations": ["server/oracle_app/provider_bridges/remote_weather.py"],
+      "consumers": ["remote location geocoding", "remote observation and forecast lookup", "interactive home weather alerts"],
       "health_owner": "weather request boundary; no independent readiness role",
       "errors": "weather remote lookup unavailable/no-result responses",
       "cache_owner": "weather remote geocode and observation caches",
       "configuration_authority": "canonical weather remote settings and fixed provider endpoints",
-      "tests": ["tests/test_weather_remote.py"]
+      "tests": ["tests/test_weather_remote.py", "tests/test_weather_stage7.py"]
     },
     {
       "role_id": "network_probe_observation",
@@ -198,25 +198,25 @@
       "role_id": "suggestions_advisory",
       "kind": "suggestions_integration",
       "owner": "Suggestions domain",
-      "implementations": ["server/oracle_app/provider_bridges/openclaw/client.py", "server/oracle_app/provider_bridges/openclaw/schemas.py", "server/oracle_app/provider_bridges/openclaw/adapters/http.py", "server/oracle_app/provider_bridges/openclaw/adapters/ssh_cli.py", "server/oracle_app/provider_bridges/openclaw/adapters/websocket.py"],
+      "implementations": ["server/oracle_app/suggestions/inference_contract.py", "server/oracle_app/provider_bridges/openai_suggestions.py", "server/oracle_app/provider_bridges/openclaw/client.py", "server/oracle_app/provider_bridges/openclaw/schemas.py", "server/oracle_app/provider_bridges/openclaw/adapters/http.py", "server/oracle_app/provider_bridges/openclaw/adapters/ssh_cli.py"],
       "consumers": ["Suggestions advisory runs"],
       "health_owner": "Suggestions diagnostics and bounded run result",
-      "errors": "OpenClaw adapter and normalized advisory failure results",
+      "errors": "direct Luna or OpenClaw adapter and normalized advisory failure results",
       "cache_owner": "Suggestions storage owns packets, responses, and runs",
-      "configuration_authority": "canonical Suggestions provider selection and adapter-specific definition",
+      "configuration_authority": "canonical explicit Suggestions backend/model selection and adapter-specific definition; no automatic failover",
       "tests": ["tests/test_suggestions.py", "tests/test_configuration_information_runtime_settings.py"]
     },
     {
       "role_id": "shared_inference",
       "kind": "shared_provider_boundary",
-      "owner": "Brain inference transport; prompts and decisions remain consumer-owned",
-      "implementations": ["server/oracle_app/inference.py", "server/oracle_app/llm_bridge.py"],
-      "consumers": ["fallback router", "facts summarizer", "music inference", "warmup", "health"],
-      "health_owner": "Brain health composition through the injected InferenceClient",
-      "errors": "transport exceptions mapped by each consuming domain",
+      "owner": "Brain shared-inference boundary; fallback and Facts semantics, prompts, validation, and decisions remain consumer-owned",
+      "implementations": ["server/oracle_app/inference.py", "server/oracle_app/inference_bridges.py", "server/oracle_app/llm_bridge.py"],
+      "consumers": ["fallback router", "facts summarizer", "retained local-only music inference compatibility", "warmup", "health"],
+      "health_owner": "Brain inference health reports per-consumer order, provider/model identity, cooldown bypass, and recovery without generation; local Ollama retains its transport health endpoint",
+      "errors": "provider operational and contract failures mapped by each consumer; valid unresolved, unsupported, or insufficient outcomes are not failures",
       "cache_owner": "provider model residency only; Oracle owns no inference result cache",
-      "configuration_authority": "canonical brain inference role and immutable runtime snapshot",
-      "tests": ["tests/test_ollama_handler.py", "tests/test_health_canonical.py", "tests/test_configuration_brain_core_runtime_consumers.py"]
+      "configuration_authority": "brain.yaml owns Luna/Ollama definitions and fallback order; domains/information.yaml owns Facts summarizer order; canonical secrets and explicit relationships alone authorize Luna",
+      "tests": ["tests/test_ollama_handler.py", "tests/test_health_canonical.py", "tests/test_configuration_brain_core_runtime_consumers.py", "tests/test_configuration_inference_stage7.py", "tests/test_inference_provider_foundation.py"]
     },
     {
       "role_id": "speech_stt",

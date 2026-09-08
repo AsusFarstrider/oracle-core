@@ -20,6 +20,7 @@ from oracle_app.health import (
 )
 from oracle_app.health_routes import (
     canonical_health,
+    health_inference_http,
     health_ollama_http,
     health_stt_http,
     health_tts_http,
@@ -87,6 +88,22 @@ class CanonicalCoreHealthTests(unittest.TestCase):
                 model="example-model",
                 timeout_seconds=7,
                 version=Mock(return_value=(200, '{"version":"test"}')),
+                settings=SimpleNamespace(
+                    consumer_orders={"fallback_router": ("local_ollama",)},
+                    local_provider_id="local_ollama",
+                ),
+                operational_status=Mock(
+                    return_value=(
+                        {
+                            "consumer": "fallback_router",
+                            "provider_id": "local_ollama",
+                            "provider_type": "ollama",
+                            "model": "example-model",
+                            "available_for_attempt": True,
+                            "cooldown_remaining_seconds": 0.0,
+                        },
+                    )
+                ),
             ),
         )
         application = FastAPI()
@@ -109,10 +126,13 @@ class CanonicalCoreHealthTests(unittest.TestCase):
 
         with patch("oracle_app.health_routes.safe_observe_provider_health"):
             ollama = health_ollama_http(request)
+            inference = health_inference_http(request)
             stt = health_stt_http(request)
             tts = health_tts_http(request)
 
         self.assertEqual(ollama.status, "ok")
+        self.assertEqual(inference.status, "ok")
+        self.assertEqual(inference.fallback_router_order, ["local_ollama"])
         self.assertEqual(stt.provider, "fast-whisper")
         self.assertEqual(tts.provider, "piper")
         core.inference.version.assert_called_once_with()

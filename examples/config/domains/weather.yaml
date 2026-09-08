@@ -11,6 +11,9 @@ history:
 remote:
   enabled: false
   provider: null
+solar:
+  enabled: false
+  locations: []
 providers:
   weewx:
     type: weewx

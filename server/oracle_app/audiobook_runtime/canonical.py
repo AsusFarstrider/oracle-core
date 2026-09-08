@@ -133,12 +133,15 @@ class CanonicalAudiobookExecution:
         source: str | None,
         action: str,
         args: dict[str, Any] | None = None,
+        *,
+        command_id: str | None = None,
     ) -> dict[str, Any]:
         return execute_satellite_command(
             source,
             action,
             args,
             control_target=self._control_target(source),
+            command_id=command_id,
         )
 
     def fetch_satellite_music_session(self, source: str | None) -> dict[str, Any] | None:

@@ -105,7 +105,8 @@ Do not create separate durable SQLite stores for operational records without a d
 
 ## Required Core Tables
 
-Memory schema `0010_alert_lifecycle` includes:
+Current development schema `0011_suggestions_advisory_review` retains the
+`0010_alert_lifecycle` alert tables and includes:
 
 - `memory_schema_migrations`
 - `memory_users`
@@ -127,6 +128,10 @@ Memory schema `0010_alert_lifecycle` includes:
 - `suggestions`
 - `suggestion_reviews`
 - `suggestion_exchange_current`
+
+Schema `0011_suggestions_advisory_review` adds run-level Suggestions collection
+status, normalized failure class, and suppressed-repeat count. These are review
+and diagnostic records only; they cannot authorize execution.
 
 The orchestration tables are also the compatibility store for the staged
 runbook-kernel extraction. Schema version `0004_runbook_kernel_metadata` adds

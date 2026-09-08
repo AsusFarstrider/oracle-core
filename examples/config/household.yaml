@@ -3,6 +3,12 @@ household:
   display_name: Example Home
   timezone: Etc/UTC
   locale: en-US
+  home_location:
+    locality: Example City
+    region: Example Region
+    country: US
+    latitude: 40.0
+    longitude: -75.0
 users:
   - id: resident_one
     enabled: true

@@ -1244,9 +1244,9 @@ function formatEventDuration(start, end) {
   }
 }
 
-function renderCalendarFocusEvents(events) {
+function renderCalendarFocusEvents(events, complete = true) {
   if (!Array.isArray(events) || events.length === 0) {
-    return renderEmpty("Nothing on the calendar today.");
+    return renderEmpty(complete ? "Nothing on the calendar today." : "No events loaded from the available calendars.");
   }
   return events
     .slice(0, 10)
@@ -1286,10 +1286,10 @@ function groupCalendarEventsByDay(events, limit = 20) {
   return Array.from(grouped.entries()).map(([date, items]) => ({ date, items }));
 }
 
-function renderCalendarUpcomingGroups(events) {
+function renderCalendarUpcomingGroups(events, complete = true) {
   const groups = groupCalendarEventsByDay(events, 20);
   if (groups.length === 0) {
-    return renderEmpty("No upcoming events.");
+    return renderEmpty(complete ? "No upcoming events." : "Upcoming events may be incomplete.");
   }
   return groups
     .map(
@@ -1570,6 +1570,8 @@ async function loadWeather() {
       .filter((value) => !Number.isNaN(value))
       .reduce((min, value) => (min == null ? value : Math.min(min, value)), null);
     const featuredPeriods = periods.slice(0, 3);
+    const solarEvents = payload.solar?.events || {};
+    const weatherAlerts = Array.isArray(payload.alerts?.alerts) ? payload.alerts.alerts : [];
     elements.weatherRoot.innerHTML = `
       <section class="weather-hero">
         <div class="weather-hero__copy">
@@ -1685,6 +1687,50 @@ async function loadWeather() {
         }
       </section>
 
+      <section class="weather-solar-grid">
+        <article class="panel-card weather-detail-card">
+          <div class="card-head">
+            <div>
+              <p class="card-kicker">Sun and twilight</p>
+              <h4>${escapeHtml(payload.solar?.location || payload.location || "Local solar times")}</h4>
+            </div>
+            <span class="small-copy">${escapeHtml(payload.solar?.date || "")}</span>
+          </div>
+          <div class="weather-solar-events">
+            ${[
+              ["Civil dawn", solarEvents.civil_dawn],
+              ["Sunrise", solarEvents.sunrise],
+              ["Sunset", solarEvents.sunset],
+              ["Civil dusk", solarEvents.civil_dusk],
+            ].map(([label, value]) => `
+              <div class="row-card">
+                <span class="metric-label">${label}</span>
+                <strong>${value ? escapeHtml(formatTime(value)) : "--"}</strong>
+              </div>
+            `).join("")}
+          </div>
+        </article>
+        <article class="panel-card weather-detail-card">
+          <div class="card-head">
+            <div>
+              <p class="card-kicker">Watches and warnings</p>
+              <h4>National Weather Service</h4>
+            </div>
+            <span class="status-pill status-pill--${statusTone(payload.alerts?.freshness || payload.components?.alerts)}">${escapeHtml(payload.alerts?.freshness || payload.components?.alerts || "unknown")}</span>
+          </div>
+          <div class="weather-alert-list">
+            ${weatherAlerts.length > 0
+              ? weatherAlerts.map((alert) => `
+                <div class="row-card">
+                  <span>${escapeHtml(alert.event || "Weather alert")}</span>
+                  <strong>${escapeHtml(alert.severity || "Unknown")}</strong>
+                </div>
+              `).join("")
+              : `<p class="small-copy">${payload.components?.alerts === "unavailable" ? "Weather alerts are temporarily unavailable." : "No active watches or warnings."}</p>`}
+          </div>
+        </article>
+      </section>
+
       <section class="weather-detail-full">
         <article class="panel-card weather-detail-card weather-detail-card--full">
           <div class="card-head">
@@ -1773,6 +1819,11 @@ async function loadCalendar() {
   setStatus(elements.calendarStatus, "Loading Calendar snapshot.");
   try {
     const payload = await fetchJson("/api/ui/calendar");
+    const calendarComplete = payload.complete !== false;
+    const calendarSources = Array.isArray(payload.source_availability) ? payload.source_availability : [];
+    const calendarSourceSummary = calendarSources.length > 0
+      ? calendarSources.map((source) => `${source.source_label || source.source_id}: ${source.status}${source.freshness === "stale" ? " (saved)" : ""}`).join(" · ")
+      : "No calendar sources reported";
     const todayEvents = Array.isArray(payload.today?.events) ? payload.today.events : [];
     const todayDate = String(payload.today?.date || "").trim();
     const upcomingEvents = (Array.isArray(payload.upcoming?.events) ? payload.upcoming.events : []).filter((event) => {
@@ -1784,6 +1835,13 @@ async function loadCalendar() {
       return eventDate !== todayDate;
     });
     elements.calendarRoot.innerHTML = `
+      <section class="calendar-provider-truth ${calendarComplete ? "" : "is-partial"}">
+        <span class="material-symbols-outlined">${calendarComplete ? "event_available" : "event_busy"}</span>
+        <div>
+          <strong>${calendarComplete ? "Calendar sources available" : "Calendar results may be incomplete"}</strong>
+          <p>${escapeHtml(calendarSourceSummary)} · provider data ${escapeHtml(`${formatMinutesFromSeconds(payload.provider_age_seconds)} min old`)}</p>
+        </div>
+      </section>
       <section class="calendar-layout">
         <article class="calendar-focus">
           <div class="calendar-focus__header">
@@ -1791,7 +1849,7 @@ async function loadCalendar() {
             <h3>${escapeHtml(formatCalendarHeadlineDate(payload.today?.date || ""))}</h3>
           </div>
           <div class="calendar-focus__list">
-            ${renderCalendarFocusEvents(todayEvents)}
+            ${renderCalendarFocusEvents(todayEvents, calendarComplete)}
           </div>
           <div class="calendar-create">
             ${renderCalendarCreateComposer(payload.create_event)}
@@ -1807,7 +1865,7 @@ async function loadCalendar() {
             <span class="small-copy">${upcomingEvents.length} items</span>
           </div>
           <div class="calendar-horizon__timeline">
-            ${renderCalendarUpcomingGroups(upcomingEvents)}
+            ${renderCalendarUpcomingGroups(upcomingEvents, calendarComplete)}
           </div>
         </article>
       </section>

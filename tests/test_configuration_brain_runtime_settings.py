@@ -52,7 +52,11 @@ class BrainRuntimeSettingsTests(unittest.TestCase):
                     "shared_backend": {
                         "enabled": True,
                         "provider": "local_ollama",
-                        "fallback_router": {"model": "router-model", "timeout_seconds": 9.0},
+                        "fallback_router": {
+                            "provider_order": ["local_ollama"],
+                            "model": "router-model",
+                            "timeout_seconds": 9.0,
+                        },
                     }
                 },
             }

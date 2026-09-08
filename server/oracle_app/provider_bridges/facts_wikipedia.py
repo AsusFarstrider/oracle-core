@@ -129,7 +129,7 @@ class WikipediaFactsBridge:
                 fallback = summary
                 fallback_score = score
             if score >= search_plan.accept_score:
-                return self._maybe_add_lifespan_extract(
+                return self._maybe_add_question_extract(
                     summary,
                     search_plan=search_plan,
                     language=language,
@@ -137,7 +137,7 @@ class WikipediaFactsBridge:
                 )
         if fallback is None:
             return None
-        return self._maybe_add_lifespan_extract(
+        return self._maybe_add_question_extract(
             fallback,
             search_plan=search_plan,
             language=language,
@@ -237,7 +237,7 @@ class WikipediaFactsBridge:
             retrieval=FactsRetrievalInfo(method="wikipedia_summary_lookup", notes=notes),
         )
 
-    def _maybe_add_lifespan_extract(
+    def _maybe_add_question_extract(
         self,
         summary: dict[str, Any],
         *,
@@ -245,13 +245,17 @@ class WikipediaFactsBridge:
         language: str,
         timeout_seconds: int,
     ) -> dict[str, Any]:
-        if not self._policy.needs_lifespan_extract(summary, search_plan):
+        needs_lifespan = self._policy.needs_lifespan_extract(summary, search_plan)
+        needs_date = self._policy.needs_date_extract(summary, search_plan)
+        if not needs_lifespan and not needs_date:
             return summary
         title = str(summary.get("title") or "").strip()
         if not title:
             return summary
         full_extract = self._fetch_page_extract(title, language=language, timeout_seconds=timeout_seconds)
-        return self._policy.enrich_lifespan(summary, full_extract)
+        if needs_lifespan:
+            return self._policy.enrich_lifespan(summary, full_extract)
+        return self._policy.enrich_date(summary, full_extract, search_plan)
 
     def _no_result(self, query: str, *, detail: str) -> FactsProviderResult:
         return FactsProviderResult(

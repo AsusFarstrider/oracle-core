@@ -16,6 +16,7 @@ from .health import (
     check_audiobook_health,
     check_calendar_health,
     check_home_assistant_health,
+    check_inference_health,
     check_librenms_health,
     check_music_health,
     check_news_health,
@@ -29,6 +30,7 @@ from .schemas import (
     CalendarHealthResponse,
     HealthResponse,
     HomeAssistantHealthResponse,
+    InferenceHealthResponse,
     HookInfo,
     LibreNmsHealthResponse,
     MusicHealthResponse,
@@ -150,13 +152,21 @@ def canonical_health(
 ) -> HealthResponse:
     """Report aggregate health from the installed canonical composition."""
     home_assistant = composition.runtime.home_assistant
+    inference = composition.runtime.brain.inference
+    fallback = getattr(inference, "fallback_router", None)
+    information = getattr(composition.runtime, "information", None)
+    facts = None if information is None else information.facts
     return HealthResponse(
         status="ok",
         service="oracle-brain",
         home_assistant_configured=bool(
             home_assistant is not None and home_assistant.enabled
         ),
-        ollama_configured=bool(composition.runtime.brain.inference.enabled),
+        ollama_configured=bool(getattr(inference, "provider", None) is not None),
+        inference_configured=bool(
+            getattr(fallback, "provider_order", ())
+            or getattr(facts, "summarizer_provider_order", ())
+        ),
     )
 
 
@@ -321,6 +331,13 @@ def health_ollama_http(request: Request) -> OllamaHealthResponse:
     return response
 
 
+def health_inference_http(request: Request) -> InferenceHealthResponse:
+    composition = _canonical_composition_from_request(request)
+    if composition is None:
+        raise HTTPException(status_code=503, detail="Canonical application composition is unavailable.")
+    return check_inference_health(inference=composition.core_consumers.inference)
+
+
 def health_music_http(request: Request) -> MusicHealthResponse:
     composition = _canonical_composition_from_request(request)
     if composition is None:
@@ -376,6 +393,7 @@ def register_health_routes(app: FastAPI) -> None:
     app.get("/api/admin/health/audiobook", response_model=AudiobookHealthResponse)(health_audiobook_http)
     app.get("/api/admin/health/calendar", response_model=CalendarHealthResponse)(health_calendar_http)
     app.get("/api/admin/health/ollama", response_model=OllamaHealthResponse)(health_ollama_http)
+    app.get("/api/admin/health/inference", response_model=InferenceHealthResponse)(health_inference_http)
     app.get("/api/admin/health/music", response_model=MusicHealthResponse)(health_music_http)
     app.get("/api/admin/health/news", response_model=NewsHealthResponse)(health_news_http)
     app.get("/api/admin/health/librenms", response_model=LibreNmsHealthResponse)(health_librenms_http)

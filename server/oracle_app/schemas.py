@@ -301,6 +301,7 @@ class CommandInterimEvent(BaseModel):
     event_type: Literal["facts_summarizer_ack"]
     source: str
     session_id: str
+    correlation_id: str = ""
     domain: str
     message: str
     created_at: str
@@ -399,6 +400,7 @@ class HealthResponse(BaseModel):
     service: str
     home_assistant_configured: bool
     ollama_configured: bool
+    inference_configured: bool = False
 
 
 class HomeAssistantHealthResponse(BaseModel):
@@ -461,6 +463,26 @@ class OllamaHealthResponse(BaseModel):
     model: str | None = None
     detail: str
     http_status: int | None = None
+
+
+class InferenceProviderHealth(BaseModel):
+    consumer: Literal["fallback_router", "facts_summarizer"]
+    provider_id: str
+    provider_type: Literal["ollama", "openai_luna"]
+    model: str
+    available_for_attempt: bool
+    cooldown_remaining_seconds: float
+
+
+class InferenceHealthResponse(BaseModel):
+    status: Literal["ok", "degraded", "disabled"]
+    service: str
+    configured: bool
+    fallback_router_order: list[str]
+    facts_summarizer_order: list[str]
+    providers: list[InferenceProviderHealth]
+    local_music_provider: str | None = None
+    detail: str
 
 
 class TtsRequest(BaseModel):

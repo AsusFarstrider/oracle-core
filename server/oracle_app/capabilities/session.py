@@ -43,6 +43,20 @@ class PendingUtilityCapability:
         return CapabilityDecision("system", 0.98, "Matched pending deterministic utility clarification", normalized_text)
 
 
+class PendingInformationalCapability:
+    name = "pending_informational"
+    priority = 97.5
+
+    def evaluate(self, normalized_text: str, *, source: str | None = None, session_id: str | None = None) -> CapabilityDecision | None:
+        pending = get_pending_state(source, session_id, domain="informational")
+        if pending is None or not normalized_text:
+            return None
+        target = str(pending.get("target_domain") or "").strip().lower()
+        if target not in {"facts", "weather", "calendar", "news"}:
+            return None
+        return CapabilityDecision(target, 0.975, "Matched pending informational clarification", normalized_text)
+
+
 class PendingHomeCapability:
     name = "pending_home"
     priority = 89.5

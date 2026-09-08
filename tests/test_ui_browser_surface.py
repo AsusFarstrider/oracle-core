@@ -85,6 +85,16 @@ class UiBrowserSurfaceTests(unittest.TestCase):
         self.assertTrue((ROOT / "ui" / "system.js").exists())
         self.assertTrue((ROOT / "ui" / "system.css").exists())
 
+    def test_suggestions_ui_discloses_advisory_collection_and_review_truth(self) -> None:
+        content = (ROOT / "ui" / "system.js").read_text(encoding="utf-8")
+
+        self.assertIn("Evidence collection", content)
+        self.assertIn("Reviewed repeats suppressed", content)
+        self.assertIn("Model authority", content)
+        self.assertIn("renderSuggestionCollectorStatus", content)
+        self.assertIn("Advisory only. Stored for human review; no Oracle action is executed.", content)
+        self.assertNotIn("Execute suggestion", content)
+
     def test_activity_uses_memory_diagnostics_not_log_scraping(self) -> None:
         content = (ROOT / "ui" / "system.js").read_text(encoding="utf-8")
 

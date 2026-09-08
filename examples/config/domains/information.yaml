@@ -28,6 +28,8 @@ news:
       aliases: []
       provider: rss
       feed_url: https://example.invalid/news.xml
+      article_hosts:
+        - example.invalid
 suggestions:
   enabled: false
   provider: null

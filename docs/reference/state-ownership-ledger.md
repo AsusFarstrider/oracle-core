@@ -24,7 +24,8 @@ decision process.
 
 The current ledger explicitly covers:
 
-- all effective-interaction compartments, UI drafts, and UI snapshots;
+- all effective-interaction compartments, including bounded informational
+  subjects, UI drafts, and UI snapshots;
 - active audiobook and pending provider-sync state;
 - every table in the canonical Memory database, including Suggestions;
 - alerts, notifications, runbook execution, network control/recovery state,

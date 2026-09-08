@@ -49,6 +49,7 @@ from .schemas import (
 )
 from .session_state import (
     clear_active_context,
+    clear_informational_context_for_topic_change,
     clear_utility_context_for_topic_change,
     inspect_session,
     refresh_session,
@@ -60,6 +61,7 @@ from .session_state import (
 from . import state
 from .text_normalization import normalize_text
 from .ui_audio import ui_audio_search_impl
+from .ui_snapshot_cache import invalidate_cached_snapshots
 from .ui_context import handle_pending_ui_context as _handle_pending_ui_context
 from .user_context import analyze_user_directive, get_user_entry, resolve_effective_user
 
@@ -193,6 +195,11 @@ def _maybe_update_active_context(*, route: RouteResponse, dispatch, result: dict
         return
 
     clear_utility_context_for_topic_change(
+        source,
+        session_id,
+        route_target=route_target,
+    )
+    clear_informational_context_for_topic_change(
         source,
         session_id,
         route_target=route_target,
@@ -422,6 +429,8 @@ def _should_refresh_session(*, route: RouteResponse, dispatch, result: dict[str,
         "weather_forecast",
         "remote_weather_forecast",
         "weather_history",
+        "weather_solar",
+        "weather_alerts",
     }:
         return True
     if route_target == "network" and action == "network_summary":
@@ -1239,7 +1248,11 @@ def command_request(
         room_context=room_context or {},
     )
     dispatch = _execute_application_dispatch(dispatch)
-    if route.target == "fallback_router" and dispatch.status == "executed":
+    if (
+        route.target == "fallback_router"
+        and dispatch.status == "executed"
+        and str((dispatch.result or {}).get("semantic_status") or "resolved") == "resolved"
+    ):
         fallback_dispatch = dispatch.model_copy(deep=True)
         route, dispatch = _continue_from_fallback_router(
             original_payload=payload,
@@ -1249,6 +1262,8 @@ def command_request(
             household_settings=household_settings,
             request_source=established_source,
         )
+    elif route.target == "fallback_router" and dispatch.status == "executed":
+        fallback_dispatch = dispatch.model_copy(deep=True)
     elif route.target == "fallback_router" and dispatch.status == "failed":
         fallback_dispatch = dispatch.model_copy(deep=True)
         logger.info(
@@ -1258,6 +1273,12 @@ def command_request(
             str((dispatch.result or {}).get("error") or "-"),
         )
     result = dispatch.result or {}
+    if (
+        dispatch.target == "calendar"
+        and dispatch.status == "executed"
+        and str(result.get("action") or "") == "commit_event"
+    ):
+        invalidate_cached_snapshots("ui_calendar_")
     reply_text = build_reply_text(dispatch)
     try:
         validate_command_response_contract(route=route, dispatch=dispatch, reply_text=reply_text)

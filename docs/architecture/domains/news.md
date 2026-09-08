@@ -7,6 +7,7 @@ The `news` domain is a route target with execution centered in `server/oracle_ap
 The current domain is split across:
 
 - `server/oracle_app/news.py` for request parsing, source selection, and result construction
+- `server/oracle_app/news_context.py` for bounded selected-story follow-up state
 - `server/oracle_app/provider_bridges/rss_news.py` for RSS fetch and parse mechanics
 - `server/oracle_app/handlers/news.py` for dispatch-target execution and error shaping
 - capability routing in `server/oracle_app/capabilities/information.py`, which recognizes news requests and routes them to the `news` target
@@ -16,9 +17,11 @@ The current domain is split across:
 The current domain is responsible for:
 
 - identifying news requests
-- parsing the requested source from the query when present
-- selecting the current configured source
+- parsing the requested configured source and bounded topic when present
+- combining configured sources for a general request
 - selecting the active news provider mechanism for the chosen source
+- assigning stable Oracle article identities and retaining source/publication/retrieval evidence
+- resolving ordinal selection, provenance, publication-time and explicit-update follow-ups
 - executing the request through the news handler
 
 ## Data Shapes
@@ -26,7 +29,10 @@ The current domain is responsible for:
 The current domain centers on:
 
 - `NewsQuery` as the parsed request shape
-- a headlines result payload containing source metadata and headline items
+- headline and selected-article result payloads containing source availability,
+  stable article IDs, publication time, retrieval time and freshness
+- an expiring News informational subject in the shared interaction session,
+  containing only bounded Oracle-owned IDs and evidence fields
 
 ## Provider Surface
 
@@ -39,23 +45,40 @@ The active bridge is:
 The current split is:
 
 - domain/config owns source catalog and source selection
-- the RSS bridge owns feed fetch, RSS/XML parsing, and headline normalization
+- the RSS bridge owns feed fetch, RSS/XML parsing, headline normalization, and
+  selected HTML article retrieval/excerpt extraction
 
-This preserves room for future non-RSS news mechanisms without introducing multi-bridge orchestration now.
+This is one bounded RSS bridge, not a general web or provider framework.
 
 ## Current Surface
 
-The current news surface includes general and source-specific headline requests
-for configured providers, with:
+The current News surface includes general and source-specific headlines, bounded
+topic filtering over RSS title/summary evidence, ordinal story selection,
+selected-article excerpts, provenance/publication-time follow-up and explicit
+checks for newer related source evidence. It has:
 
-- a five-minute fresh cache per configured source;
-- bounded stale-on-error reuse for at most 30 minutes;
-- explicit freshness metadata and plain-language stale wording;
-- no caching of fetch or RSS parse failures.
+- a five-minute fresh cache per configured feed and selected article;
+- bounded stale-on-error reuse for at most 30 minutes for successful reads;
+- independent per-source availability, explicit partial/stale wording and no
+  caching of fetch, parse or article failures;
+- narrow high-confidence disclosure when configured sources publish closely
+  matching headlines with explicit lexical contradiction; Oracle does not
+  adjudicate which source is correct.
+
+Article retrieval is confined to the selected RSS link. Each source may list
+exact additional `article_hosts`; the feed host is also admitted. Initial URLs,
+every redirect and the final URL must use HTTP(S), match that exact allowlist,
+use a standard port, contain no credentials, and resolve only to public network
+addresses. Responses must be HTML and are size-bounded. Oracle extracts a
+deterministic bounded excerpt and never follows page instructions, bypasses a
+paywall, opens arbitrary web destinations, or invokes inference.
 
 ## Boundary
 
-The news domain resolves headline requests on the brain and returns structured headline results through the dedicated news handler.
+Publication time remains source evidence about when the article was published;
+it is never presented as proof of when the reported event happened. Retrieval
+time separately records Oracle's read. News resolves on the Brain and returns
+structured evidence through the dedicated handler and canonical reply surface.
 
 ## V2 Configuration Reconciliation
 

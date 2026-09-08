@@ -5,12 +5,14 @@ providers:
     type: nextcloud
     feeds:
       - id: household
+        label: Household
         kind: events
+        user_ids: []
         ics_url: https://calendar.example.invalid/household.ics
     timeout_seconds: 8
 policy:
   read_enabled: true
   write_enabled: false
   confirmation_required: true
-  fresh_seconds: 60
+  fresh_seconds: 300
   stale_if_error_seconds: 600

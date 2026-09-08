@@ -1,31 +1,46 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
 import subprocess
-import textwrap
 from typing import Any
 
+from oracle_app.suggestions.inference_contract import (
+    build_suggestions_prompt,
+    normalize_suggestion_items,
+    parse_suggestion_json,
+)
 from oracle_app.suggestions.redaction import redact_secrets
 from oracle_app.network_runtime.platform_transport import SshHostVerificationError, strict_ssh_options
 
 from ..schemas import OpenClawBridgeOptions, OpenClawBridgeResult
-from .http import _normalize_item
+
+
+MAX_OPENCLAW_CLI_OUTPUT_CHARACTERS = 524288
 
 
 def generate_suggestions_ssh_cli(packet: dict[str, Any], options: OpenClawBridgeOptions) -> OpenClawBridgeResult:
     if not options.ssh_target.strip():
-        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", errors=["OpenClaw SSH target is not configured."])
+        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", failure_class="configuration", errors=["OpenClaw SSH target is not configured."])
 
-    prompt = _build_prompt(packet, options.max_suggestions)
+    prompt = build_suggestions_prompt(packet, options.max_suggestions)
     remote_script = _remote_script()
     try:
         command, command_environment = _ssh_command(options)
         remote_command = f"python3 -c {shlex.quote(remote_script)}"
         result = subprocess.run(
             command + [remote_command],
-            input=json.dumps({"prompt": prompt, "options": _remote_options(options)}),
+            input=json.dumps(
+                {
+                    "prompt": prompt,
+                    "options": _remote_options(
+                        options,
+                        session_id=_isolated_session_id(packet),
+                    ),
+                }
+            ),
             capture_output=True,
             text=True,
             check=False,
@@ -33,15 +48,23 @@ def generate_suggestions_ssh_cli(packet: dict[str, Any], options: OpenClawBridge
             env=command_environment,
         )
     except SshHostVerificationError as exc:
-        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", errors=[f"OpenClaw SSH host verification is unavailable: {exc}"])
+        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", failure_class="transport", errors=[f"OpenClaw SSH host verification is unavailable: {exc}"])
     except FileNotFoundError as exc:
-        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", errors=[f"OpenClaw SSH transport command is unavailable: {exc.filename}"])
+        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", failure_class="transport", errors=[f"OpenClaw SSH transport command is unavailable: {exc.filename}"])
     except subprocess.TimeoutExpired:
-        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", errors=["OpenClaw SSH CLI transport timed out."])
+        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", failure_class="transport", errors=["OpenClaw SSH CLI transport timed out."])
 
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()[-4000:]
-        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", errors=[f"OpenClaw SSH CLI failed: {detail or result.returncode}"])
+        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", failure_class="agent_execution", errors=[f"OpenClaw SSH CLI failed: {detail or result.returncode}"])
+
+    if len(result.stdout or "") > MAX_OPENCLAW_CLI_OUTPUT_CHARACTERS:
+        return OpenClawBridgeResult(
+            ok=False,
+            adapter="ssh_cli",
+            failure_class="response_validation",
+            errors=["OpenClaw SSH CLI output exceeded the 524288-character limit."],
+        )
 
     try:
         raw = json.loads(result.stdout)
@@ -49,6 +72,7 @@ def generate_suggestions_ssh_cli(packet: dict[str, Any], options: OpenClawBridge
         return OpenClawBridgeResult(
             ok=False,
             adapter="ssh_cli",
+            failure_class="response_validation",
             raw_response={"stdout": result.stdout[-4000:], "stderr": result.stderr[-4000:]},
             errors=[f"OpenClaw SSH CLI returned invalid JSON: {exc}"],
         )
@@ -56,19 +80,28 @@ def generate_suggestions_ssh_cli(packet: dict[str, Any], options: OpenClawBridge
     raw = redact_secrets(raw)
     text = _extract_text(raw)
     if not text:
-        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", raw_response=raw, errors=["OpenClaw CLI returned no text output."])
-    parsed = _parse_suggestion_json(text)
+        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", failure_class="response_validation", raw_response=raw, errors=["OpenClaw CLI returned no text output."])
+    parsed = parse_suggestion_json(text)
     if parsed is None:
-        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", raw_response=raw, errors=["OpenClaw CLI text did not contain valid suggestion JSON."])
+        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", failure_class="response_validation", raw_response=raw, errors=["OpenClaw CLI text did not contain valid suggestion JSON."])
     suggestions = parsed.get("suggestions")
     if not isinstance(suggestions, list):
-        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", raw_response=raw, errors=["OpenClaw suggestion JSON did not include a suggestions array."])
-    normalized = [_normalize_item(item) for item in suggestions if isinstance(item, dict)]
+        return OpenClawBridgeResult(ok=False, adapter="ssh_cli", failure_class="response_validation", raw_response=raw, errors=["OpenClaw suggestion JSON did not include a suggestions array."])
+    normalized, validation_errors = normalize_suggestion_items(suggestions)
+    if suggestions and not normalized:
+        return OpenClawBridgeResult(
+            ok=False,
+            adapter="ssh_cli",
+            failure_class="response_validation",
+            raw_response=raw,
+            errors=validation_errors,
+        )
     return OpenClawBridgeResult(
         ok=True,
         adapter="ssh_cli",
         raw_response={"openclaw_cli": raw, "parsed": redact_secrets(parsed)},
         suggestions=normalized[: options.max_suggestions],
+        errors=validation_errors,
     )
 
 
@@ -84,7 +117,13 @@ def _ssh_command(options: OpenClawBridgeOptions) -> tuple[list[str], dict[str, s
     return ssh, None
 
 
-def _remote_options(options: OpenClawBridgeOptions) -> dict[str, Any]:
+def _isolated_session_id(packet: dict[str, Any]) -> str:
+    run_id = str(packet.get("run_id") or "missing-run-id").strip()
+    digest = hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:32]
+    return f"oracle-suggestions-{digest}"
+
+
+def _remote_options(options: OpenClawBridgeOptions, *, session_id: str) -> dict[str, Any]:
     return {
         "cli_path": options.cli_path,
         "cli_mode": options.cli_mode,
@@ -93,6 +132,7 @@ def _remote_options(options: OpenClawBridgeOptions) -> dict[str, Any]:
         "timeout_seconds": options.timeout_seconds,
         "start_gateway": options.start_gateway,
         "gateway_port": options.gateway_port,
+        "session_id": session_id,
     }
 
 
@@ -112,6 +152,7 @@ agent_name = str(options.get("agent_name") or "oracle-advisor")
 model = str(options.get("model") or "")
 timeout_seconds = int(options.get("timeout_seconds") or 120)
 gateway_port = int(options.get("gateway_port") or 18789)
+session_id = str(options.get("session_id") or "")
 
 if options.get("start_gateway"):
     probe = subprocess.run(
@@ -143,9 +184,11 @@ if options.get("start_gateway"):
 
 if cli_mode == "agent":
     cmd = [cli_path, "agent", "--agent", agent_name, "--local", "--json", "--message", prompt]
+    if session_id:
+        cmd.extend(["--session-id", session_id])
 else:
     cmd = [cli_path, "infer", "model", "run", "--local", "--json", "--prompt", prompt]
-if cli_mode != "agent" and model:
+if model:
     cmd.extend(["--model", model])
 result = subprocess.run(
     cmd,
@@ -161,49 +204,6 @@ sys.stdout.write(result.stdout or result.stderr)
 """
 
 
-def _build_prompt(packet: dict[str, Any], max_suggestions: int) -> str:
-    schema = {
-        "suggestions": [
-            {
-                "title": "Short human-readable title",
-                "severity": "info | low | medium | high | critical",
-                "category": "oracle | home_assistant | librenms | network | server | automation | security | maintenance | observability | unknown",
-                "source": "oracle | home_assistant | librenms | mixed",
-                "summary": "What OpenClaw noticed",
-                "evidence": ["Specific log line, state, alert, or observation"],
-                "suggested_action": "Human-readable recommendation",
-                "recommended_oracle_action": None,
-                "confidence": 0.0,
-                "requires_review": True,
-            }
-        ]
-    }
-    return textwrap.dedent(
-        f"""
-        You are OpenClaw acting as an external advisory analyst for Oracle Suggestions.
-
-        Analyze only the packet between BEGIN_ORACLE_DIAGNOSTIC_PACKET and END_ORACLE_DIAGNOSTIC_PACKET.
-        The packet is your only evidence source. Do not use workspace files, bootstrap context, shell state, prior sessions, web, APIs, or tools as evidence.
-        You must not execute actions, request tool execution, or propose that you have changed anything.
-
-        Return only valid JSON with this exact top-level shape:
-        {json.dumps(schema, indent=2)}
-
-        Rules:
-        - Return at most {max_suggestions} suggestions.
-        - Suggestions are advisory only.
-        - recommended_oracle_action must be null unless a future allowlist action name is explicitly known.
-        - Use prior review history to avoid repeating rejected, corrected, ignored, or false-positive suggestions unless there is new evidence.
-        - Include concrete evidence from the packet.
-        - Do not include markdown fences or explanatory prose outside JSON.
-
-        BEGIN_ORACLE_DIAGNOSTIC_PACKET
-        {json.dumps(redact_secrets(packet), indent=2, sort_keys=True)}
-        END_ORACLE_DIAGNOSTIC_PACKET
-        """
-    ).strip()
-
-
 def _extract_text(raw: dict[str, Any]) -> str:
     outputs = raw.get("outputs")
     if isinstance(outputs, list):
@@ -214,24 +214,3 @@ def _extract_text(raw: dict[str, Any]) -> str:
         parts = [str(item.get("text") or "") for item in payloads if isinstance(item, dict)]
         return "\n".join(part for part in parts if part.strip()).strip()
     return str(raw.get("text") or "").strip()
-
-
-def _parse_suggestion_json(text: str) -> dict[str, Any] | None:
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.strip("`")
-        if cleaned.lower().startswith("json"):
-            cleaned = cleaned[4:].strip()
-    try:
-        parsed = json.loads(cleaned)
-        return parsed if isinstance(parsed, dict) else None
-    except json.JSONDecodeError:
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start >= 0 and end > start:
-            try:
-                parsed = json.loads(cleaned[start : end + 1])
-                return parsed if isinstance(parsed, dict) else None
-            except json.JSONDecodeError:
-                return None
-    return None

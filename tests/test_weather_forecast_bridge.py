@@ -78,6 +78,7 @@ class WeatherForecastBridgeTests(unittest.TestCase):
                                 "windDirection": "NW",
                                 "shortForecast": "Mostly Cloudy",
                                 "detailedForecast": "Mostly Cloudy",
+                                "probabilityOfPrecipitation": {"value": 45},
                             }
                         ]
                     }
@@ -93,6 +94,7 @@ class WeatherForecastBridgeTests(unittest.TestCase):
         self.assertEqual(len(forecast["periods"]), 1)
         self.assertEqual(forecast["periods"][0].name, "Tonight")
         self.assertEqual(forecast["periods"][0].temperature_f, 51)
+        self.assertEqual(forecast["periods"][0].probability_of_precipitation_pct, 45)
 
     def test_fetch_local_forecast_requires_coordinates(self) -> None:
         settings = self._settings()

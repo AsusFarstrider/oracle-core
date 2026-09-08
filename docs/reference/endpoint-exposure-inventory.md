@@ -27,6 +27,7 @@ canonical trust, source, authentication, and credential policy must agree.
 |---|---|---|
 | Household browser UI | `/ui`, `/ui/*`, `/api/ui/*` | Host-local by default; household LAN by explicit choice. Remote Internet use requires an external boundary. |
 | Operator diagnostics | `/admin`, `/admin/*`, read-only `/api/admin/*` including `/api/admin/caches` | Same transport choices as browser UI, with operator-sensitive results protected by the applicable access policy. Cache diagnostics are read-only lifecycle/footprint evidence. |
+| Suggestions advisory review | `/api/admin/suggestions*` including explicit generate and review actions | Operator-only System Mode surface behind the applicable access boundary. Generate submits one bounded/redacted advisory packet to the selected backend; review changes advisory records only and grants no execution authority. |
 | Health and discovery | root `/health` liveness and `/api/admin/health/*` diagnostics | Never assume anonymous public access. Root `/health` is the only permanent root API; satellite-local `:8022/health/config` is a separate appliance contract. |
 | Conversation requests | `/api/conversation/*` | Household LAN only when enabled clients have matching canonical source and credential policy. Raw route and dispatch internals are not public command results. |
 | Speech conversion | `/api/speech/stt`, `/api/speech/tts` | Household LAN only for enabled clients; speech conversion owns no command, session, or reply policy. |

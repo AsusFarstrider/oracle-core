@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from pydantic import Field, field_validator, model_validator
 
 from .domain_models import CredentialFreeUrl, MachinePath
-from .model_base import CanonicalId, ConfigurationModel
+from .model_base import CanonicalId, ConfigurationModel, SecretReference
 
 
 PositiveSeconds = Annotated[float, Field(gt=0, le=86400)]
@@ -122,6 +122,7 @@ class OllamaRequestOptions(ConfigurationModel):
 
 class OllamaProvider(ConfigurationModel):
     type: Literal["ollama"]
+    enabled: bool = True
     base_url: CredentialFreeUrl
     model: Annotated[str, Field(min_length=1, max_length=256)]
     timeout_seconds: PositiveSeconds = 20.0
@@ -129,12 +130,38 @@ class OllamaProvider(ConfigurationModel):
     options: OllamaRequestOptions = Field(default_factory=OllamaRequestOptions)
 
 
-InferenceProvider = Annotated[OllamaProvider, Field(discriminator="type")]
+class OpenAILunaProvider(ConfigurationModel):
+    type: Literal["openai_luna"]
+    enabled: bool
+    base_url: Literal["https://api.openai.com"] = "https://api.openai.com"
+    model: Literal["gpt-5.6-luna"] = "gpt-5.6-luna"
+    credential_secret: SecretReference | None = None
+    timeout_seconds: PositiveSeconds = 20.0
+    max_output_tokens: Annotated[int, Field(ge=16, le=4096)] = 512
+
+    @model_validator(mode="after")
+    def validate_explicit_cloud_opt_in(self) -> OpenAILunaProvider:
+        if self.enabled and self.credential_secret is None:
+            raise ValueError("Enabled OpenAI Luna requires a canonical credential secret reference.")
+        return self
+
+
+InferenceProvider = Annotated[OllamaProvider | OpenAILunaProvider, Field(discriminator="type")]
 
 
 class FallbackRouterConfiguration(ConfigurationModel):
+    enabled: bool = True
+    provider_order: list[CanonicalId] = Field(default_factory=list)
+    total_timeout_seconds: PositiveSeconds = 30.0
     model: Annotated[str, Field(min_length=1, max_length=256)] | None = None
     timeout_seconds: PositiveSeconds | None = None
+
+    @field_validator("provider_order")
+    @classmethod
+    def validate_unique_provider_order(cls, values: list[str]) -> list[str]:
+        if len(values) != len(set(values)):
+            raise ValueError("Fallback inference provider order must not contain duplicates.")
+        return values
 
 
 class SharedInferenceRole(ConfigurationModel):
@@ -145,7 +172,22 @@ class SharedInferenceRole(ConfigurationModel):
 
     @model_validator(mode="after")
     def validate_selection(self) -> SharedInferenceRole:
-        _validate_provider_selection(self.enabled, self.provider, self.providers, "shared inference")
+        if self.provider is not None and self.provider not in self.providers:
+            raise ValueError("Selected shared inference provider must have a typed definition.")
+        if self.provider is not None:
+            selected = self.providers[self.provider]
+            if not isinstance(selected, OllamaProvider):
+                raise ValueError("The shared inference compatibility provider must be local Ollama.")
+            if not selected.enabled:
+                raise ValueError("The selected local Ollama compatibility provider is disabled.")
+        if self.enabled and self.fallback_router.enabled and not self.fallback_router.provider_order:
+            raise ValueError("Enabled fallback inference requires an explicit provider order.")
+        for provider_id in self.fallback_router.provider_order:
+            provider = self.providers.get(provider_id)
+            if provider is None:
+                raise ValueError("Fallback inference provider order references an undefined provider.")
+            if not provider.enabled:
+                raise ValueError("Fallback inference provider order references a disabled provider.")
         return self
 
 

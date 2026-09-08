@@ -4,7 +4,7 @@ import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
@@ -126,7 +126,7 @@ class RemoteWeatherTests(unittest.TestCase):
         self.assertIsNotNone(query)
         assert query is not None
         self.assertEqual(query.location_text, "boston")
-        self.assertEqual(query.forecast_text, "what is the weather tomorrow")
+        self.assertEqual(query.forecast_text, "do i need a coat tomorrow")
 
     def test_parse_remote_forecast_query_matches_practical_umbrella_phrase(self) -> None:
         query = parse_remote_forecast_query("should i bring an umbrella in boston tomorrow")
@@ -134,7 +134,20 @@ class RemoteWeatherTests(unittest.TestCase):
         self.assertIsNotNone(query)
         assert query is not None
         self.assertEqual(query.location_text, "boston")
-        self.assertEqual(query.forecast_text, "what is the weather tomorrow")
+        self.assertEqual(query.forecast_text, "should i bring an umbrella tomorrow")
+
+    def test_parse_remote_forecast_query_preserves_practical_text_once(self) -> None:
+        for text in (
+            "should we take coats in boston tonight",
+            "what will it feel like outside tomorrow in boston",
+            "should i carry an umbrella in boston tomorrow",
+        ):
+            with self.subTest(text=text):
+                query = parse_remote_forecast_query(text)
+                self.assertIsNotNone(query)
+                assert query is not None
+                self.assertEqual(query.location_text, "boston")
+                self.assertNotIn("tomorrow tomorrow", query.forecast_text)
 
     def test_parse_remote_forecast_query_matches_location_first_weather_be_shape(self) -> None:
         query = parse_remote_forecast_query("what will boston weather be tomorrow")
@@ -150,14 +163,10 @@ class RemoteWeatherTests(unittest.TestCase):
     def test_parse_remote_forecast_query_rejects_shorter_grammar_fragment(self) -> None:
         self.assertIsNone(parse_remote_forecast_query("what is is the weather tomorrow"))
 
-    @patch("oracle_app.weather_remote._fetch_station_observation")
-    @patch("oracle_app.weather_remote._resolve_remote_location")
     def test_build_remote_current_weather_response_prefixes_location(
         self,
-        mock_resolve_remote_location,
-        mock_fetch_station_observation,
     ) -> None:
-        mock_resolve_remote_location.return_value = ResolvedRemoteLocation(
+        location = ResolvedRemoteLocation(
             query_text="boston",
             label="Boston, Massachusetts",
             latitude=42.3588,
@@ -166,36 +175,22 @@ class RemoteWeatherTests(unittest.TestCase):
             state="Massachusetts",
             country="United States",
         )
-        mock_fetch_station_observation.return_value = (
-            {
-                "properties": {
-                    "relativeLocation": {
-                        "properties": {
-                            "city": "Boston",
-                            "state": "MA",
-                        }
-                    }
-                }
-            },
-            {
-                "properties": {
-                    "timestamp": "2026-04-04T20:35:00+00:00",
-                    "stationId": "KBOS",
-                    "stationName": "Boston, Logan International Airport",
-                    "temperature": {"value": 4.0},
-                    "relativeHumidity": {"value": 80.8},
-                    "windDirection": {"value": 80.0},
-                    "windSpeed": {"value": 35.172},
-                    "windGust": {"value": None},
-                    "barometricPressure": {"value": 102946.21},
-                    "textDescription": "Cloudy and Windy",
-                }
-            },
-        )
+        bridge = Mock()
+        bridge.resolve_location.return_value = location
+        bridge.fetch_current.return_value = {
+            "location": "Boston, MA", "requested_location": "boston",
+            "observation_timestamp": "2026-04-04T20:35:00+00:00", "age_seconds": 30,
+            "freshness_class": "fresh", "source_name": "National Weather Service",
+            "source_type": "nws_observation", "temperature_f": 39.2,
+            "humidity_pct": 80.8, "barometer_inhg": 30.4, "wind_speed_mph": 21.8,
+            "wind_gust_mph": None, "wind_direction_deg": 80.0, "rain_rate_in_h": None,
+            "station_id": "KBOS", "station_name": "Boston", "text_description": "Cloudy",
+        }
 
         speech, details = build_remote_current_weather_response(
             "what is the weather in boston",
             runtime_settings=REMOTE_SETTINGS,
+            remote_bridge=bridge,
         )
 
         self.assertTrue(speech.startswith("In Boston, MA, "))
@@ -204,17 +199,20 @@ class RemoteWeatherTests(unittest.TestCase):
         self.assertEqual(details["source_type"], "nws_observation")
         self.assertEqual(details["mode"], "summary")
 
-    @patch("oracle_app.weather_remote._resolve_remote_location")
     def test_build_remote_current_weather_response_raises_for_unresolved_location(
         self,
-        mock_resolve_remote_location,
     ) -> None:
-        mock_resolve_remote_location.side_effect = RemoteWeatherLocationError("I couldn't resolve that location.")
+        from oracle_app.provider_bridges.remote_weather import RemoteWeatherBridgeLocationError
+        bridge = Mock()
+        bridge.resolve_location.side_effect = RemoteWeatherBridgeLocationError(
+            "remote_weather_location_unresolved", "I couldn't resolve that location."
+        )
 
         with self.assertRaises(RemoteWeatherLocationError):
             build_remote_current_weather_response(
                 "what is the weather in nowhere",
                 runtime_settings=REMOTE_SETTINGS,
+                remote_bridge=bridge,
             )
 
     def test_build_remote_current_weather_response_rejects_short_ambiguous_location(self) -> None:
@@ -224,12 +222,8 @@ class RemoteWeatherTests(unittest.TestCase):
                 runtime_settings=REMOTE_SETTINGS,
             )
 
-    @patch("oracle_app.weather_remote._fetch_remote_forecast")
-    @patch("oracle_app.weather_remote._resolve_remote_location")
     def test_build_remote_forecast_response_prefixes_location(
         self,
-        mock_resolve_remote_location,
-        mock_fetch_remote_forecast,
     ) -> None:
         eastern = timezone(timedelta(hours=-4))
         now = datetime.now(eastern)
@@ -239,7 +233,7 @@ class RemoteWeatherTests(unittest.TestCase):
             tzinfo=eastern,
         )
         tomorrow_night_start = tomorrow_day_start - timedelta(hours=6)
-        mock_resolve_remote_location.return_value = ResolvedRemoteLocation(
+        location = ResolvedRemoteLocation(
             query_text="boston",
             label="Boston, Massachusetts",
             latitude=42.3588,
@@ -248,7 +242,9 @@ class RemoteWeatherTests(unittest.TestCase):
             state="Massachusetts",
             country="United States",
         )
-        mock_fetch_remote_forecast.return_value = {
+        bridge = Mock()
+        bridge.resolve_location.return_value = location
+        bridge.fetch_forecast.return_value = {
             "location": "Boston",
             "state": "MA",
             "forecast_url": "https://api.weather.gov/gridpoints/BOX/71,90/forecast",
@@ -279,11 +275,14 @@ class RemoteWeatherTests(unittest.TestCase):
                     detailed_forecast="Sunny",
                 ),
             ],
+            "freshness": "fresh", "age_seconds": 0, "stale_reason": None,
+            "refresh_status": "succeeded", "failure_kind": None,
         }
 
         speech, details = build_remote_forecast_response(
             "what is the weather tomorrow in boston",
             runtime_settings=REMOTE_SETTINGS,
+            remote_bridge=bridge,
         )
 
         self.assertTrue(speech.startswith("In Boston, MA, "))

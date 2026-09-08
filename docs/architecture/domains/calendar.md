@@ -14,11 +14,15 @@ The contract-level guarantees for write safety and state ownership live in
 
 The current implemented calendar domain supports both read and write.
 
-Calendar reads are fresh-cached in process for 60 seconds. If a refresh fails, the last successful
-read may be returned for at most 10 minutes with explicit `freshness`, `age_seconds`,
-`stale_reason`, and plain-language stale wording. Errors and malformed provider responses are not
-cached. Calendar health forces a provider read without stale fallback, and a successful calendar
-write invalidates the read cache immediately.
+Calendar reads are cached per configured feed in process for five minutes. Equivalent
+voice, Home, Calendar-page, satellite, and health reads share that cache and coalesce
+concurrent misses. If a refresh fails, only that feed's last successful read may be
+returned for at most 10 minutes, with explicit source availability, `freshness`,
+`age_seconds`, retrieval time, and plain-language stale wording. Provider failures may
+produce a useful partial result when another relevant feed succeeds; malformed provider
+data, invalid configuration, and unexpected failures remain strict. Health reuses a
+fresh provider read rather than forcing proportional upstream traffic, and a successful
+calendar write invalidates both the domain read cache and Calendar UI snapshots.
 
 Read and write remain separate surfaces even though they now point at the same backend calendar.
 
@@ -30,20 +34,26 @@ data, or unexpected implementation failures. The canonical stale-read policy
 still applies first when a bounded last-known-good read exists.
 
 In canonical V2 mode, one immutable calendar execution binds the selected
-Nextcloud provider, resolved feed URLs, household timezone, read freshness
-policy, and confirmed-write credential tuple. Route parsing, pending-calendar
-collision handling, voice and fixed UI reads, health, and confirmed voice/UI
-writes consume that dependency directly. Multiple feeds of the same typed kind
-are aggregated within that kind; holiday feeds remain separate from ordinary
-event replies. The canonical path never rebuilds legacy calendar settings or
-falls back to V1 authority when the role or a read/write capability is disabled.
+Nextcloud provider, resolved feed URLs, household timezone, household people and
+source associations, read freshness policy, per-feed read credentials, and the
+separate confirmed-write credential tuple. Route parsing, pending-calendar
+collision handling, bounded informational context, voice and fixed UI reads,
+health, and confirmed voice/UI writes consume that dependency directly. An event
+feed with empty `user_ids` is shared; a feed with one or more canonical household
+user IDs is selected only for those people. A person-scoped read combines shared
+and assigned feeds without treating satellite association as authentication or
+access control. Holiday feeds remain separate from ordinary event replies. The
+canonical path never rebuilds legacy calendar settings or falls back to V1
+authority when the role or a read/write capability is disabled.
 
 The current split is:
 
 - `calendar_ics_url`: ordinary calendar read feed from the selected Nextcloud
   calendar export
 - `holiday_calendar_ics_url`: separate holiday feed used only outside the normal calendar domain, such as holiday-aware date calculations
-- `calendar_write_base_url`, `calendar_write_user`, `calendar_write_app_password`, `calendar_write_calendar_uri`: Nextcloud-backed write settings used for event creation and for authenticated ordinary-calendar reads when needed
+- feed-owned `read_user` and `read_credential_secret`: optional independent
+  authentication for the feed's ICS read
+- `calendar_write_base_url`, `calendar_write_user`, `calendar_write_app_password`, `calendar_write_calendar_uri`: Nextcloud-backed write settings used only for event creation
 
 Holiday events must not be merged into ordinary calendar replies unless they are also present in the personal calendar feed.
 
@@ -65,6 +75,8 @@ The read surface is responsible for:
 - event normalization
 - query execution
 - spoken reply shaping
+- source/person selection and truthful partial availability
+- bounded Calendar follow-up context and ambiguity clarification
 
 The read path remains brain-owned and deterministic.
 
@@ -80,6 +92,11 @@ The current read implementation is split across:
 `server/oracle_app/calendar.py` contains core calendar query support, while
 `server/oracle_app/calendar_runtime/canonical.py` owns the applied read cache
 and invalidates its event entries after a successful canonical write.
+
+`server/oracle_app/calendar_context.py` owns the expiring, source/session-scoped
+Calendar subject needed for `what's next`, week-after, freshness, and provenance
+follow-ups. It retains only canonical person/calendar/event/window/evidence
+references, never transcripts or provider objects.
 
 `server/oracle_app/provider_bridges/nextcloud_calendar.py` contains the active calendar provider bridge and owns Nextcloud-specific fetch, auth, parse, and write mechanics.
 
@@ -100,6 +117,22 @@ For day-summary replies, the intended shape is:
 - state the total number of relevant events
 - enumerate all relevant events in chronological order
 - keep each event phrasing compact
+
+Stage 7 also supports bounded after-time, morning/afternoon/evening, free/busy,
+next-event, named-event, named-location, weekday, current-week, next-calendar-
+week, and event-anchor queries. A bare after-hour from 1 through 7 uses the
+ordinary afternoon/evening reading (`after 4` means after 4 PM); explicit AM/PM
+always controls. Unsupported edit, move, reschedule, and delete requests receive
+an honest create-only boundary and perform no provider read or mutation.
+
+Named-event ambiguity is not resolved arbitrarily. Oracle offers a bounded list
+of distinct matching titles and requires an exact selection before re-querying.
+Missing assigned sources are reported as partial: an empty partial result never
+becomes a claim that a person is free or has nothing scheduled.
+
+Event output preserves the canonical feed ID and display label. Duplicate
+provider UIDs from different feeds remain distinct evidence; Oracle does not
+deduplicate them across source boundaries.
 
 ### Today Default Relevance
 

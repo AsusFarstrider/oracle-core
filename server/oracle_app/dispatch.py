@@ -157,6 +157,8 @@ def _plan_weather_target(
         "weather_history",
         "remote_current_weather",
         "remote_weather_forecast",
+        "weather_solar",
+        "weather_alerts",
     }:
         action = intent.action
 

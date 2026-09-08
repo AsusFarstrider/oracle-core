@@ -7,6 +7,7 @@ from typing import Mapping
 from .domain_models import (
     InformationConfiguration,
     NewsSource,
+    OpenAILunaSuggestionsProvider,
     OpenClawHttpProvider,
     OpenClawMockProvider,
     OpenClawSshCliProvider,
@@ -19,7 +20,10 @@ from .effective import EffectiveConfig
 
 FactsProviderConfiguration = StaticFactsProvider | WikipediaFactsProvider
 SuggestionsProviderConfiguration = (
-    OpenClawHttpProvider | OpenClawSshCliProvider | OpenClawMockProvider
+    OpenAILunaSuggestionsProvider
+    | OpenClawHttpProvider
+    | OpenClawSshCliProvider
+    | OpenClawMockProvider
 )
 
 
@@ -29,6 +33,8 @@ class FactsRuntimeSettings:
     provider_id: str | None
     provider: FactsProviderConfiguration | None
     summarizer_enabled: bool
+    summarizer_provider_order: tuple[str, ...]
+    summarizer_total_timeout_seconds: int
     acknowledgement_enabled: bool
     timeout_seconds: int
     cache_enabled: bool
@@ -43,6 +49,7 @@ class NewsSourceRuntimeSettings:
 
 @dataclass(frozen=True)
 class NewsRuntimeSettings:
+    config_revision: str
     enabled: bool
     provider_id: str | None
     provider: RssNewsProvider | None
@@ -65,6 +72,7 @@ class SuggestionsRuntimeSettings:
     max_suggestions: int
     resolved_base_url: str | None = field(default=None, repr=False)
     resolved_password: str | None = field(default=None, repr=False)
+    resolved_api_key: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -114,12 +122,19 @@ class InformationRuntimeSettings:
         suggestions_provider_id = None
         resolved_base_url = None
         resolved_password = None
+        resolved_api_key = None
         if role.suggestions.enabled:
             suggestions_provider_id = role.suggestions.provider
             if suggestions_provider_id is None:
                 raise ValueError("Enabled canonical suggestions has no selected provider.")
             suggestions_provider = role.suggestions.providers[suggestions_provider_id]
-            if isinstance(suggestions_provider, OpenClawHttpProvider):
+            if isinstance(suggestions_provider, OpenAILunaSuggestionsProvider):
+                resolved_api_key = effective.secrets.resolve(
+                    suggestions_provider.credential_secret
+                )
+                if resolved_api_key is None:
+                    raise ValueError("Enabled direct Luna suggestions lacks its credential value.")
+            elif isinstance(suggestions_provider, OpenClawHttpProvider):
                 resolved_base_url = suggestions_provider.base_url
                 if suggestions_provider.base_url_secret is not None:
                     resolved_base_url = effective.secrets.resolve(
@@ -147,12 +162,15 @@ class InformationRuntimeSettings:
                 provider_id=facts_provider_id,
                 provider=facts_provider,
                 summarizer_enabled=role.facts.summarizer_enabled,
+                summarizer_provider_order=tuple(role.facts.summarizer_provider_order),
+                summarizer_total_timeout_seconds=role.facts.summarizer_total_timeout_seconds,
                 acknowledgement_enabled=role.facts.acknowledgement_enabled,
                 timeout_seconds=role.facts.timeout_seconds,
                 cache_enabled=role.facts.cache_enabled,
                 cache_ttl_seconds=role.facts.cache_ttl_seconds,
             ),
             news=NewsRuntimeSettings(
+                config_revision=effective.config_revision,
                 enabled=role.news.enabled,
                 provider_id=news_provider_id,
                 provider=news_provider,
@@ -169,6 +187,7 @@ class InformationRuntimeSettings:
                 max_suggestions=role.suggestions.max_suggestions,
                 resolved_base_url=resolved_base_url,
                 resolved_password=resolved_password,
+                resolved_api_key=resolved_api_key,
             ),
         )
 

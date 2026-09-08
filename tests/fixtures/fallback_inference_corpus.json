@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "consumer": "fallback_router",
+  "prompt_version": "stage7-fallback-v2",
+  "adjudication": "Oracle contract and human review; provider agreement is not authority",
+  "cases": [
+    {
+      "id": "music-colloquial",
+      "set": "development",
+      "input": "put on some david bowie",
+      "expected_status": "resolved",
+      "expected_domain": "music",
+      "required_terms": ["david", "bowie"]
+    },
+    {
+      "id": "calendar-colloquial-window",
+      "set": "development",
+      "input": "what do i have going on tomorrow morning",
+      "expected_status": "resolved",
+      "expected_domain": "calendar",
+      "required_terms": ["tomorrow", "morning"]
+    },
+    {
+      "id": "news-source-colloquial",
+      "set": "development",
+      "input": "catch me up on npr",
+      "expected_status": "resolved",
+      "expected_domain": "news",
+      "required_terms": ["npr"]
+    },
+    {
+      "id": "weather-practical",
+      "set": "development",
+      "input": "do i need a coat in boston tomorrow",
+      "expected_status": "resolved",
+      "expected_domain": "weather",
+      "required_terms": ["boston", "tomorrow"]
+    },
+    {
+      "id": "facts-explanation",
+      "set": "development",
+      "input": "explain black holes like i am five",
+      "expected_status": "resolved",
+      "expected_domain": "facts",
+      "required_terms": ["black", "holes"]
+    },
+    {
+      "id": "audiobook-explicit-identity",
+      "set": "development",
+      "input": "resume alex's audiobook",
+      "expected_status": "resolved",
+      "expected_domain": "audiobook",
+      "expected_user_id": "alex",
+      "required_terms": ["audiobook"]
+    },
+    {
+      "id": "genuinely-ambiguous",
+      "set": "development",
+      "input": "do the thing from before",
+      "expected_status": "unresolved",
+      "expected_domain": ""
+    },
+    {
+      "id": "creative-joke",
+      "set": "development",
+      "input": "tell me a short joke about spaceships",
+      "expected_status": "unsupported",
+      "expected_domain": ""
+    },
+    {
+      "id": "creative-story",
+      "set": "development",
+      "input": "make up a bedtime story about a dragon",
+      "expected_status": "unsupported",
+      "expected_domain": ""
+    },
+    {
+      "id": "deferred-calendar-delete",
+      "set": "development",
+      "input": "delete my calendar event on friday",
+      "expected_status": "unsupported",
+      "expected_domain": ""
+    },
+    {
+      "id": "room-comfort-ambiguous",
+      "set": "holdout",
+      "input": "it is too cold in here",
+      "expected_status": "unresolved",
+      "expected_domain": ""
+    },
+    {
+      "id": "calendar-time-preservation",
+      "set": "holdout",
+      "input": "anything on my calendar friday at 5:30 pm",
+      "expected_status": "resolved",
+      "expected_domain": "calendar",
+      "required_terms": ["friday", "5:30", "pm"]
+    },
+    {
+      "id": "weather-location-time-preservation",
+      "set": "holdout",
+      "input": "will it rain in portland on tuesday",
+      "expected_status": "resolved",
+      "expected_domain": "weather",
+      "required_terms": ["portland", "tuesday"]
+    },
+    {
+      "id": "solar-weather-collision",
+      "set": "holdout",
+      "input": "when is sunset tomorrow",
+      "expected_status": "unsupported",
+      "expected_domain": ""
+    },
+    {
+      "id": "media-news-collision",
+      "set": "holdout",
+      "input": "catch me up on the latest music news",
+      "expected_status": "resolved",
+      "expected_domain": "news",
+      "required_terms": ["music"]
+    },
+    {
+      "id": "whisper-like-calendar-noise",
+      "set": "holdout",
+      "input": "whats on ma calender tomorrah",
+      "expected_status": "resolved",
+      "expected_domain": "calendar",
+      "required_terms": []
+    },
+    {
+      "id": "production-garbage-or",
+      "set": "holdout",
+      "input": "or",
+      "expected_status": "unresolved",
+      "allowed_statuses": ["unresolved", "unsupported"],
+      "expected_domain": "",
+      "provenance": "retained-production-false-wake"
+    },
+    {
+      "id": "production-garbage-it-worked",
+      "set": "holdout",
+      "input": "it worked",
+      "expected_status": "unresolved",
+      "allowed_statuses": ["unresolved", "unsupported"],
+      "expected_domain": "",
+      "provenance": "retained-production-false-wake"
+    },
+    {
+      "id": "production-garbage-oh",
+      "set": "holdout",
+      "input": "oh",
+      "expected_status": "unresolved",
+      "allowed_statuses": ["unresolved", "unsupported"],
+      "expected_domain": "",
+      "provenance": "retained-production-false-wake"
+    },
+    {
+      "id": "production-garbage-gold",
+      "set": "holdout",
+      "input": "gold",
+      "expected_status": "unresolved",
+      "allowed_statuses": ["unresolved", "unsupported"],
+      "expected_domain": "",
+      "provenance": "retained-production-false-wake"
+    },
+    {
+      "id": "production-garbage-alright-cool",
+      "set": "holdout",
+      "input": "alright, cool",
+      "expected_status": "unresolved",
+      "allowed_statuses": ["unresolved", "unsupported"],
+      "expected_domain": "",
+      "provenance": "retained-production-false-wake"
+    },
+    {
+      "id": "production-garbage-ugh",
+      "set": "holdout",
+      "input": "ugh",
+      "expected_status": "unresolved",
+      "allowed_statuses": ["unresolved", "unsupported"],
+      "expected_domain": "",
+      "provenance": "retained-production-false-wake"
+    },
+    {
+      "id": "production-garbage-yeah",
+      "set": "holdout",
+      "input": "Yeah.",
+      "expected_status": "unresolved",
+      "allowed_statuses": ["unresolved", "unsupported"],
+      "expected_domain": "",
+      "provenance": "retained-production-false-wake"
+    },
+    {
+      "id": "production-garbage-oracle-doesnt-care",
+      "set": "holdout",
+      "input": "Oracle doesn't care",
+      "expected_status": "unresolved",
+      "allowed_statuses": ["unresolved", "unsupported"],
+      "expected_domain": "",
+      "provenance": "retained-production-false-wake"
+    }
+  ]
+}

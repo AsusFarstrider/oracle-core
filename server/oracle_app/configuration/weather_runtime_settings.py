@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Mapping
 
 from .domain_models import WeatherConfiguration, WeeWxWeatherProvider, NwsWeatherProvider
 from .effective import EffectiveConfig
@@ -55,6 +57,23 @@ class RemoteWeatherRuntimeSettings:
 
 
 @dataclass(frozen=True)
+class SolarWeatherLocationSettings:
+    id: str
+    label: str
+    aliases: tuple[str, ...]
+    latitude: float
+    longitude: float
+    timezone: str
+
+
+@dataclass(frozen=True)
+class SolarWeatherRuntimeSettings:
+    enabled: bool
+    home_location_id: str | None
+    locations: Mapping[str, SolarWeatherLocationSettings]
+
+
+@dataclass(frozen=True)
 class WeatherRuntimeSettings:
     """Frozen Brain execution settings for the optional weather domain role."""
 
@@ -69,6 +88,7 @@ class WeatherRuntimeSettings:
     forecast: ForecastWeatherRuntimeSettings
     history: HistoryWeatherRuntimeSettings
     remote: RemoteWeatherRuntimeSettings
+    solar: SolarWeatherRuntimeSettings
 
     @classmethod
     def from_effective_config(cls, effective: EffectiveConfig) -> WeatherRuntimeSettings:
@@ -80,6 +100,7 @@ class WeatherRuntimeSettings:
         forecast = _forecast_settings(effective, role)
         history = _history_settings(effective, role)
         remote = _remote_settings(role)
+        solar = _solar_settings(effective, role)
         return cls(
             activation_generation_id=effective.activation_generation_id,
             config_generation_id=effective.config_generation_id,
@@ -92,6 +113,7 @@ class WeatherRuntimeSettings:
             forecast=forecast,
             history=history,
             remote=remote,
+            solar=solar,
         )
 
 
@@ -179,6 +201,42 @@ def _remote_settings(role: WeatherConfiguration) -> RemoteWeatherRuntimeSettings
         provider.user_agent,
         provider.timeout_seconds,
     )
+
+
+def _solar_settings(
+    effective: EffectiveConfig,
+    role: WeatherConfiguration,
+) -> SolarWeatherRuntimeSettings:
+    if not role.solar.enabled:
+        return SolarWeatherRuntimeSettings(False, None, MappingProxyType({}))
+    household = HouseholdRuntimeSettings.from_effective_config(effective).household
+    locations: dict[str, SolarWeatherLocationSettings] = {
+        item.id: SolarWeatherLocationSettings(
+            id=item.id,
+            label=item.label,
+            aliases=tuple(item.aliases),
+            latitude=item.latitude,
+            longitude=item.longitude,
+            timezone=item.timezone,
+        )
+        for item in role.solar.locations
+    }
+    home_id = None
+    home = household.home_location
+    if home is not None and home.latitude is not None and home.longitude is not None:
+        home_id = "home"
+        label = home.locality or household.display_name
+        locations[home_id] = SolarWeatherLocationSettings(
+            id=home_id,
+            label=label,
+            aliases=("here", "local", household.display_name),
+            latitude=home.latitude,
+            longitude=home.longitude,
+            timezone=household.timezone,
+        )
+    if not locations:
+        raise ValueError("Enabled solar weather requires household coordinates or a named location.")
+    return SolarWeatherRuntimeSettings(True, home_id, MappingProxyType(locations))
 
 
 def _selected_weewx(

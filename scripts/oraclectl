@@ -1,0 +1,344 @@
+#!/usr/bin/env python3
+"""Oracle break-glass status, diagnosis, logs, and narrow Brain restart CLI."""
+
+from __future__ import annotations
+
+import argparse
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+from typing import Any
+from urllib import error, request
+
+
+FORMAT = "oracle-operator-diagnostics-v1"
+DEFAULT_ROOT = Path("/srv/oracle")
+UNIT = "oracle-brain.service"
+SELECTIONS = ("active", "staged", "approved", "previous-known-good")
+HEALTH_ENDPOINTS = {
+    "brain": "/health",
+    "configuration": "/api/admin/health/config",
+    "stt": "/api/admin/health/stt",
+    "tts": "/api/admin/health/tts",
+    "calendar": "/api/admin/health/calendar",
+    "home-assistant": "/api/admin/health/home-assistant",
+    "ollama": "/api/admin/health/ollama",
+    "music": "/api/admin/health/music",
+    "audiobook": "/api/admin/health/audiobook",
+    "news": "/api/admin/health/news",
+    "network": "/api/admin/network/status",
+}
+
+
+@dataclass(frozen=True)
+class Diagnostic:
+    severity: str
+    component: str
+    explanation: str
+    remediation: str | None = None
+
+
+def _systemctl(*args: str, timeout: float = 5.0) -> tuple[int, str]:
+    try:
+        completed = subprocess.run(
+            ("systemctl", *args),
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return 2, f"unavailable: {type(exc).__name__}"
+    return completed.returncode, completed.stdout.strip()
+
+
+def _http_json(path: str, *, timeout: float = 2.0) -> dict[str, Any]:
+    endpoint = "http://127.0.0.1:8011" + path
+    with request.urlopen(endpoint, timeout=timeout) as response:  # noqa: S310 - fixed loopback
+        value = json.loads(response.read())
+    if not isinstance(value, dict):
+        raise RuntimeError("response is not an object")
+    return value
+
+
+def _safe_record(record: object) -> dict[str, object]:
+    if not isinstance(record, dict):
+        raise ValueError("activation record is not an object")
+    core = record.get("core")
+    if not isinstance(core, dict):
+        raise ValueError("activation core identity is absent")
+    return {
+        "activation_id": record.get("activation_id"),
+        "core_commit": core.get("commit"),
+        "core_git_tree": core.get("git_tree"),
+        "household_deployment_revision": record.get("household_deployment_revision"),
+        "configuration_activation_identity": record.get("configuration_activation_identity"),
+        "python_environment_identity": record.get("python_environment_identity"),
+    }
+
+
+def inspect_selector(root: Path, name: str) -> dict[str, object]:
+    selection = root / "selection" / name
+    result: dict[str, object] = {"name": name, "present": False, "valid": False}
+    if not selection.exists() and not selection.is_symlink():
+        return {**result, "detail": "selector is absent"}
+    if not selection.is_symlink():
+        return {**result, "present": True, "detail": "selector is not a symbolic link"}
+    try:
+        target = selection.resolve(strict=True)
+        activations = (root / "activations").resolve(strict=True)
+        if target.parent != activations:
+            raise ValueError("selector target is outside the activation directory")
+        record = json.loads((target / "activation.json").read_text(encoding="utf-8"))
+        safe = _safe_record(record)
+        if safe["activation_id"] is None or target.name != "activation-" + str(safe["activation_id"]).rsplit(":", 1)[-1]:
+            raise ValueError("selector target and activation identity disagree")
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return {**result, "present": True, "detail": str(exc)}
+    return {**result, "present": True, "valid": True, "target": str(target), **safe}
+
+
+def activation_state(root: Path) -> dict[str, object]:
+    return {name: inspect_selector(root, name) for name in SELECTIONS}
+
+
+def _service_state() -> dict[str, object]:
+    _, active = _systemctl("is-active", UNIT)
+    _, enabled = _systemctl("is-enabled", UNIT)
+    _, properties = _systemctl(
+        "show", UNIT, "--property=MainPID,ActiveEnterTimestampMonotonic,ActiveState,SubState,NRestarts",
+    )
+    parsed: dict[str, str] = {}
+    for line in properties.splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            parsed[key] = value
+    uptime_seconds = None
+    try:
+        entered = int(parsed.get("ActiveEnterTimestampMonotonic", "0"))
+        if entered > 0:
+            uptime_seconds = max(0, int(time.clock_gettime(time.CLOCK_BOOTTIME) - entered / 1_000_000))
+    except (AttributeError, OSError, ValueError):
+        pass
+    return {
+        "active": active or parsed.get("ActiveState") or "unknown",
+        "enabled": enabled or "unknown",
+        "substate": parsed.get("SubState") or "unknown",
+        "main_pid": int(parsed.get("MainPID", "0") or 0),
+        "restarts": int(parsed.get("NRestarts", "0") or 0),
+        "uptime_seconds": uptime_seconds,
+    }
+
+
+def build_status(root: Path = DEFAULT_ROOT) -> dict[str, object]:
+    selections = activation_state(root)
+    service = _service_state()
+    runtime: dict[str, object] = {}
+    for component, path in (("brain", "/health"), ("configuration", "/api/admin/health/config")):
+        try:
+            runtime[component] = {"reachable": True, "result": _http_json(path)}
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError, error.URLError) as exc:
+            runtime[component] = {"reachable": False, "detail": type(exc).__name__}
+    active = selections["active"]
+    projections: dict[str, object] = {}
+    config_result = runtime.get("configuration", {}).get("result") if isinstance(runtime.get("configuration"), dict) else None
+    if isinstance(config_result, dict):
+        configuration = config_result.get("configuration")
+        applied = configuration.get("applied_generation") if isinstance(configuration, dict) else None
+        candidate = applied.get("satellite_projection_activation_ids") if isinstance(applied, dict) else None
+        if isinstance(candidate, dict):
+            projections = candidate
+    basically_up = bool(
+        active.get("valid")
+        and service["active"] == "active"
+        and isinstance(runtime.get("brain"), dict)
+        and runtime["brain"].get("reachable") is True
+        and runtime["brain"].get("result", {}).get("status") == "ok"
+    )
+    return {
+        "format": FORMAT,
+        "command": "status",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "basically_up": basically_up,
+        "service": service,
+        "active": active,
+        "configured_satellite_count": len(projections) if projections else None,
+        "runtime": runtime,
+    }
+
+
+def _diagnose_endpoint(component: str, path: str) -> Diagnostic:
+    try:
+        payload = _http_json(path, timeout=10.0)
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError, error.URLError) as exc:
+        return Diagnostic("UNKNOWN", component, f"probe unavailable ({type(exc).__name__})", "Check Brain logs and dependency reachability.")
+    status = str(payload.get("status") or "").lower()
+    if component == "configuration":
+        ok = payload.get("ok") is True
+        return Diagnostic("PASS" if ok else "FAIL", component, "canonical configuration is applied" if ok else "canonical configuration is not ready")
+    if component == "network":
+        network = payload.get("network")
+        if isinstance(network, dict):
+            status = str(network.get("status") or network.get("severity") or "unknown").lower()
+    if payload.get("ok") is True and not status:
+        return Diagnostic("PASS", component, "reported ok")
+    if status in {"ok", "healthy"}:
+        return Diagnostic("PASS", component, f"reported {status}")
+    if status in {"disabled", "unconfigured"}:
+        return Diagnostic("PASS", component, f"intentionally {status}")
+    if status in {"degraded", "warning", "stale"}:
+        return Diagnostic("WARN", component, f"reported {status}", "Inspect the component-specific health endpoint.")
+    if status in {"failed", "down", "unhealthy"}:
+        return Diagnostic("FAIL", component, f"reported {status}", "Inspect the component-specific health endpoint and Brain journal.")
+    return Diagnostic("UNKNOWN", component, "probe returned no recognized health status")
+
+
+def build_doctor(root: Path = DEFAULT_ROOT) -> dict[str, object]:
+    status = build_status(root)
+    findings: list[Diagnostic] = []
+    active = status["active"]
+    findings.append(Diagnostic("PASS" if active.get("valid") else "FAIL", "activation", "active selector is valid" if active.get("valid") else str(active.get("detail") or "active selector is invalid"), "Use canonical recovery tooling; do not edit selectors by hand." if not active.get("valid") else None))
+    service = status["service"]
+    findings.append(Diagnostic("PASS" if service["active"] == "active" else "FAIL", "brain-service", f"systemd state is {service['active']}/{service['substate']}", "Inspect logs; restart only if the active activation is understood." if service["active"] != "active" else None))
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(_diagnose_endpoint, component, path) for component, path in HEALTH_ENDPOINTS.items()]
+        findings.extend(future.result() for future in futures)
+    severities = {item.severity for item in findings}
+    overall = "FAIL" if "FAIL" in severities else "WARN" if "WARN" in severities or "UNKNOWN" in severities else "PASS"
+    return {
+        "format": FORMAT,
+        "command": "doctor",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "overall": overall,
+        "diagnostics": [asdict(item) for item in findings],
+    }
+
+
+def restart_brain(root: Path = DEFAULT_ROOT, *, timeout_seconds: float = 30.0) -> dict[str, object]:
+    before = inspect_selector(root, "active")
+    before_id = before.get("activation_id") if before.get("valid") else None
+    if not before_id:
+        raise RuntimeError("refusing restart because the active activation is invalid")
+    completed = subprocess.run(("systemctl", "restart", UNIT), check=False)
+    if completed.returncode:
+        raise RuntimeError("systemctl restart failed")
+    deadline = time.monotonic() + timeout_seconds
+    healthy = False
+    while time.monotonic() < deadline:
+        try:
+            healthy = _http_json("/health", timeout=2.0).get("status") == "ok"
+        except (OSError, ValueError, json.JSONDecodeError, error.URLError):
+            healthy = False
+        if healthy:
+            break
+        time.sleep(0.5)
+    after = inspect_selector(root, "active")
+    unchanged = after.get("valid") is True and after.get("activation_id") == before_id
+    return {
+        "format": FORMAT,
+        "command": "restart",
+        "status": "healthy" if healthy and unchanged else "failed",
+        "activation_before": before_id,
+        "activation_after": after.get("activation_id"),
+        "activation_unchanged": unchanged,
+        "brain_healthy": healthy,
+    }
+
+
+def _render_activation(result: dict[str, object]) -> None:
+    print("SELECTOR             STATE    ACTIVATION / CORE / CONFIGURATION")
+    for name in SELECTIONS:
+        item = result[name]
+        state = "valid" if item.get("valid") else "invalid" if item.get("present") else "absent"
+        detail = (
+            f"{item.get('activation_id')} / {str(item.get('core_commit') or '-')[:12]} / "
+            f"{item.get('configuration_activation_identity') or '-'}"
+            if item.get("valid")
+            else item.get("detail", "-")
+        )
+        print(f"{name:<20} {state:<8} {detail}")
+
+
+def _render_status(result: dict[str, object]) -> None:
+    print("Oracle is basically " + ("UP" if result["basically_up"] else "NOT HEALTHY"))
+    service = result["service"]
+    print(f"Brain: {service['active']}/{service['substate']} pid={service['main_pid']} uptime_seconds={service['uptime_seconds']}")
+    active = result["active"]
+    if active.get("valid"):
+        print(f"Activation: {active['activation_id']}")
+        print(f"Core: {active['core_commit']}")
+        print(f"Configuration: {active['configuration_activation_identity']}")
+    else:
+        print(f"Activation: INVALID ({active.get('detail', 'unknown')})")
+    print(f"Configured satellites: {result['configured_satellite_count'] if result['configured_satellite_count'] is not None else 'unknown'}")
+
+
+def _render_doctor(result: dict[str, object]) -> None:
+    for item in result["diagnostics"]:
+        print(f"{item['severity']:<7} {item['component']:<20} {item['explanation']}")
+        if item.get("remediation"):
+            print(f"        hint: {item['remediation']}")
+
+
+def parser() -> argparse.ArgumentParser:
+    root = argparse.ArgumentParser(description=__doc__)
+    root.add_argument("--json", action="store_true")
+    root.add_argument("--root", type=Path, default=DEFAULT_ROOT, help=argparse.SUPPRESS)
+    commands = root.add_subparsers(dest="command", required=True)
+    commands.add_parser("status")
+    commands.add_parser("doctor")
+    commands.add_parser("activation")
+    logs = commands.add_parser("logs")
+    logs.add_argument("--follow", action="store_true")
+    logs.add_argument("--since")
+    commands.add_parser("restart")
+    return root
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        if args.command == "logs":
+            command = ["journalctl", "-u", UNIT, "--no-pager"]
+            if args.follow:
+                command.extend(("--follow", "--no-tail"))
+            if args.since:
+                command.extend(("--since", args.since))
+            os.execvp(command[0], command)
+        if args.command == "status":
+            result = build_status(args.root)
+            exit_code = 0 if result["basically_up"] else 1
+        elif args.command == "doctor":
+            result = build_doctor(args.root)
+            exit_code = 0 if result["overall"] == "PASS" else 1
+        elif args.command == "activation":
+            result = activation_state(args.root)
+            exit_code = 0 if result["active"].get("valid") else 1
+        else:
+            result = restart_brain(args.root)
+            exit_code = 0 if result["status"] == "healthy" else 1
+    except Exception as exc:
+        result = {"format": FORMAT, "command": args.command, "status": "doctor_failed", "error": str(exc)}
+        exit_code = 2
+    if args.json:
+        print(json.dumps(result, indent=2, sort_keys=True))
+    elif args.command == "status":
+        _render_status(result)
+    elif args.command == "doctor":
+        _render_doctor(result)
+    elif args.command == "activation":
+        _render_activation(result)
+    else:
+        print(json.dumps(result, indent=2, sort_keys=True))
+    return exit_code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

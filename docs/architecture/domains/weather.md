@@ -11,7 +11,10 @@ The reusable domain supports independently configured surfaces for:
 - local forecast;
 - bounded local historical weather;
 - remote current weather by location;
-- remote forecast by location.
+- remote forecast by location;
+- practical coat, umbrella, snow, and temperature answers;
+- provider-free sunrise, sunset, civil dawn, and civil dusk; and
+- interactive material weather watches and warnings.
 
 Each surface has an explicit provider role and failure behavior. No weather
 surface silently falls back to a different surface.
@@ -21,6 +24,17 @@ surface silently falls back to a different surface.
 The weather domain owns intent classification, query parsing, provider-neutral
 normalization, salience, deterministic reply shaping, freshness policy, and
 structured result payloads.
+
+Practical answers lead with the requested decision and cite only available
+condition, temperature, or precipitation evidence. Household schedule anchors
+must be supplied or clarified; Weather does not invent departure, meal, or
+other household times. A bounded informational subject may retain only the
+resolved location/window/source needed for a same-session follow-up.
+
+Solar events are local calculations over explicitly configured coordinates and
+IANA timezone. They do not invoke inference, remote geocoding, or a weather
+provider. Interactive watches and warnings remain read-only provider evidence;
+they do not create a proactive worker or notification policy.
 
 Provider bridges own connection, authentication, provider payload parsing, and
 translation into Oracle-owned observation and forecast shapes. The retained
@@ -55,6 +69,11 @@ The canonical runtime constructs four distinct capability edges. Disabled
 surfaces do not select dormant providers or resolve their secrets. Current,
 history, forecast, and remote execution receive only their own typed inputs;
 they cannot infer a provider from another enabled surface.
+
+Solar is a fifth provider-free edge over bounded configured locations. Remote
+transport may own location resolution, observations, forecasts, active-alert
+translation, and its own bounded caches while the domain retains ambiguity,
+ranking, follow-up, and final reply policy.
 
 Voice dispatch, bounded caches, provider bridges, and fixed weather UI reads
 consume the immutable installed weather execution. The explicit legacy

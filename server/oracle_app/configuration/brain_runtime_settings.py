@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Mapping
 
 from .effective import EffectiveConfig
 from .models import BrainConfiguration, LoggingConfiguration
@@ -10,12 +12,14 @@ from .runtime_models import (
     FallbackRouterConfiguration,
     MemoryStorageConfiguration,
     OllamaProvider,
+    OpenAILunaProvider,
     PiperProvider,
     WhisperCppProvider,
 )
 
 
 SttProviderConfiguration = WhisperCppProvider | FastWhisperProvider
+InferenceProviderConfiguration = OllamaProvider | OpenAILunaProvider
 
 
 @dataclass(frozen=True)
@@ -37,6 +41,7 @@ class SelectedInferenceConfiguration:
     enabled: bool
     provider_id: str | None
     provider: OllamaProvider | None
+    providers: Mapping[str, InferenceProviderConfiguration]
     fallback_router: FallbackRouterConfiguration
 
 
@@ -87,11 +92,12 @@ class BrainRuntimeSettings:
         inference_provider = None
         inference_provider_id = None
         shared_inference = role.inference.shared_backend
-        if shared_inference.enabled:
+        if shared_inference.enabled and shared_inference.provider is not None:
             inference_provider_id = shared_inference.provider
-            if inference_provider_id is None:
-                raise ValueError("Enabled canonical inference has no selected provider.")
-            inference_provider = shared_inference.providers[inference_provider_id]
+            selected_provider = shared_inference.providers[inference_provider_id]
+            if not isinstance(selected_provider, OllamaProvider):
+                raise ValueError("Canonical local inference compatibility selection must be Ollama.")
+            inference_provider = selected_provider
 
         return cls(
             activation_generation_id=effective.activation_generation_id,
@@ -117,6 +123,7 @@ class BrainRuntimeSettings:
                 enabled=shared_inference.enabled,
                 provider_id=inference_provider_id,
                 provider=inference_provider,
+                providers=MappingProxyType(dict(shared_inference.providers)),
                 fallback_router=shared_inference.fallback_router,
             ),
         )

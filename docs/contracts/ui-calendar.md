@@ -31,6 +31,11 @@ Query/body:
 Required top-level fields:
 
 - `generated_at`
+- `status`
+- `freshness`
+- `provider_age_seconds`
+- `complete`
+- `source_availability`
 - `today`
 - `upcoming`
 
@@ -83,11 +88,16 @@ Recommended Alpha event fields:
 - `start`
 - `end`
 - `all_day`
+- `location`
+- `source_id`
+- `source_label`
 
 Alpha rule:
 
 - event items must be app-safe summaries only
 - the contract must not expose raw provider objects or write-oriented draft fields
+- `source_id` and `source_label` identify Oracle's configured feed, not a raw
+  provider object or an authorization decision
 
 If `all_day` is `true`:
 
@@ -127,6 +137,23 @@ The UI calendar create path is:
 
 ## Freshness Expectations
 
+`generated_at` is only the time Oracle built this UI payload. It must never be
+presented as provider freshness. `provider_age_seconds`, top-level `freshness`,
+and each `source_availability` entry's `retrieved_at`, `age_seconds`,
+`freshness`, and `status` carry provider-read truth.
+
+`status` is `available` when all relevant feeds are available, `partial` when
+at least one relevant feed is missing but useful data remains, and
+`unavailable` when no relevant feed can be served. `complete` is false for a
+partial result. An empty partial snapshot must be rendered as incomplete, not
+as proof that the calendar is empty.
+
+The domain normally fresh-caches each feed for five minutes and may expose a
+bounded stale result for up to ten minutes after a provider failure. A client
+poll does not force a provider refresh merely because it rebuilt the UI
+snapshot. Explicit domain refresh and a successful confirmed write invalidate
+the appropriate cached state.
+
 Alpha expectation:
 
 - fetch on page load
@@ -143,6 +170,20 @@ Recommended default polling:
 {
   "generated_at": "2026-04-15T13:05:00Z",
   "timezone": "America/New_York",
+  "status": "available",
+  "freshness": "fresh",
+  "provider_age_seconds": 42.3,
+  "complete": true,
+  "source_availability": [
+    {
+      "source_id": "household",
+      "source_label": "Household",
+      "status": "available",
+      "freshness": "fresh",
+      "age_seconds": 42.3,
+      "retrieved_at": "2026-04-15T13:04:18Z"
+    }
+  ],
   "today": {
     "date": "2026-04-15",
     "events": [
@@ -150,7 +191,10 @@ Recommended default polling:
         "summary": "Breakfast",
         "start": "2026-04-15T08:00:00-04:00",
         "end": "2026-04-15T09:00:00-04:00",
-        "all_day": false
+        "all_day": false,
+        "location": "Kitchen",
+        "source_id": "household",
+        "source_label": "Household"
       }
     ]
   },

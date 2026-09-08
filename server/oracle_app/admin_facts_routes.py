@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from .inference import InferenceClient
 from .schemas import FactsProviderResult
+from .facts_summarizer import FactsSummarizationResult
 from .information_runtime import CanonicalFactsExecution
 
 
@@ -60,7 +61,7 @@ def _run_admin_summarizer(
     summarizer_configured: bool,
     summarize: bool | None,
     inference: InferenceClient | None,
-) -> tuple[str | None, dict[str, object]]:
+) -> tuple[FactsSummarizationResult | str | None, dict[str, object]]:
     configured = summarizer_configured
     requested = configured if summarize is None else bool(summarize)
     supported_status = result.status in {"answered", "evidence_only"}
@@ -80,6 +81,9 @@ def _run_admin_summarizer(
     if not supported_status:
         status["reason"] = "unsupported_status"
         return None, status
+    if inference is None or not inference.can_attempt("facts_summarizer"):
+        status["reason"] = "no_eligible_provider"
+        return None, status
 
     status["attempted"] = True
     try:
@@ -96,6 +100,15 @@ def _run_admin_summarizer(
     if summary is None:
         status["reason"] = "rejected_or_empty"
         return None, status
+    if isinstance(summary, FactsSummarizationResult):
+        status["outcome"] = summary.status
+        status["provider_id"] = summary.provider_id
+        status["provider_type"] = summary.provider_type
+        status["model"] = summary.model
+        if summary.status == "insufficient":
+            status["succeeded"] = True
+            status["reason"] = "insufficient"
+            return summary, status
     status["succeeded"] = True
     status["reason"] = "summarized"
     return summary, status
@@ -105,7 +118,7 @@ def summarize_facts_result(
     result: FactsProviderResult,
     *,
     inference: InferenceClient | None,
-) -> str | None:
+) -> FactsSummarizationResult:
     if inference is None:
         raise RuntimeError("Canonical inference is required for facts summarization.")
     from .facts_summarizer import summarize_facts_result as summarize

@@ -25,12 +25,18 @@ class ControlPlaneError(RuntimeError):
         failure_class: str,
         owning_component: str,
         error_code: str,
+        command_id: str | None = None,
+        outcome: str | None = None,
+        passive_state: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(detail)
         self.detail = detail
         self.failure_class = failure_class
         self.owning_component = owning_component
         self.error_code = error_code
+        self.command_id = command_id
+        self.outcome = outcome
+        self.passive_state = passive_state
 
 
 def serialize_control_plane_error(exc: ControlPlaneError) -> dict[str, object]:
@@ -42,7 +48,11 @@ def serialize_control_plane_error(exc: ControlPlaneError) -> dict[str, object]:
         "failure_class": exc.failure_class,
         "owning_component": exc.owning_component,
         "control_error": exc.error_code,
-    }
+    } | ({"command_id": exc.command_id} if exc.command_id else {}) | (
+        {"outcome": exc.outcome, "passive_state": exc.passive_state}
+        if exc.outcome is not None
+        else {}
+    )
 
 
 def build_control_plane_failure(
@@ -61,6 +71,11 @@ def build_control_plane_failure(
         payload["failure_class"] = exc.failure_class
         payload["owning_component"] = exc.owning_component
         payload["control_error"] = exc.error_code
+        if exc.command_id:
+            payload["command_id"] = exc.command_id
+        if exc.outcome is not None:
+            payload["outcome"] = exc.outcome
+            payload["passive_state"] = exc.passive_state
     payload.update(extra)
     return payload
 
@@ -148,11 +163,13 @@ def execute_satellite_command(
     args: dict[str, Any] | None = None,
     *,
     control_target: SatelliteControlTarget,
+    command_id: str | None = None,
 ) -> dict[str, Any]:
     target = control_target
     endpoint = f"{target.base_url}/control"
+    logical_command_id = str(command_id or "").strip() or uuid.uuid4().hex
     payload = {
-        "command_id": uuid.uuid4().hex,
+        "command_id": logical_command_id,
         "action": action,
         "args": args or {},
     }
@@ -196,11 +213,15 @@ def execute_satellite_command(
             error_code="control_unreachable",
         ) from exc
     except TimeoutError as exc:
+        passive_state = _investigate_ambiguous_timeout(source, control_target=target)
         raise ControlPlaneError(
-            str(exc) or "Satellite control request timed out",
+            str(exc) or "Satellite control request timed out; outcome is unknown",
             failure_class="transport_failure",
             owning_component="brain.control_plane_client",
-            error_code="control_timeout",
+            error_code="control_outcome_unknown",
+            command_id=logical_command_id,
+            outcome="outcome_unknown",
+            passive_state=passive_state,
         ) from exc
     except json.JSONDecodeError as exc:
         raise ControlPlaneError(
@@ -221,6 +242,27 @@ def fetch_satellite_playback_authority(
         "/playback-authority",
         control_target=control_target,
     )
+
+
+def _investigate_ambiguous_timeout(
+    source: str | None,
+    *,
+    control_target: SatelliteControlTarget,
+) -> dict[str, Any]:
+    """Return sanitized passive evidence without replaying the mutation."""
+
+    try:
+        authority = fetch_satellite_playback_authority(source, control_target=control_target)
+    except RuntimeError as exc:
+        return {"reachable": False, "detail": type(exc).__name__}
+    active = authority.get("active_sessions")
+    sessions = authority.get("sessions")
+    return {
+        "reachable": True,
+        "playback_active": bool(authority.get("playback_active")),
+        "active_session_count": len(active) if isinstance(active, list) else None,
+        "session_count": len(sessions) if isinstance(sessions, list) else None,
+    }
 
 
 def fetch_satellite_music_session(

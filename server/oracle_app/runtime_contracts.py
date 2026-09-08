@@ -60,7 +60,8 @@ def validate_fallback_router_decision(decision: Any) -> dict[str, str]:
             error="fallback_router_invalid_output",
         )
 
-    extra_keys = sorted(set(decision.keys()) - {"domain", "normalized_text", "user_id"})
+    required_keys = {"status", "domain", "normalized_text", "user_id"}
+    extra_keys = sorted(set(decision.keys()) - required_keys)
     if extra_keys:
         raise ContractValidationError(
             detail=f"Fallback router output included unsupported fields: {', '.join(extra_keys)}.",
@@ -68,10 +69,39 @@ def validate_fallback_router_decision(decision: Any) -> dict[str, str]:
             error="fallback_router_invalid_output",
         )
 
+    missing_keys = sorted(required_keys - set(decision.keys()))
+    if missing_keys:
+        raise ContractValidationError(
+            detail=f"Fallback router output omitted required fields: {', '.join(missing_keys)}.",
+            owning_component="brain.fallback_router",
+            error="fallback_router_invalid_output",
+        )
+
+    status = str(decision.get("status", "")).strip().lower()
     domain = str(decision.get("domain", "")).strip()
     normalized_text = str(decision.get("normalized_text", "")).strip()
     user_id = str(decision.get("user_id", "")).strip().lower()
     allowed_domains = {"facts", "home_assistant", "calendar", "music", "news", "audiobook", "weather", "system"}
+
+    if status not in {"resolved", "unresolved", "unsupported"}:
+        raise ContractValidationError(
+            detail="Fallback router returned an invalid semantic status.",
+            owning_component="brain.fallback_router",
+            error="fallback_router_invalid_output",
+        )
+    if status in {"unresolved", "unsupported"}:
+        if domain or normalized_text or user_id:
+            raise ContractValidationError(
+                detail=f"Fallback router {status} output must not include a proposal.",
+                owning_component="brain.fallback_router",
+                error="fallback_router_invalid_output",
+            )
+        return {
+            "status": status,
+            "domain": "",
+            "normalized_text": "",
+            "user_id": "",
+        }
 
     if domain not in allowed_domains:
         raise ContractValidationError(
@@ -87,6 +117,7 @@ def validate_fallback_router_decision(decision: Any) -> dict[str, str]:
         )
 
     return {
+        "status": "resolved",
         "domain": domain,
         "normalized_text": normalized_text,
         "user_id": user_id,

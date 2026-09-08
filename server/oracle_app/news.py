@@ -11,6 +11,13 @@ from .configuration.information_runtime_settings import NewsRuntimeSettings
 class NewsQuery:
     source: str | None
     original_text: str
+    action: str = "headlines"
+    topic: str | None = None
+    article_id: str | None = None
+    article_ids: tuple[str, ...] = ()
+    source_ids: tuple[str, ...] = ()
+    force_refresh: bool = False
+    after_published_at: str | None = None
 
 
 def is_news_request(
@@ -40,7 +47,12 @@ def parse_news_query(
     if not _contains_news_keyword(normalized) and not _looks_like_source_news_request(normalized, source):
         return None
 
-    return NewsQuery(source=source, original_text=normalized)
+    return NewsQuery(
+        source=source,
+        original_text=normalized,
+        topic=_detect_topic(normalized),
+        force_refresh=bool(re.search(r"\b(?:refresh|check again|news again)\b", normalized)),
+    )
 
 
 def check_news_health(*, canonical_execution=None) -> dict[str, Any]:
@@ -71,6 +83,19 @@ def _looks_like_source_news_request(normalized: str, source: str | None) -> bool
         r"^(what is the latest from) .+$",
     )
     return any(re.match(pattern, normalized) is not None for pattern in request_patterns)
+
+
+def _detect_topic(normalized: str) -> str | None:
+    patterns = (
+        r"\b(?:news|headlines?)\s+(?:about|on)\s+(.+)$",
+        r"\bwhat(?:'s| is)\s+happening\s+(?:with|in)\s+(.+)$",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized)
+        if match is not None:
+            topic = match.group(1).strip(" ?.!\"")
+            return topic[:128] or None
+    return None
 
 
 def _detect_requested_source(

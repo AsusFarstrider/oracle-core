@@ -262,6 +262,20 @@ hidden external sources cannot supplement a missing configured holiday. When no
 configured holiday feed contains a requested holiday, Oracle reports that it
 cannot establish the holiday from its configured calendar authority.
 
+Each ordinary Calendar event feed has one canonical feed ID and label. Empty
+`user_ids` means a shared household feed; one or more `user_ids` assign the feed
+to those enabled canonical household people. Every reference is validated
+against `household.yaml`; Calendar does not create a second person registry.
+Authenticated source-to-person association may select the semantic person for a
+personal read, but it grants no provider permission and does not reveal a feed
+outside its configured assignment.
+
+Optional ICS read authentication belongs to the feed as the complete
+`read_user` plus `read_credential_secret` pair. It is independent of the
+provider's write credential tuple: read never borrows write credentials and a
+disabled read or write surface resolves none of the other surface's dormant
+secrets.
+
 Household modes are definitions: IDs, names, aliases, and Oracle policy
 semantics. Provider mappings belong to the owning domain, and current mode
 values remain operational/provider state. Activation and startup never set,

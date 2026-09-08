@@ -6,7 +6,7 @@ from pathlib import Path
 from .store import DB_PATH, transaction
 
 
-SCHEMA_VERSION = "0010_alert_lifecycle"
+SCHEMA_VERSION = "0011_suggestions_advisory_review"
 SCHEMA_VERSIONS = (
     "0001_core",
     "0002_sessions_transcripts",
@@ -17,6 +17,7 @@ SCHEMA_VERSIONS = (
     "0007_notification_delivery_repeat_policy",
     "0008_current_state_and_retention",
     "0009_durable_alerts",
+    "0010_alert_lifecycle",
     SCHEMA_VERSION,
 )
 
@@ -414,6 +415,9 @@ CREATE TABLE IF NOT EXISTS suggestion_runs (
     packet_path TEXT,
     response_path TEXT,
     suggestion_count INTEGER NOT NULL DEFAULT 0,
+    suppressed_count INTEGER NOT NULL DEFAULT 0,
+    collection_status TEXT NOT NULL DEFAULT 'unknown',
+    failure_class TEXT,
     mock INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS suggestions (
@@ -497,6 +501,12 @@ _ALERT_OCCURRENCE_COLUMNS = {
     "recipient_user_id": "TEXT",
 }
 
+_SUGGESTION_RUN_COLUMNS = {
+    "suppressed_count": "INTEGER NOT NULL DEFAULT 0",
+    "collection_status": "TEXT NOT NULL DEFAULT 'unknown'",
+    "failure_class": "TEXT",
+}
+
 
 def ensure_schema(
     db_path: Path | None = None,
@@ -506,6 +516,7 @@ def ensure_schema(
     with transaction(path) as conn:
         conn.executescript(CORE_SCHEMA)
         conn.executescript(SUGGESTIONS_SCHEMA)
+        _ensure_suggestions_schema(conn)
         _ensure_runbook_kernel_schema(conn)
         _ensure_notification_delivery_schema(conn)
         _ensure_alert_lifecycle_schema(conn)
@@ -513,6 +524,15 @@ def ensure_schema(
             "INSERT OR IGNORE INTO memory_schema_migrations(version) VALUES (?)",
             [(version,) for version in SCHEMA_VERSIONS],
         )
+
+
+def _ensure_suggestions_schema(conn: sqlite3.Connection) -> None:
+    columns = {
+        str(row[1]) for row in conn.execute("PRAGMA table_info(suggestion_runs)").fetchall()
+    }
+    for name, declaration in _SUGGESTION_RUN_COLUMNS.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE suggestion_runs ADD COLUMN {name} {declaration}")
 
 
 def _ensure_alert_lifecycle_schema(conn: sqlite3.Connection) -> None:

@@ -272,13 +272,20 @@ class CanonicalRoutineExecution:
             message="Timer finished.",
             sources=[source_id],
             session_id=occurrence_id,
-            metadata={"caller": "orchestration", "operation": "timer_sound"},
+            metadata={
+                "caller": "orchestration",
+                "operation": "timer_sound",
+                "completion_policy": "delivery_accepted",
+                "completion_owner_type": "routine",
+                "completion_owner_id": occurrence_id,
+            },
             idempotency_key=f"routine-timer-sound:{occurrence_id}",
         )
         return {
             "ok": True,
             "status": "duplicate" if duplicate else "queued",
             "alert_id": None if duplicate or not alerts else alerts[0].alert_id,
+            "occurrence_id": None if duplicate or not alerts else alerts[0].occurrence_id,
             "source_id": source_id,
             "detail": "Timer sound was already queued." if duplicate else "Timer sound queued.",
         }

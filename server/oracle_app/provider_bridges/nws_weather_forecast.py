@@ -153,7 +153,19 @@ class NwsWeatherForecastBridge:
             wind_direction=str(item.get("windDirection", "")).strip(),
             short_forecast=str(item.get("shortForecast", "")).strip(),
             detailed_forecast=str(item.get("detailedForecast", "")).strip(),
+            probability_of_precipitation_pct=self._probability(item),
         )
+
+    @staticmethod
+    def _probability(item: dict[str, Any]) -> int | None:
+        raw = item.get("probabilityOfPrecipitation")
+        value = raw.get("value") if isinstance(raw, dict) else None
+        if value is None:
+            return None
+        try:
+            return max(0, min(100, round(float(value))))
+        except (TypeError, ValueError):
+            return None
 
     def _get_json(self, url: str, *, timeout_seconds: int, user_agent: str) -> dict[str, Any]:
         req = request.Request(

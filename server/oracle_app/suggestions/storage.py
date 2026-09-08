@@ -5,16 +5,23 @@ import re
 import sqlite3
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
 from oracle_app.runtime_paths import RUNTIME_PATHS
-from oracle_app.memory.schema import SUGGESTIONS_SCHEMA
+from oracle_app.memory.schema import ensure_schema
 
 
 DATA_DIR = RUNTIME_PATHS.data
 DB_PATH = RUNTIME_PATHS.memory_database
+
+
+@dataclass(frozen=True)
+class SuggestionInsertResult:
+    created: list[dict[str, Any]]
+    suppressed: list[dict[str, Any]]
 
 
 def utc_now_iso() -> str:
@@ -24,14 +31,9 @@ def utc_now_iso() -> str:
 def ensure_storage(db_path: Path | None = None) -> None:
     db_path = db_path or DB_PATH
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute("PRAGMA journal_mode=WAL")
-        # Oracle Memory is the sole table/schema authority for Suggestions.
-        conn.executescript(SUGGESTIONS_SCHEMA)
-        conn.commit()
-    finally:
-        conn.close()
+    # Oracle Memory is the sole table/schema and migration authority for
+    # Suggestions, including additive upgrades of an existing database.
+    ensure_schema(db_path)
 
 
 @contextmanager
@@ -78,13 +80,17 @@ def update_run(
     collector_status: dict[str, Any],
     error: str | None,
     suggestion_count: int,
+    suppressed_count: int = 0,
+    collection_status: str = "unknown",
+    failure_class: str | None = None,
 ) -> None:
     with connect() as conn:
         conn.execute(
             """
             UPDATE suggestion_runs
             SET completed_at = ?, status = ?, openclaw_status = ?, collector_status_json = ?,
-                error = ?, packet_path = NULL, response_path = NULL, suggestion_count = ?
+                error = ?, packet_path = NULL, response_path = NULL, suggestion_count = ?,
+                suppressed_count = ?, collection_status = ?, failure_class = ?
             WHERE run_id = ?
             """,
             (
@@ -94,6 +100,9 @@ def update_run(
                 json.dumps(collector_status, sort_keys=True),
                 error,
                 int(suggestion_count),
+                int(suppressed_count),
+                collection_status,
+                failure_class,
                 run_id,
             ),
         )
@@ -172,7 +181,12 @@ def similarity_key(category: str, source: str, title: str, action: str) -> str:
 
 def find_similar(sim_key: str) -> dict[str, Any] | None:
     with connect() as conn:
-        row = conn.execute(
+        row = _find_similar(conn, sim_key)
+    return row_to_suggestion(row) if row else None
+
+
+def _find_similar(conn: sqlite3.Connection, sim_key: str) -> sqlite3.Row | None:
+    return conn.execute(
             """
             SELECT * FROM suggestions
             WHERE similarity_key = ? AND status IN ('rejected', 'corrected', 'ignored', 'false_positive')
@@ -181,11 +195,16 @@ def find_similar(sim_key: str) -> dict[str, Any] | None:
             """,
             (sim_key,),
         ).fetchone()
-    return row_to_suggestion(row) if row else None
 
 
-def insert_suggestions(run_id: str, items: list[dict[str, Any]], *, mock: bool) -> list[dict[str, Any]]:
+def insert_suggestions(
+    run_id: str,
+    items: list[dict[str, Any]],
+    *,
+    mock: bool,
+) -> SuggestionInsertResult:
     created: list[dict[str, Any]] = []
+    suppressed: list[dict[str, Any]] = []
     with connect() as conn:
         for item in items:
             item_id = uuid.uuid4().hex
@@ -195,7 +214,21 @@ def insert_suggestions(run_id: str, items: list[dict[str, Any]], *, mock: bool) 
                 str(item.get("title") or ""),
                 str(item.get("suggested_action") or ""),
             )
-            similar = find_similar(sim_key)
+            similar_row = _find_similar(conn, sim_key)
+            similar = row_to_suggestion(similar_row) if similar_row else None
+            if (
+                similar is not None
+                and similar["suppress_if_repeated"]
+                and not _contains_new_evidence(item.get("evidence"), similar.get("evidence"))
+            ):
+                suppressed.append(
+                    {
+                        "title": str(item.get("title") or "Untitled suggestion"),
+                        "similar_to_id": similar["id"],
+                        "reason": "materially_identical_reviewed_suggestion_without_new_evidence",
+                    }
+                )
+                continue
             row_values = {
                 "id": item_id,
                 "run_id": run_id,
@@ -233,7 +266,17 @@ def insert_suggestions(run_id: str, items: list[dict[str, Any]], *, mock: bool) 
                 row_values,
             )
             created.append(row_to_suggestion(row_values))
-    return created
+    return SuggestionInsertResult(created=created, suppressed=suppressed)
+
+
+def _contains_new_evidence(candidate: Any, previous: Any) -> bool:
+    prior = {_normalized_evidence(item) for item in previous or [] if _normalized_evidence(item)}
+    current = {_normalized_evidence(item) for item in candidate or [] if _normalized_evidence(item)}
+    return bool(current - prior)
+
+
+def _normalized_evidence(value: Any) -> str:
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).split())
 
 
 def list_suggestions(filters: dict[str, str | None] | None = None) -> list[dict[str, Any]]:
@@ -353,6 +396,9 @@ def row_to_run(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
         "packet_path": row["packet_path"],
         "response_path": row["response_path"],
         "suggestion_count": row["suggestion_count"],
+        "suppressed_count": row["suppressed_count"],
+        "collection_status": row["collection_status"],
+        "failure_class": row["failure_class"],
         "mock": bool(row["mock"]),
     }
 
