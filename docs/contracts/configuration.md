@@ -77,6 +77,18 @@ A separate file earns a role only when it has a distinct owner, a clear operator
 mental model, and meaningful size, risk, or lifecycle. Small deterministic
 utilities do not earn dedicated files.
 
+Stage 8 adds two optional fixed roles that meet that threshold:
+`domains/lists.yaml` and `domains/notes.yaml`. Each owns one domain's policy,
+one explicitly selected provider, Oracle-native object identities and aliases,
+shared/person associations, provider mappings, and bounded operations. Each
+role has at most one active provider; installed adapters, credentials, health,
+or discovery never select or multiplex providers.
+
+Providers retain content truth. Oracle may durably retain only the minimum
+canonical identity, association, selected-provider, and opaque mapping metadata
+needed to address an object created through Oracle. Runtime registration does
+not edit authored configuration and is not an Oracle content store.
+
 V2 has no `domains/alerts.yaml`. Timer, alarm, and reminder records are
 operational state, while interpretation remains code- and contract-owned.
 Brain persistence mechanics belong to `brain.yaml:storage.memory`, including
@@ -270,6 +282,15 @@ Authenticated source-to-person association may select the semantic person for a
 personal read, but it grants no provider permission and does not reveal a feed
 outside its configured assignment.
 
+Calendar feed association, per-user default selection, and proactive-alert
+opt-in are independent configuration facts. A feed may be associated with
+multiple canonical users and the same feed may be the default for multiple
+users. Default status or association never implies alert opt-in. An
+alert-enabled feed projects only applicable immutable provider event-reminder
+timing into the existing alert lifecycle; absent provider reminder intent
+creates no Oracle alert. Configuration and event creation never invent a lead
+time.
+
 Optional ICS read authentication belongs to the feed as the complete
 `read_user` plus `read_credential_secret` pair. It is independent of the
 provider's write credential tuple: read never borrows write credentials and a
@@ -280,6 +301,12 @@ Household modes are definitions: IDs, names, aliases, and Oracle policy
 semantics. Provider mappings belong to the owning domain, and current mode
 values remain operational/provider state. Activation and startup never set,
 reset, or toggle a household mode.
+
+The canonical DND mode definition also declares whether indefinite activation
+is allowed and the bounded duration/expiry limits accepted by the existing
+temporal model. The Brain's operational store, not configuration or Home
+Assistant, owns active DND state and optional expiry. Mode configuration does
+not imply activation and cannot mutate alert/notification truth.
 
 Oracle has no household-wide default room for mutating resolution. Room entries
 own identity, display, and aliases; domain-specific room policy stays with its
@@ -570,6 +597,22 @@ the domain-owned Pydantic models. A new file role, authority move, precedence
 path, secret-semantic change, or trust-boundary change requires a new explicit
 architecture decision.
 
+An enabled composite definition may reference only registered code-owned
+capabilities and carries a deterministic safety manifest of semantic direction,
+blast radius, consequential powers, and automatic-trigger envelope. Candidate
+review requires a safety acknowledgement when that manifest materially expands
+or changes. Configuration cannot invent a risk class, mark an unknown
+capability safe, or bypass the owning domain's policy.
+
+The bounded `composition` shape is parsed, statically closed, safety-reviewed,
+and executable through the Slice 8.7 durable controller. The old flat routine
+format remains executable without an implicit conversion or changed normalized
+revision. New-form target selectors are
+static Oracle identities; provider mapping details stay in their owning role.
+First activation and material changes to an enabled preauthorized definition,
+exact target binding, or automatic-trigger scope require the existing
+`runbook_power_expansion` acknowledgement.
+
 `domains/home-assistant.yaml:views` is a finite typed configuration surface for
 Oracle's existing Home, House, and Room read models. It owns household-specific
 membership, ordering, canonical room association, optional labels, and camera
@@ -578,6 +621,24 @@ mapping; view definitions never duplicate raw entity IDs. Oracle code continues
 to own fixed page structures and section types, rendering, icons and default
 presentation, state interpretation, supported actions, and serialization. The
 surface cannot accept generic widgets, layout, dashboard, or theme definitions.
+
+Finite Home Assistant mutation vocabulary is mapping-owned. Action mappings
+select exactly one code-supported operation compatible with the mapped provider
+object. Optional aliases are explicit Oracle-facing resolution terms; provider
+discovery and the reconstructable entity cache cannot add callable aliases.
+Climate mappings that support adjustment declare their normal minimum, normal
+maximum, and unit. Those authored normal bounds classify semantic risk, while
+fresh provider/device bounds remain an independent execution-time limit.
+Explicit scene, script, or automation invocation uses a named opaque mapping;
+configuration authorizes the mapped unit as a whole and does not expose or
+interpret its provider-owned internal steps.
+
+Coarse household presence is also mapping-owned. A `person_presence` mapping
+binds exactly one enabled canonical household user to exactly one Home Assistant
+`person` entity and permits only `read`. User and provider-entity ownership are
+both unique. Device trackers, zones, coordinates, history, and discovered
+entities cannot substitute for this explicit mapping or become configuration
+authority.
 
 Camera snapshot references are normalized relative logical paths beneath the
 selected provider's deployment-owned `snapshot_root`. Absolute host paths,
@@ -596,6 +657,11 @@ runbook contract; later configuration governs new events, not active runs.
 Validation is whole-bundle and typed. It checks syntax, schemas, references,
 identity uniqueness, enabled-state constraints, secret-reference use, safety
 rules, and projection generation.
+
+Semantic findings marked `blocks_activation: false` remain visible in candidate
+review but do not prevent normalization, secret-companion validation, diffing,
+or activation eligibility. Treating such a warning as an early loader failure
+would create a hidden activation blocker and is forbidden.
 
 Reports distinguish:
 

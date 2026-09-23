@@ -12,6 +12,8 @@ class DependencyProfileTests(unittest.TestCase):
         for relative in (
             "server/requirements.lock",
             "server/requirements-fast-whisper.lock",
+            "server/requirements-nextcloud-calendar.lock",
+            "server/requirements-nextcloud-tasks.lock",
             "server/requirements-full-production.lock",
             "satellite/requirements.lock",
             "requirements-test.lock",
@@ -32,11 +34,20 @@ class DependencyProfileTests(unittest.TestCase):
 
     def test_optional_profiles_remain_additive_and_distinct(self) -> None:
         fast_whisper = (ROOT / "server/requirements-fast-whisper.txt").read_text(encoding="utf-8")
+        nextcloud_calendar = (ROOT / "server/requirements-nextcloud-calendar.txt").read_text(encoding="utf-8")
+        nextcloud_tasks = (ROOT / "server/requirements-nextcloud-tasks.txt").read_text(encoding="utf-8")
         full_production = (ROOT / "server/requirements-full-production.txt").read_text(encoding="utf-8")
         satellite = (ROOT / "satellite/requirements.txt").read_text(encoding="utf-8")
         self.assertIn("-r requirements.txt", fast_whisper)
         self.assertIn("faster-whisper==1.2.1", fast_whisper)
+        self.assertIn("-r requirements.txt", nextcloud_calendar)
+        self.assertIn("icalendar==7.3.0", nextcloud_calendar)
+        self.assertIn("recurring-ical-events==3.8.1", nextcloud_calendar)
+        self.assertIn("-r requirements.txt", nextcloud_tasks)
+        self.assertIn("icalendar==7.3.0", nextcloud_tasks)
         self.assertIn("-r requirements-fast-whisper.txt", full_production)
+        self.assertIn("-r requirements-nextcloud-calendar.txt", full_production)
+        self.assertIn("-r requirements-nextcloud-tasks.txt", full_production)
         self.assertIn("piper-tts==1.4.1", full_production)
         self.assertIn("pathvalidate==3.3.1", full_production)
         self.assertIn("openwakeword==0.6.0", satellite)

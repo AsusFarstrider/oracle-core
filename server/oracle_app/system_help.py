@@ -36,7 +36,8 @@ CAPABILITY_CATALOG: tuple[HelpCapability, ...] = (
     HelpCapability("stopwatch", "stopwatches", ("stopwatch", "stopwatches", "lap timer"), "", (), disposition="deferred", unavailable_text="Stopwatches are not supported yet; they are deferred until after V2."),
     HelpCapability("randomizer", "random choices", ("random", "randomizer", "coin", "coin flip", "dice", "die", "random number"), "", (), disposition="deferred", unavailable_text="Coin flips, dice, and random choices are not supported yet; they are deferred until after V2."),
     HelpCapability("sun", "sunrise and sunset", ("sunrise", "sunset", "sunrise and sunset"), "", (), disposition="deferred", unavailable_text="Sunrise and sunset are not supported yet; they are assigned to the later Weather stage."),
-    HelpCapability("lists", "lists and notes", ("list", "lists", "shopping list", "grocery list", "note", "notes"), "", (), disposition="deferred", unavailable_text="Lists and notes are not supported yet; they are assigned to Stage 8."),
+    HelpCapability("lists", "lists", ("list", "lists", "shopping list", "grocery list"), "read and change configured lists and their items", ("what is on my groceries list", "add milk to my groceries list"), handler_target="lists"),
+    HelpCapability("notes", "notes", ("note", "notes", "memo", "memos"), "create, find, read, and change individual notes", ("search my notes for warranty", "append the serial number to my router note"), handler_target="notes"),
     HelpCapability("messaging", "calls and messages", ("call", "calls", "phone call", "phone calls", "message", "messages", "text message", "text messages", "announcement", "intercom"), "", (), disposition="deferred", unavailable_text="Calls, messages, and general announcements are not supported; household communications are deferred to V3."),
     HelpCapability("currency", "live currency conversion", ("currency", "exchange rate", "dollars to euros", "money conversion"), "", (), disposition="deferred", unavailable_text="Live currency conversion is not supported because Oracle has no current exchange-rate provider."),
 )
@@ -146,7 +147,7 @@ def capability_enabled(capability: HelpCapability, *, registry: Any) -> bool:
     if capability.handler_target == "home_assistant":
         settings = getattr(handler, "home_assistant_settings", None)
         return bool(settings is not None and getattr(settings, "enabled", False))
-    return getattr(handler, "canonical_execution", None) is not None
+    return getattr(handler, "canonical_execution", getattr(handler, "execution", None)) is not None
 
 
 def failure_recovery_guidance(action: str, error: str) -> str | None:

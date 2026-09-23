@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from oracle_app.configuration.domain_models import HomeAssistantEventMapping
+from oracle_app.configuration.domain_models import HomeAssistantEventMapping, HomeAssistantObjectMapping
 from oracle_app.configuration.home_assistant_runtime_settings import (
     HomeAssistantRuntimeSettings,
 )
@@ -15,6 +15,7 @@ from .controller import (
     start_entry_runbook,
 )
 from .state import observe_canonical_state
+from oracle_app.home_assistant_presence import normalize_person_presence
 
 
 def handle_home_assistant_event(
@@ -118,6 +119,38 @@ def handle_home_assistant_event(
         state=canonical_state,
         run_id=str(outcome.get("run_id") or ""),
     )
+
+
+def normalize_home_assistant_trigger_evidence(
+    *,
+    entity_id: str,
+    state: str,
+    home_assistant_settings: HomeAssistantRuntimeSettings,
+) -> tuple[tuple[str, str, str], ...]:
+    """Translate provider state into finite Oracle trigger evidence."""
+
+    clean_entity = str(entity_id or "").strip().casefold()
+    clean_state = str(state or "").strip().casefold()
+    evidence: list[tuple[str, str, str]] = []
+    for mapping_id, mapping in home_assistant_settings.mappings.items():
+        if str(mapping.entity_id).casefold() != clean_entity:
+            continue
+        if isinstance(mapping, HomeAssistantEventMapping):
+            if mapping.event_type == "mode_state":
+                canonical = "active" if clean_state == mapping.active_state.casefold() else "inactive"
+            elif clean_state == mapping.active_state.casefold():
+                canonical = "open"
+            elif clean_state == str(mapping.inactive_state or "").casefold():
+                canonical = "closed"
+            else:
+                canonical = ""
+            if canonical:
+                evidence.append(("home_event", mapping_id, canonical))
+        elif isinstance(mapping, HomeAssistantObjectMapping) and mapping.kind == "person_presence":
+            canonical = normalize_person_presence(clean_state)
+            if canonical in {"home", "away"}:
+                evidence.append(("presence", mapping.oracle_id, canonical))
+    return tuple(evidence)
 
 
 @dataclass(frozen=True)

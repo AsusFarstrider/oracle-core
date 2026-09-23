@@ -189,8 +189,9 @@ def validate_loaded_bundle(bundle: LoadedBundle) -> tuple[ConfigurationFinding, 
 def load_bundle_snapshot(snapshot: AuthoredCandidateSnapshot) -> LoadedBundle:
     bundle = load_bundle_snapshot_structure(snapshot)
     findings = validate_loaded_bundle(bundle)
-    if findings:
-        raise BundleValidationError(findings)
+    blockers = tuple(item for item in findings if item.blocks_activation)
+    if blockers:
+        raise BundleValidationError(blockers)
     return bundle
 
 

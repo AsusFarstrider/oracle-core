@@ -7,6 +7,7 @@ from .network_control_guard import (
     acquire_network_control,
     get_network_control_availability,
     get_network_control_availability_for_policy,
+    network_control_cooldown_seconds,
     release_network_control,
 )
 from .network_control_results import (
@@ -31,8 +32,8 @@ def admin_network_status_http(request: Request) -> dict[str, object]:
     return admin_network_status_canonical(execution)
 
 
-def admin_network_status_canonical(execution) -> dict[str, object]:
-    snapshot = execution.status_snapshot()
+def admin_network_status_canonical(execution, *, force_refresh: bool = False) -> dict[str, object]:
+    snapshot = execution.status_snapshot(force_refresh=force_refresh)
     verification = safe_get_network_control_verification_snapshot()
     diagnostics = execution.control_diagnostics(verification)
     control_policy = {"actions": list(diagnostics.get("actions") or [])}
@@ -107,44 +108,57 @@ def admin_network_control_confirm_canonical(
         if lease.get("acquired") is not True:
             result = _network_control_guard_blocked_result(lease.get("state"))
         else:
-            cooldown_seconds = int(
-                0 if action is None else (action.definition.execution.cooldown_seconds or 0)
-            )
-            _record_network_control_started(control, cooldown_seconds=cooldown_seconds)
-            try:
-                result = execution.execute_control(
-                    request_payload,
-                    {
-                        "request_id": request_id,
-                        "requested_at": requested_at,
-                        "actor": str(control.get("actor") or ""),
-                        "source": str(control.get("source") or ""),
-                        "reason": str(control.get("reason") or ""),
-                    },
-                )
-            except Exception:
+            cooldown_seconds = network_control_cooldown_seconds({
+                "action_id": "" if action is None else action.definition.operation,
+                "execution": {} if action is None else {
+                    "cooldown_seconds": action.definition.execution.cooldown_seconds,
+                },
+            })
+            if not _record_network_control_started(control, cooldown_seconds=cooldown_seconds):
+                release_network_control(token=str(lease.get("token") or ""), cooldown_seconds=0)
                 result = {
                     "ok": False,
-                    "result_status": "failed",
-                    "error_class": "network_control_execution_failed",
-                    "summary": "Network control execution failed unexpectedly.",
-                    "execution": {"verification_status": "failed"},
+                    "result_status": "blocked",
+                    "error_class": "network_control_audit_unavailable",
+                    "summary": "Network control could not durably record the attempt; no action was sent.",
+                    "execution": {"availability_status": "audit_unavailable"},
                     "steps": [],
                 }
-            finally:
-                cooldown = release_network_control(
-                    token=str(lease.get("token") or ""),
-                    cooldown_seconds=cooldown_seconds,
-                )
-            result = {
-                **result,
-                "execution": {
-                    **dict(result.get("execution") or {}),
-                    "availability_status": str(cooldown.get("status") or "ready"),
-                    "cooldown_seconds": cooldown_seconds,
-                    "cooldown_until": str(cooldown.get("cooldown_until") or ""),
-                },
-            }
+            else:
+                try:
+                    result = execution.execute_control(
+                        request_payload,
+                        {
+                            "request_id": request_id,
+                            "requested_at": requested_at,
+                            "actor": str(control.get("actor") or ""),
+                            "source": str(control.get("source") or ""),
+                            "reason": str(control.get("reason") or ""),
+                        },
+                    )
+                except Exception:
+                    result = {
+                        "ok": False,
+                        "result_status": "failed",
+                        "error_class": "network_control_execution_failed",
+                        "summary": "Network control execution failed unexpectedly.",
+                        "execution": {"verification_status": "failed"},
+                        "steps": [],
+                    }
+                finally:
+                    cooldown = release_network_control(
+                        token=str(lease.get("token") or ""),
+                        cooldown_seconds=cooldown_seconds,
+                    )
+                result = {
+                    **result,
+                    "execution": {
+                        **dict(result.get("execution") or {}),
+                        "availability_status": str(cooldown.get("status") or "ready"),
+                        "cooldown_seconds": cooldown_seconds,
+                        "cooldown_until": str(cooldown.get("cooldown_until") or ""),
+                    },
+                }
         completed = execution.control_confirm(request_payload, result=result)
         control = {**completed, "request_id": request_id, "requested_at": requested_at}
     record_network_control_result(control)
@@ -193,6 +207,15 @@ def _with_network_control_availability(control: dict[str, object]) -> dict[str, 
 def _network_control_guard_blocked_result(raw_state: object) -> dict[str, object]:
     state = raw_state if isinstance(raw_state, dict) else {"status": "blocked_by_active"}
     status = str(state.get("status") or "blocked_by_active")
+    if status == "audit_unavailable":
+        return {
+            "ok": False,
+            "result_status": "blocked",
+            "error_class": "network_control_audit_unavailable",
+            "summary": "Network control is unavailable until its durable audit history can be checked.",
+            "execution": {"availability_status": status},
+            "steps": [],
+        }
     if status == "cooldown":
         remaining = int(state.get("cooldown_remaining_seconds") or 0)
         return {
@@ -213,7 +236,7 @@ def _network_control_guard_blocked_result(raw_state: object) -> dict[str, object
     }
 
 
-def _record_network_control_started(control: dict[str, object], *, cooldown_seconds: int) -> None:
+def _record_network_control_started(control: dict[str, object], *, cooldown_seconds: int) -> bool:
     request_id = str(control.get("request_id") or "").strip()
     started = {
         **control,
@@ -221,7 +244,7 @@ def _record_network_control_started(control: dict[str, object], *, cooldown_seco
         "summary": "Oracle acquired the network control execution lease.",
         "execution": {**dict(control.get("execution") or {}), "availability_status": "in_progress", "cooldown_seconds": cooldown_seconds},
     }
-    safe_record_event(
+    return safe_record_event(
         "network_control_started",
         source_id="brain",
         provider=str(control.get("provider") or ""),

@@ -15,6 +15,8 @@ Current structured write endpoints:
 - `POST /api/ui/calendar/draft`
 - `POST /api/ui/calendar/confirm`
 - `POST /api/ui/calendar/cancel`
+- `POST /api/ui/calendar/mutation/draft`
+- `POST /api/ui/calendar/mutation/confirm`
 
 ## Request
 
@@ -85,6 +87,7 @@ Rules:
 Recommended Alpha event fields:
 
 - `summary`
+- `event_ref`
 - `start`
 - `end`
 - `all_day`
@@ -95,6 +98,8 @@ Recommended Alpha event fields:
 Alpha rule:
 
 - event items must be app-safe summaries only
+- `event_ref` is an opaque Oracle selection reference derived from the current
+  normalized event and is not a raw provider UID
 - the contract must not expose raw provider objects or write-oriented draft fields
 - `source_id` and `source_label` identify Oracle's configured feed, not a raw
   provider object or an authorization decision
@@ -134,6 +139,29 @@ The UI calendar create path is:
 - structured
 - confirmation-driven
 - separate from `/api/voice`
+
+### Stage 8 Bounded Write Target
+
+Slice 8.5 extends the dedicated Calendar write family with bounded existing-
+event edit, reschedule, and delete/cancel. The read snapshot may expose only
+Oracle-owned stable selection references and app-safe capability state needed
+to begin that flow; it remains neither a raw provider browser nor the mutation
+authority.
+
+The Brain performs deterministic selection and ambiguity/recurrence-scope
+clarification, freezes the selected event/calendar/user/source/scope and result
+fields, and requires confirmation under the Calendar write contract.
+Delete/cancel is consequential. Clients cannot submit raw provider IDs/payloads,
+choose occurrence versus series implicitly, or request delete/recreate
+emulation. `POST /api/ui/calendar/mutation/draft` accepts only the opaque stable
+`event_ref` already returned by the Oracle read model, its canonical
+`calendar_id`, plus bounded ordinary
+changes and explicit recurrence scope when needed. It returns a frozen
+`draft_id`; `POST /api/ui/calendar/mutation/confirm` is the only endpoint that
+executes that draft. Both require the same authenticated stable household
+`source_id` and bounded `ui_session_id`; neither `client_id` nor `calendar_id`
+authenticates a caller. Both preserve the current structured-versus-voice state
+separation.
 
 ## Freshness Expectations
 

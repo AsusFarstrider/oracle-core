@@ -901,13 +901,14 @@ function renderPagePayload(page, payload) {
 function renderHome(payload) {
   const controls = Array.isArray(payload.room_controls?.items) ? payload.room_controls.items : [];
   const routineActions = Array.isArray(payload.routine_actions) ? payload.routine_actions : [];
+  const routineRuns = Array.isArray(payload.routine_runs) ? payload.routine_runs : [];
   const event = Array.isArray(payload.calendar?.events) ? payload.calendar.events[0] : null;
   const weather = payload.weather || {};
   const hasControls = controls.length > 0;
   const hasRoomEnvironment = Array.isArray(payload.room_environment?.items)
     && payload.room_environment.items.length > 0;
   const secondaryCards = configuredHomeSecondaryCards(
-    routineActions.length > 0,
+    routineActions.length > 0 || routineRuns.some((run) => run.active),
     hasRoomEnvironment,
   );
   elements.pageRoot.innerHTML = `
@@ -939,6 +940,7 @@ function renderHome(payload) {
         alarm: payload.alarm || {},
         roomEnvironment: payload.room_environment || {},
         routineActions,
+        routineRuns,
       }, index)).join("")}
     </section>
   `;
@@ -1270,7 +1272,7 @@ function renderHomeSecondaryCard(card, payload, index) {
     return renderHomeRoomEnvironmentCard(slotClass, payload.roomEnvironment || {});
   }
   if (card === "routine_actions") {
-    return renderHomeRoutineActionsCard(slotClass, payload.routineActions || []);
+    return renderHomeRoutineActionsCard(slotClass, payload.routineActions || [], payload.routineRuns || []);
   }
   if (card === "calendar") {
     return `
@@ -1290,14 +1292,20 @@ function renderHomeSecondaryCard(card, payload, index) {
   `;
 }
 
-function renderHomeRoutineActionsCard(slotClass, actions) {
-  const action = actions[0] || null;
+function renderHomeRoutineActionsCard(slotClass, actions, runs) {
+  const activeRun = runs.find((run) => run.active) || null;
+  const action = actions.find((item) => item.orchestration_id === activeRun?.orchestration_id) || actions[0] || null;
   return `
     <article class="card card--secondary routine-action-card ${slotClass}">
       <p class="card__eyebrow">Routine</p>
-      <h3>${escapeHtml(action?.label || "No routine")}</h3>
-      <p class="mini-copy">${escapeHtml(action?.description || "No task routine is configured for this room.")}</p>
-      ${action ? `
+      <h3>${escapeHtml(action?.label || activeRun?.orchestration_id || "No routine")}</h3>
+      <p class="mini-copy">${escapeHtml(activeRun?.summary || action?.description || "No task routine is configured for this room.")}</p>
+      ${activeRun ? `
+        <button class="nav-action nav-action--wide" type="button" data-routine-cancel="${escapeHtml(activeRun.run_id || "")}">
+          <span class="material-symbols-outlined">cancel</span>
+          <span>Cancel ${escapeHtml(String(activeRun.status || "active").replaceAll("_", " "))}</span>
+        </button>
+      ` : action ? `
         <button class="nav-action nav-action--wide" type="button" data-routine-id="${escapeHtml(action.orchestration_id || "")}">
           <span class="material-symbols-outlined">${escapeHtml(action.icon || "bedtime")}</span>
           <span>Start</span>
@@ -1427,7 +1435,7 @@ function renderRoomControlTile(item) {
     <span class="device-tile__state">${escapeHtml(stateLabel)}</span>
   `;
   if (primaryAction?.action_id) {
-    return `<button class="device-tile" type="button" data-action-id="${escapeHtml(primaryAction.action_id)}">${content}</button>`;
+    return `<button class="device-tile" type="button" data-action-id="${escapeHtml(primaryAction.action_id)}" ${primaryAction.requires_confirmation ? 'data-requires-confirmation="true"' : ""}>${content}</button>`;
   }
   return `
     <div class="device-tile device-tile--static">
@@ -1865,7 +1873,7 @@ function renderFrontDoorCard(item) {
       <div class="tile-grid tile-grid--security">
         ${
           action?.action_id
-            ? `<button class="device-tile house-tile house-tile--security" type="button" data-action-id="${escapeHtml(action.action_id)}">${tile}</button>`
+            ? `<button class="device-tile house-tile house-tile--security" type="button" data-action-id="${escapeHtml(action.action_id)}" ${action.requires_confirmation ? 'data-requires-confirmation="true"' : ""}>${tile}</button>`
             : `<div class="device-tile device-tile--static house-tile house-tile--security">${tile}</div>`
         }
       </div>
@@ -1881,7 +1889,7 @@ function renderHouseLightTile(item) {
     <span class="device-tile__state">${escapeHtml(normalizeStateLabel(compactLightState(item)))}</span>
   `;
   if (primaryAction?.action_id) {
-    return `<button class="device-tile house-tile" type="button" data-action-id="${escapeHtml(primaryAction.action_id)}">${content}</button>`;
+    return `<button class="device-tile house-tile" type="button" data-action-id="${escapeHtml(primaryAction.action_id)}" ${primaryAction.requires_confirmation ? 'data-requires-confirmation="true"' : ""}>${content}</button>`;
   }
   return `<div class="device-tile device-tile--static house-tile">${content}</div>`;
 }
@@ -1914,7 +1922,7 @@ function renderActionButton(action, className, mode = "ui") {
       <span>${escapeHtml(action.label || action.operation)}</span>
     </button>`;
   }
-  return `<button class="${className}" type="button" data-action-id="${escapeHtml(action.action_id || "")}">
+  return `<button class="${className}" type="button" data-action-id="${escapeHtml(action.action_id || "")}" ${action.requires_confirmation ? 'data-requires-confirmation="true"' : ""}>
     <span class="material-symbols-outlined">${escapeHtml(action.icon || "bolt")}</span>
     <span>${escapeHtml(action.label || "Act")}</span>
   </button>`;
@@ -1962,10 +1970,23 @@ function wireActionButtons() {
   }
   for (const button of document.querySelectorAll("[data-action-id]")) {
     button.addEventListener("click", async () => {
-      await apiPost("/api/ui/action", {
+      const needsConfirmation = button.dataset.requiresConfirmation === "true";
+      if (needsConfirmation && !window.confirm("Run this action?")) {
+        return;
+      }
+      const payload = {
         action_id: button.dataset.actionId,
         client_id: state.clientId,
-      });
+        confirmed: needsConfirmation,
+      };
+      let result = await apiPost("/api/ui/action", payload);
+      if (result?.result?.status === "pending_confirmation" && !payload.confirmed) {
+        if (!window.confirm(result?.result?.message || "Run this consequential action?")) {
+          return;
+        }
+        payload.confirmed = true;
+        result = await apiPost("/api/ui/action", payload);
+      }
       invalidateLiveControlSnapshots();
       await reloadCurrentPage();
     });
@@ -1990,6 +2011,21 @@ function wireActionButtons() {
       } catch (error) {
         const message = error instanceof Error ? error.message : "Routine failed to start.";
         setVoiceState("error", friendlyVoiceError(message));
+        button.disabled = false;
+      }
+    });
+  }
+  for (const button of document.querySelectorAll("[data-routine-cancel]")) {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        const payload = await apiPost(`/api/ui/orchestration-runs/${encodeURIComponent(button.dataset.routineCancel || "")}/cancel`, {
+          client_id: state.clientId,
+        });
+        setVoiceState(payload.ok ? "ready" : "error", payload.run?.summary || "Routine cancellation requested.");
+        await reloadCurrentPage();
+      } catch (error) {
+        setVoiceState("error", friendlyVoiceError(error instanceof Error ? error.message : "Routine could not be canceled."));
         button.disabled = false;
       }
     });

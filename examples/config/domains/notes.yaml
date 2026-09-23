@@ -1,0 +1,23 @@
+enabled: false
+provider: null
+providers:
+  nextcloud_notes:
+    type: nextcloud_notes
+    base_url: https://nextcloud.example.invalid
+    user: oracle-example
+    credential_secret: NEXTCLOUD_NOTES_APP_PASSWORD
+    timeout_seconds: 8
+    notes:
+      - id: house_reference
+        display_name: House Reference
+        aliases: []
+        user_ids: []
+        provider_note_id: "100"
+policy:
+  read_enabled: true
+  write_enabled: false
+  confirmation_required: true
+  fresh_seconds: 30
+  stale_if_error_seconds: 120
+  max_content_characters: 20000
+  max_search_results: 20

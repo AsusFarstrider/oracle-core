@@ -4,26 +4,13 @@ import re
 from typing import Any
 
 from oracle_app import state
-from oracle_app.conversation import (
-    get_home_assistant_conversation_id,
-    set_home_assistant_conversation_id,
-)
 from oracle_app.text_normalization import normalize_text
 from oracle_app.configuration.home_assistant_runtime_settings import HomeAssistantRuntimeSettings
 from oracle_app.configuration.household_runtime_settings import HouseholdRuntimeSettings
-from oracle_app.constants import SAFE_TEMPERATURE_MAX, SAFE_TEMPERATURE_MIN
-from oracle_app.provider_bridges.home_assistant import (
-    HomeAssistantBridge,
-    HomeAssistantBridgeHttpError,
-    HomeAssistantBridgeUnreachableError,
-    extract_success_entity_ids,
-)
-from oracle_app.home_assistant_policy import (
-    detect_failed_success_targets,
-    expected_target_outcome,
-    fetch_entity_state_with_retry,
-    serialize_expected_outcome,
-    state_verification_failed,
+from oracle_app.home_assistant_actions import (
+    ResolvedHomeSemanticRequest,
+    execute_resolved_home_semantic_request,
+    resolve_home_semantic_request,
 )
 from oracle_app.room_context import canonical_pending_room_reply_name, canonical_room_name, inject_room_into_home_command
 from oracle_app.runtime_contracts import build_failure_result
@@ -41,33 +28,6 @@ _RETIRED_ROOM_NAME_PATTERNS = (
 def _contains_retired_room_name(command_text: str) -> bool:
     normalized = normalize_text(command_text)
     return any(pattern.search(normalized) for pattern in _RETIRED_ROOM_NAME_PATTERNS)
-
-
-def check_confirmation_required(command_text: str) -> dict[str, Any] | None:
-    normalized = normalize_text(command_text)
-
-    if re.search(r"(?<![a-z])unlock(?![a-z])", normalized):
-        return {
-            "reason": "Unlock commands require confirmation",
-            "prompt": "This will unlock a door. Say 'confirm' to proceed or 'cancel' to stop.",
-        }
-
-    if "temperature" in normalized or "thermostat" in normalized:
-        match = re.search(r"\bto\s+(\d{2})\b", normalized)
-        if match:
-            target_temp = int(match.group(1))
-            if target_temp < SAFE_TEMPERATURE_MIN or target_temp > SAFE_TEMPERATURE_MAX:
-                return {
-                    "reason": "Requested temperature is outside the safe range",
-                    "prompt": (
-                        f"This will set the temperature to {target_temp}, outside the "
-                        f"{SAFE_TEMPERATURE_MIN}-{SAFE_TEMPERATURE_MAX} range. "
-                        "Say 'confirm' to proceed or 'cancel' to stop."
-                    ),
-                    "target_temperature": target_temp,
-                }
-
-    return None
 
 
 def store_pending_confirmation(dispatch: DispatchPlan, prompt: str, reason: str) -> DispatchPlan:
@@ -110,6 +70,13 @@ def execute_home_assistant(
     source = dispatch.payload.get("source")
     session_id = dispatch.payload.get("session_id")
     pending = state.load_pending_home_request(source, session_id)
+    if pending is not None:
+        if str(pending.get("injection_kind") or "") == "semantic_target":
+            state.clear_pending_home_request(source, session_id)
+            base_text = str(pending.get("base_text") or "").strip()
+            target_reply = str(dispatch.payload.get("text") or "").strip()
+            dispatch.payload["text"] = f"{base_text} {target_reply}".strip()
+            pending = None
     if pending is not None:
         room_name = canonical_pending_room_reply_name(
             dispatch.payload.get("text"),
@@ -170,15 +137,6 @@ def execute_home_assistant(
         }
         return dispatch
 
-    if not skip_confirmation:
-        confirmation = check_confirmation_required(dispatch.payload["text"])
-        if confirmation is not None:
-            return store_pending_confirmation(
-                dispatch,
-                prompt=str(confirmation["prompt"]),
-                reason=str(confirmation["reason"]),
-            )
-
     if home_assistant_settings is None or not home_assistant_settings.enabled:
         dispatch.status = "failed"
         dispatch.result = build_failure_result(
@@ -188,60 +146,53 @@ def execute_home_assistant(
             detail="Home Assistant is disabled in the applied configuration.",
         )
         return dispatch
-    bridge = HomeAssistantBridge(
-        base_url=home_assistant_settings.base_url or "",
-        token=home_assistant_settings.credential or "",
-        timeout_seconds=home_assistant_settings.timeout_seconds,
+    resolved = resolve_home_semantic_request(
+        str(dispatch.payload.get("text") or ""),
+        home_assistant_settings=home_assistant_settings,
+        household_settings=household_settings,
     )
-    try:
-        provider_conversation_id = get_home_assistant_conversation_id(
-            str(source) if source is not None else None,
-            str(session_id) if session_id is not None else None,
-        )
-        bridge_result = bridge.execute_command(
-            str(dispatch.payload.get("text") or ""),
-            conversation_id=provider_conversation_id,
-        )
-    except HomeAssistantBridgeHttpError as exc:
+    if not isinstance(resolved, ResolvedHomeSemanticRequest):
+        if resolved.get("error") == "home_target_ambiguous":
+            stored = state.store_pending_home_request(
+                source,
+                session_id,
+                {
+                    "prompt": str(resolved.get("prompt") or "Which target did you mean?"),
+                    "base_text": str(dispatch.payload.get("text") or "").strip(),
+                    "injection_kind": "semantic_target",
+                },
+            )
+            if stored:
+                dispatch.status = "pending_clarification"
+                dispatch.result = dict(resolved)
+                return dispatch
+            dispatch.status = "failed"
+            dispatch.result = {
+                "error": "pending_state_requires_context",
+                "detail": "Target clarification requires source and session context.",
+            }
+            return dispatch
         dispatch.status = "failed"
-        dispatch.result = build_failure_result(
-            failure_class="transport_failure",
-            owning_component="brain.home_assistant",
-            error="home_assistant_http_error",
-            detail=exc.detail,
-            status_code=exc.status_code,
-        )
+        dispatch.result = dict(resolved)
         return dispatch
-    except HomeAssistantBridgeUnreachableError as exc:
+    result = execute_resolved_home_semantic_request(
+        resolved,
+        home_assistant_settings=home_assistant_settings,
+        interface="voice",
+        confirmed=skip_confirmation,
+    )
+    if result.get("status") == "pending_confirmation":
+        return store_pending_confirmation(
+            dispatch,
+            prompt=str(result["prompt"]),
+            reason=str(result["reason"]),
+        )
+    if result.get("status") not in {"accepted", "verified"}:
         dispatch.status = "failed"
-        dispatch.result = build_failure_result(
-            failure_class="transport_failure",
-            owning_component="brain.home_assistant",
-            error="home_assistant_unreachable",
-            detail=exc.detail,
-        )
+        dispatch.result = dict(result)
         return dispatch
-
     dispatch.status = "executed"
-    verification_failure = detect_failed_success_targets(
-        bridge,
-        bridge_result.payload,
-        command_text=str(dispatch.payload.get("text") or ""),
-    )
-    if verification_failure is not None:
-        dispatch.status = "failed"
-        dispatch.result = {
-            **verification_failure,
-            "room_context": dict(room_context) if isinstance(room_context, dict) else {},
-        }
-        return dispatch
-    if bridge_result.returned_conversation_id:
-        set_home_assistant_conversation_id(
-            str(source) if source is not None else None,
-            str(session_id) if session_id is not None else None,
-            bridge_result.returned_conversation_id,
-        )
-    dispatch.result = bridge_result.payload
+    dispatch.result = dict(result)
     dispatch.result["room_context"] = dict(room_context) if isinstance(room_context, dict) else {}
     return dispatch
 
@@ -271,60 +222,3 @@ class HomeAssistantHandler:
             household_settings=self.household_settings,
             home_assistant_settings=self.home_assistant_settings,
         )
-
-
-def _detect_failed_success_targets(
-    payload: dict[str, Any],
-    *,
-    command_text: str,
-    base_url: str,
-    token: str,
-) -> dict[str, Any] | None:
-    return detect_failed_success_targets(
-        HomeAssistantBridge(base_url=base_url, token=token),
-        payload,
-        command_text=command_text,
-    )
-
-
-def _extract_success_entity_ids(payload: dict[str, Any]) -> list[str]:
-    return extract_success_entity_ids(payload)
-
-
-def _fetch_entity_state(base_url: str, token: str, entity_id: str) -> dict[str, Any] | None:
-    return HomeAssistantBridge(base_url=base_url, token=token).fetch_entity_state(entity_id)
-
-
-def _fetch_entity_state_with_retry(
-    base_url: str,
-    token: str,
-    entity_id: str,
-    *,
-    expected_outcome: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    return fetch_entity_state_with_retry(
-        HomeAssistantBridge(base_url=base_url, token=token),
-        entity_id,
-        expected_outcome=expected_outcome,
-    )
-
-
-def _expected_target_outcome(command_text: str, entity_id: str) -> dict[str, Any] | None:
-    return expected_target_outcome(command_text, entity_id)
-
-
-def _state_verification_failed(
-    state_payload: dict[str, Any],
-    *,
-    current_state: str,
-    expected_outcome: dict[str, Any] | None,
-) -> bool:
-    return state_verification_failed(
-        state_payload,
-        current_state=current_state,
-        expected_outcome=expected_outcome,
-    )
-
-
-def _serialize_expected_outcome(expected_outcome: dict[str, Any] | None) -> dict[str, Any]:
-    return serialize_expected_outcome(expected_outcome)

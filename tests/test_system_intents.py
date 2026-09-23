@@ -94,11 +94,15 @@ class SystemIntentTests(unittest.TestCase):
     def test_build_system_hook_maps_known_actions(self) -> None:
         self.assertEqual(build_system_hook("alerts"), "system.alerts")
         self.assertEqual(build_system_hook("refresh_cache"), "system.refresh_cache")
+        self.assertEqual(build_system_hook("effective_user"), "system.effective_user")
+        self.assertEqual(build_system_hook("presence"), "system.presence")
 
     def test_system_action_requires_text_only_for_textual_actions(self) -> None:
         self.assertTrue(system_action_requires_text("calculation"))
         self.assertTrue(system_action_requires_text("temporal"))
+        self.assertTrue(system_action_requires_text("presence"))
         self.assertFalse(system_action_requires_text("confirm_pending"))
+        self.assertFalse(system_action_requires_text("effective_user"))
         self.assertFalse(system_action_requires_text("refresh_cache"))
 
 

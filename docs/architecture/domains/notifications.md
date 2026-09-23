@@ -65,6 +65,13 @@ channel availability are separate policy layers. Suppression is evaluated by
 the notification domain and rechecked before delivery when evidence can become
 stale. Callers cannot disable it.
 
+Brain-owned Do Not Disturb is a separate presentation policy at the shared
+alert-delivery seam. It suppresses unsolicited Oracle-controlled audio while
+preserving durable and visual alert truth. Its active mode and resolved expiry
+survive restart. Direct requested replies do not traverse this unsolicited
+presentation decision, and alarm or timer exceptions remain owned by those
+alert families rather than notification callers or provider bridges.
+
 The satellite channel creates source-scoped expiring alert work and lets the
 satellite borrow foreground audio under the shared playback policy. Satellites
 do not resolve audiences or suppression.

@@ -1,6 +1,6 @@
 # Provider Role Registry
 
-This is the Stage 5 ownership ledger for Oracle's current external-I/O seams.
+This is the ownership ledger for Oracle's current external-I/O seams.
 The machine-readable authority is
 [`provider-role-registry.json`](provider-role-registry.json). It records every
 role's owner, consumers, health owner, failure vocabulary, cache owner,
@@ -21,6 +21,10 @@ direct OpenAI/Luna and optional OpenClaw/local-model transports.
 No speculative adapter is promoted by
 this record: the existing WebSocket module remains recorded only as part of the
 currently selectable/validated OpenClaw adapter surface and is not made active.
+The Lists role records Nextcloud Tasks and the live-proven but unactivated
+Microsoft To Do adapter as alternatives under one explicitly selected provider.
+The To Do real-account gate passed on 2026-09-22; no production provider was
+selected or activated by that proof.
 
 The Slice 3 boundary is now:
 

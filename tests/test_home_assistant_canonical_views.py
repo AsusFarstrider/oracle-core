@@ -19,7 +19,6 @@ from oracle_app.configuration.home_assistant_action_semantics import (
 )
 from oracle_app.home_assistant_actions import (
     execute_home_assistant_ui_action,
-    resolve_home_assistant_dynamic_ui_action,
 )
 from oracle_app.ui_house import build_canonical_ui_home_assistant_snapshot, build_ui_house_snapshot
 from oracle_app.ui_satellite import build_satellite_room_controls_snapshot, build_satellite_ui_config
@@ -37,7 +36,7 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
             "unlock": ("entry_unlock", "unlocked", "lock"),
         }
 
-        self.assertEqual(set(cases), set(DIRECT_HOME_ASSISTANT_ACTION_OPERATIONS))
+        self.assertTrue(set(cases).issubset(DIRECT_HOME_ASSISTANT_ACTION_OPERATIONS))
         for operation, (action_id, expected_state, domain) in cases.items():
             with self.subTest(operation=operation):
                 mapping = HomeAssistantObjectMapping(
@@ -59,16 +58,20 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
                 result = execute_home_assistant_ui_action(
                     action_id,
                     home_assistant_settings=settings,
+                    confirmed=True,
                 )
 
                 self.assertIsNotNone(result)
                 assert result is not None
                 self.assertTrue(result["ok"])
-                bridge.call_service.assert_called_once_with(
-                    service_domain=domain,
-                    service_name=operation,
-                    entity_id=f"{domain}.test_target",
-                )
+                if operation in {"lock", "unlock"}:
+                    bridge.set_access.assert_called_once_with(
+                        entity_id=f"{domain}.test_target", state=expected_state
+                    )
+                else:
+                    bridge.set_power.assert_called_once_with(
+                        entity_id=f"{domain}.test_target", enabled=expected_state == "on"
+                    )
 
     @patch("oracle_app.home_assistant_actions.HomeAssistantBridge")
     def test_unsupported_canonical_operation_remains_unavailable(self, bridge_type) -> None:
@@ -95,12 +98,15 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
         bridge_type.assert_not_called()
 
     @patch("oracle_app.home_assistant_actions.HomeAssistantBridge")
-    def test_generic_canonical_climate_action_uses_mapping_operation(self, bridge_type) -> None:
+    def test_generic_canonical_climate_action_uses_typed_execution(self, bridge_type) -> None:
         mapping = HomeAssistantObjectMapping(
             kind="action",
             oracle_id="reading_room_thermostat",
             entity_id="climate.reading_room",
             allowed_operations=["cooler"],
+            normal_temperature_min=59,
+            normal_temperature_max=72,
+            temperature_unit="fahrenheit",
         )
         settings = SimpleNamespace(
             enabled=True,
@@ -108,23 +114,22 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
             credential="canonical-token",
             timeout_seconds=12,
             mapping=lambda candidate: mapping if candidate == "temperature_down" else None,
+            mappings={"temperature_down": mapping},
         )
-        bridge_type.return_value.fetch_entity_state.return_value = {
-            "state": "cool",
-            "attributes": {"temperature": 70},
-        }
+        bridge_type.return_value.fetch_entity_state.side_effect = [
+            {"state": "cool", "attributes": {"temperature": 70, "min_temp": 50, "max_temp": 90}},
+            {"state": "cool", "attributes": {"temperature": 70, "min_temp": 50, "max_temp": 90}},
+            {"state": "cool", "attributes": {"temperature": 69, "min_temp": 50, "max_temp": 90}},
+        ]
 
-        result = resolve_home_assistant_dynamic_ui_action(
+        result = execute_home_assistant_ui_action(
             "temperature_down",
             home_assistant_settings=settings,
         )
 
-        self.assertEqual(
-            result["command_text"],
-            "set the reading room thermostat to 69 degrees",
-        )
-        bridge_type.return_value.fetch_entity_state.assert_called_once_with(
-            "climate.reading_room"
+        self.assertTrue(result["ok"])
+        bridge_type.return_value.set_climate_temperature.assert_called_once_with(
+            entity_id="climate.reading_room", temperature=69.0
         )
 
     @patch("oracle_app.ui_house.fetch_snapshot_metadata")

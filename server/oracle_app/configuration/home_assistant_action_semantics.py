@@ -2,11 +2,11 @@ from __future__ import annotations
 
 
 IMPLEMENTED_HOME_ASSISTANT_ACTION_OPERATIONS = frozenset(
-    {"cooler", "lock", "turn_off", "turn_on", "unlock", "warmer"}
+    {"arm", "close", "cooler", "disarm", "invoke", "lock", "open", "turn_off", "turn_on", "unlock", "warmer"}
 )
 
 DIRECT_HOME_ASSISTANT_ACTION_OPERATIONS = frozenset(
-    {"lock", "turn_off", "turn_on", "unlock"}
+    {"arm", "close", "disarm", "invoke", "lock", "open", "turn_off", "turn_on", "unlock"}
 )
 
 CLIMATE_HOME_ASSISTANT_ACTION_OPERATIONS = frozenset({"cooler", "warmer"})

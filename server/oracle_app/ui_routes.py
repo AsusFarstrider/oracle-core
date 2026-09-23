@@ -15,6 +15,8 @@ from .schemas import (
     UiCalendarDraftCancelRequest,
     UiCalendarDraftConfirmRequest,
     UiCalendarDraftRequest,
+    UiCalendarMutationDraftRequest,
+    UiCalendarMutationConfirmRequest,
     UiContextStartRequest,
     UiTimerActionRequest,
     UiReminderActionRequest,
@@ -24,6 +26,8 @@ from .schemas import (
 CalendarDraftHandler = Callable[[UiCalendarDraftRequest], dict[str, object]]
 CalendarConfirmHandler = Callable[[UiCalendarDraftConfirmRequest], dict[str, object]]
 CalendarCancelHandler = Callable[[UiCalendarDraftCancelRequest], dict[str, object]]
+CalendarMutationDraftHandler = Callable[[UiCalendarMutationDraftRequest, Request], dict[str, object]]
+CalendarMutationConfirmHandler = Callable[[UiCalendarMutationConfirmRequest, Request], dict[str, object]]
 AudioSearchHandler = Callable[[UiAudioSearchRequest], dict[str, object]]
 AudioPlayHandler = Callable[[UiAudioPlayRequest], dict[str, object]]
 AudioControlHandler = Callable[[UiAudioControlRequest], dict[str, object]]
@@ -43,6 +47,8 @@ UiAlertStateHandler = Callable[[str, Request], dict[str, object]]
 _ui_calendar_draft: CalendarDraftHandler | None = None
 _ui_calendar_confirm: CalendarConfirmHandler | None = None
 _ui_calendar_cancel: CalendarCancelHandler | None = None
+_ui_calendar_mutation_draft: CalendarMutationDraftHandler | None = None
+_ui_calendar_mutation_confirm: CalendarMutationConfirmHandler | None = None
 _ui_audio_search: AudioSearchHandler | None = None
 _ui_audio_play: AudioPlayHandler | None = None
 _ui_audio_control: AudioControlHandler | None = None
@@ -65,6 +71,8 @@ def configure_ui_routes(
     ui_calendar_draft: CalendarDraftHandler,
     ui_calendar_confirm: CalendarConfirmHandler,
     ui_calendar_cancel: CalendarCancelHandler,
+    ui_calendar_mutation_draft: CalendarMutationDraftHandler,
+    ui_calendar_mutation_confirm: CalendarMutationConfirmHandler,
     ui_audio_search: AudioSearchHandler,
     ui_audio_play: AudioPlayHandler,
     ui_audio_control: AudioControlHandler,
@@ -84,6 +92,8 @@ def configure_ui_routes(
     global _ui_calendar_draft
     global _ui_calendar_confirm
     global _ui_calendar_cancel
+    global _ui_calendar_mutation_draft
+    global _ui_calendar_mutation_confirm
     global _ui_audio_search
     global _ui_audio_play
     global _ui_audio_control
@@ -103,6 +113,8 @@ def configure_ui_routes(
     _ui_calendar_draft = ui_calendar_draft
     _ui_calendar_confirm = ui_calendar_confirm
     _ui_calendar_cancel = ui_calendar_cancel
+    _ui_calendar_mutation_draft = ui_calendar_mutation_draft
+    _ui_calendar_mutation_confirm = ui_calendar_mutation_confirm
     _ui_audio_search = ui_audio_search
     _ui_audio_play = ui_audio_play
     _ui_audio_control = ui_audio_control
@@ -136,6 +148,14 @@ def ui_calendar_confirm(payload: UiCalendarDraftConfirmRequest) -> dict[str, obj
 
 def ui_calendar_cancel(payload: UiCalendarDraftCancelRequest) -> dict[str, object]:
     return _require_handler(_ui_calendar_cancel)(payload)
+
+
+def ui_calendar_mutation_draft(payload: UiCalendarMutationDraftRequest, request: Request) -> dict[str, object]:
+    return _require_handler(_ui_calendar_mutation_draft)(payload, request)
+
+
+def ui_calendar_mutation_confirm(payload: UiCalendarMutationConfirmRequest, request: Request) -> dict[str, object]:
+    return _require_handler(_ui_calendar_mutation_confirm)(payload, request)
 
 
 def ui_audio_search(payload: UiAudioSearchRequest) -> dict[str, object]:
@@ -216,6 +236,8 @@ def register_ui_routes(app: FastAPI) -> None:
     app.post("/api/ui/calendar/draft")(ui_calendar_draft)
     app.post("/api/ui/calendar/confirm")(ui_calendar_confirm)
     app.post("/api/ui/calendar/cancel")(ui_calendar_cancel)
+    app.post("/api/ui/calendar/mutation/draft")(ui_calendar_mutation_draft)
+    app.post("/api/ui/calendar/mutation/confirm")(ui_calendar_mutation_confirm)
     app.post("/api/ui/audio/search")(ui_audio_search)
     app.post("/api/ui/audio/play")(ui_audio_play_http)
     app.post("/api/ui/audio/control")(ui_audio_control)

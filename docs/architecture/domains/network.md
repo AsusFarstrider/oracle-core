@@ -138,6 +138,15 @@ not create previews or runs, execute controls, diagnose state, or remediate
 anything. Brain adoption composes this seam with the inventory and admitted
 adapter views before any operation begins.
 
+The one `restart_network_anyway` recovery binds four ordered enabled Network
+actions to modem power, router restart, Oracle-host DNS service restart, and
+edge-host restart roles. Its configured post-action and final evidence IDs are
+bounded, validated references; they grant no additional control authority.
+The Network recovery controller owns the fixed sequence and fresh readiness
+checks, while each mutation still enters the existing confirmed Network
+control path. `fix_internet` continues to derive its conditional actions from
+diagnosis and does not inherit this bypass.
+
 The complete Stage 3 execution seam is `CanonicalNetworkExecution`. It receives
 those three immutable views and the optional canonical music execution once at
 composition construction. Voice summaries, the fixed Internet and Network read

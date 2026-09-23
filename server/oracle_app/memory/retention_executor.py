@@ -60,6 +60,7 @@ _KNOWN_TABLES = {
     "memory_sources",
     "memory_events",
     "memory_current_projections",
+    "memory_communication_modes",
     "memory_sessions",
     "memory_transcripts",
     "memory_orchestration_runs",
@@ -88,7 +89,7 @@ _TERMINAL_NOTIFICATIONS = {"accepted", "suppressed", "failed", "expired"}
 _ACTIVE_NOTIFICATIONS = {"pending", "retry_wait"}
 _TERMINAL_ALERTS = {"acknowledged", "completed", "canceled", "expired"}
 _ACTIVE_ALERTS = {"pending", "leased"}
-_ALERT_KINDS = {"alarm", "notification", "reminder", "sleep_timer", "timer"}
+_ALERT_KINDS = {"alarm", "calendar", "notification", "reminder", "sleep_timer", "timer"}
 _REVIEWED_SUGGESTIONS = {"accepted", "rejected", "corrected", "ignored", "false_positive"}
 
 
@@ -131,6 +132,7 @@ def run_retention(
             _suggestion_envelope_report(conn, policy, clock),
             _suggestion_exchange_report(conn, policy, clock),
             RetentionClassReport("current_projections", "preserve_current_state"),
+            RetentionClassReport("communication_modes", "preserve_current_state"),
         )
         report = RetentionReport(clock.isoformat(), dry_run, reports, unknown)
         if not dry_run:

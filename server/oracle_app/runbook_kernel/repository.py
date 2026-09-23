@@ -51,6 +51,8 @@ class RunbookRepository:
         preview_id: str = "",
         digest: str = "",
         approval_consumed: bool = False,
+        parent_run_id: str = "",
+        parent_operation_id: str = "",
     ) -> dict[str, Any]:
         if definition.kind not in _COMPATIBILITY_KINDS:
             raise ValueError(
@@ -74,6 +76,8 @@ class RunbookRepository:
                 activation_idempotency_key=activation.idempotency_key,
                 controller_version=definition.controller_version,
                 controller_state=controller_state,
+                parent_run_id=parent_run_id,
+                parent_operation_id=parent_operation_id,
                 payload=payload,
                 db_path=self._db_path,
             )

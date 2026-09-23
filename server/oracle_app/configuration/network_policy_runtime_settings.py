@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping
 
-from .domain_models import NetworkAction, NetworkPolicyConfiguration, NetworkRecovery
+from .domain_models import LibreNmsAdapter, NetworkAction, NetworkPolicyConfiguration, NetworkRecovery
 from .effective import EffectiveConfig
 from .network_adapter_runtime_settings import (
     NetworkAdapterRuntimeSettings,
@@ -78,6 +78,35 @@ class NetworkPolicyRuntimeSettings:
         for definition in role.recoveries:
             if not definition.enabled:
                 continue
+            if definition.id == "restart_network_anyway":
+                sequence_actions = [actions.get(step.action_policy_id) for step in definition.sequence]
+                if any(action is None for action in sequence_actions):
+                    raise ValueError("Restart-anyway has an unavailable configured action.")
+                modem, router, dns, edge = sequence_actions
+                if (
+                    modem.target.host.role != "modem"
+                    or router.target.role != "router"
+                    or inventory.hosts[dns.target.host_id].role != "oracle_brain"
+                    or dns.target.kind != "dns"
+                    or edge.target.role != "edge_gateway"
+                    or modem.target.host.id == router.target.id
+                    or dns.target.host_id == edge.target.id
+                ):
+                    raise ValueError("Restart-anyway action targets do not match the standard household roles.")
+                evidence_ids = [
+                    item
+                    for step in definition.sequence for item in step.readiness_evidence_ids
+                ] + list(definition.final_evidence_ids)
+                for evidence_id in evidence_ids:
+                    if evidence_id.startswith("librenms.monitor."):
+                        monitor = inventory.monitors.get(evidence_id.removeprefix("librenms.monitor."))
+                        adapter = None if monitor is None or adapters is None else adapters.adapter(monitor.definition.adapter_id)
+                        if adapter is None or not isinstance(adapter.definition, LibreNmsAdapter):
+                            raise ValueError("Restart-anyway references an unavailable LibreNMS monitor.")
+                    elif evidence_id not in {"probe.internet", "probe.dns", "probe.http"}:
+                        raise ValueError("Restart-anyway references an unsupported probe evidence ID.")
+                if not {"probe.internet", "probe.dns"}.issubset(definition.final_evidence_ids):
+                    raise ValueError("Restart-anyway final checks require Internet and DNS evidence.")
             runtime = NetworkRecoveryRuntimeSettings(definition)
             recoveries[definition.id] = runtime
             if definition.triggers.voice:

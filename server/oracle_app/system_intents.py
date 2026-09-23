@@ -14,6 +14,8 @@ from .routing_helpers import (
 from .user_context import extract_switch_user_name
 from .temporal import parse_temporal_query
 from .system_help import classify_help_request
+from .presence_intents import parse_presence_query
+from .communication_modes import is_dnd_request
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,33 @@ def classify_system_intent(normalized_text: str) -> SystemIntent | None:
         return SystemIntent(
             action="repeat",
             reason="Matched session-scoped Repeat request",
+            confidence=0.99,
+        )
+
+    if normalized_text in {
+        "who am i",
+        "which user am i",
+        "what user am i",
+        "which user are you using",
+        "who do you think i am",
+    }:
+        return SystemIntent(
+            action="effective_user",
+            reason="Matched deterministic effective-user diagnostic",
+            confidence=0.99,
+        )
+
+    if parse_presence_query(normalized_text) is not None:
+        return SystemIntent(
+            action="presence",
+            reason="Matched coarse configured household-presence query",
+            confidence=0.98,
+        )
+
+    if is_dnd_request(normalized_text):
+        return SystemIntent(
+            action="communication_mode",
+            reason="Matched canonical Do Not Disturb request",
             confidence=0.99,
         )
 
@@ -161,6 +190,12 @@ def build_system_hook(action: str) -> str:
         return "system.alerts"
     if action == "switch_user":
         return "system.switch_user"
+    if action == "effective_user":
+        return "system.effective_user"
+    if action == "presence":
+        return "system.presence"
+    if action == "communication_mode":
+        return "system.communication_mode"
     if action == "refresh_cache":
         return "system.refresh_cache"
     if action == "repeat":
@@ -175,4 +210,14 @@ def build_system_hook(action: str) -> str:
 
 
 def system_action_requires_text(action: str) -> bool:
-    return action in {"calculation", "alerts", "switch_user", "temporal", "help", "courtesy", "unsupported_utility"}
+    return action in {
+        "alerts",
+        "calculation",
+        "courtesy",
+        "help",
+        "presence",
+        "communication_mode",
+        "switch_user",
+        "temporal",
+        "unsupported_utility",
+    }

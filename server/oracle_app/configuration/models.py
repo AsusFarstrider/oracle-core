@@ -201,6 +201,19 @@ class ModeConfiguration(ConfigurationModel):
     enabled: bool
     display_name: DisplayText
     aliases: list[DisplayText] = Field(default_factory=list)
+    do_not_disturb: DndModePolicy | None = None
+
+
+class DndModePolicy(ConfigurationModel):
+    allow_indefinite: bool
+    minimum_duration_seconds: Annotated[int, Field(ge=1, le=31_622_400)]
+    maximum_duration_seconds: Annotated[int, Field(ge=1, le=31_622_400)]
+
+    @model_validator(mode="after")
+    def ordered_bounds(self) -> DndModePolicy:
+        if self.minimum_duration_seconds > self.maximum_duration_seconds:
+            raise ValueError("DND minimum duration cannot exceed its maximum duration.")
+        return self
 
 
 class UiEscapeHatchLink(ConfigurationModel):
@@ -230,6 +243,13 @@ class HouseholdConfiguration(ConfigurationModel):
     sources: list[SourceConfiguration]
     modes: list[ModeConfiguration]
     ui: HouseholdUiConfiguration = Field(default_factory=HouseholdUiConfiguration)
+
+    @model_validator(mode="after")
+    def one_dnd_mode(self) -> HouseholdConfiguration:
+        dnd_modes = [mode for mode in self.modes if mode.enabled and mode.do_not_disturb is not None]
+        if len(dnd_modes) > 1:
+            raise ValueError("Household configuration permits at most one enabled DND mode.")
+        return self
 
 
 class SatelliteCapabilities(ConfigurationModel):
@@ -333,6 +353,8 @@ class SatellitesConfiguration(ConfigurationModel):
 from .domain_models import (  # noqa: E402
     AudiobooksConfiguration,
     CalendarConfiguration,
+    ListsConfiguration,
+    NotesConfiguration,
     HomeAssistantConfiguration,
     InformationConfiguration,
     MusicConfiguration,
@@ -359,6 +381,8 @@ OPTIONAL_ROLE_MODELS: dict[str, type[ConfigurationModel]] = {
     "domains/audiobooks.yaml": AudiobooksConfiguration,
     "domains/weather.yaml": WeatherConfiguration,
     "domains/calendar.yaml": CalendarConfiguration,
+    "domains/lists.yaml": ListsConfiguration,
+    "domains/notes.yaml": NotesConfiguration,
     "domains/home-assistant.yaml": HomeAssistantConfiguration,
     "domains/notifications.yaml": NotificationsConfiguration,
     "domains/routines.yaml": RoutinesConfiguration,

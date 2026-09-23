@@ -17,9 +17,9 @@ from oracle_app.schemas import CommandRequest, DispatchPlan, RouteResponse
 def test_every_route_target_has_one_owned_payload_schema() -> None:
     assert set(TARGET_PAYLOAD_MODELS) == {
         "audiobook", "calendar", "facts", "fallback_router", "home_assistant",
-        "music", "network", "news", "system", "weather",
+        "lists", "music", "network", "notes", "news", "system", "weather",
     }
-    assert len(set(TARGET_PAYLOAD_MODELS.values())) == 10
+    assert len(set(TARGET_PAYLOAD_MODELS.values())) == 12
 
 
 def test_target_payload_rejects_arbitrary_extension_fields() -> None:

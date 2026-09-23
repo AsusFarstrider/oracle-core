@@ -32,6 +32,7 @@ from .memory.alert_lifecycle import (
 from .memory.alerts import ALERT_STATUSES, AlertRecord, list_alert_records
 from .memory.store import DB_PATH
 from .temporal import parse_clock_candidates, parse_relative_date, resolve_local_wall_time
+from .communication_modes import new_alert_requires_dnd_clarification
 
 
 ACTIVE_ALARM_STATUSES = frozenset({"scheduled", "due", "ringing", "snoozed"})
@@ -182,6 +183,13 @@ def execute_alarm_command(
         new_due, new_local_time = _edited_time(
             normalized, selected, now=clock, timezone_name=selected.schedule.timezone
         )
+        if new_alert_requires_dnd_clarification(
+            normalized, household=household, now=clock, due_at=new_due, db_path=db_path,
+        ):
+            return (
+                "Do Not Disturb is active then. Should this alarm occurrence sound anyway?",
+                _details("edit", status="clarification_required", clarification_kind="dnd_new_alert", options=["sound anyway", "keep it silent"], original_text=normalized, subject_text="alarm"),
+            )
         if scope == "occurrence":
             occurrence = _next_occurrence(selected)
             if occurrence is None:
@@ -191,15 +199,30 @@ def execute_alarm_command(
                 intended_local=new_due.astimezone(ZoneInfo(selected.schedule.timezone)).replace(tzinfo=None).isoformat(timespec="seconds"),
                 actor_id=source_id, now=clock, db_path=db_path,
             )
+            updated_occurrence = transition_alert_occurrence(
+                updated_occurrence.occurrence_id, status=updated_occurrence.status,
+                actor_type="person", actor_id=source_id,
+                reason="alarm_occurrence_dnd_policy_updated", now=clock,
+                metadata_update={
+                    "dnd_occurrence_override": _occurrence_dnd_override(
+                        normalized, bool(occurrence.metadata.get("dnd_occurrence_override"))
+                    )
+                }, db_path=db_path,
+            )
             return f"Changed only the next occurrence of {_possessive_label(selected)} to {_format_due(new_due, selected.schedule.timezone)}.", _selected_details(
                 "edit_occurrence", AlarmSubject(selected.schedule, updated_occurrence), clock
             )
         local = new_due.astimezone(ZoneInfo(selected.schedule.timezone))
+        schedule_metadata = dict(selected.schedule.metadata)
+        if _persistent_dnd_override_requested(normalized):
+            schedule_metadata["dnd_override"] = True
+        elif _dnd_silent_requested(normalized):
+            schedule_metadata["dnd_override"] = False
         updated_schedule = update_alert_schedule(
             selected.schedule.schedule_id, start_at=new_due,
             local_time=new_local_time.isoformat(timespec="seconds"),
             recurrence=selected.schedule.recurrence,
-            message=_alarm_message(selected.name, local), metadata=selected.schedule.metadata,
+            message=_alarm_message(selected.name, local), metadata=schedule_metadata,
             now=clock, db_path=db_path,
         )
         for existing in list_alert_occurrences(
@@ -217,6 +240,15 @@ def execute_alarm_command(
         occurrence = replacements[0] if replacements else _next_for_schedule(
             updated_schedule.schedule_id, db_path
         )
+        if occurrence is not None and not _persistent_dnd_override_requested(normalized):
+            occurrence = transition_alert_occurrence(
+                occurrence.occurrence_id, status=occurrence.status,
+                actor_type="person", actor_id=source_id,
+                reason="alarm_occurrence_dnd_policy_updated", now=clock,
+                metadata_update={
+                    "dnd_occurrence_override": _occurrence_dnd_override(normalized, False)
+                }, db_path=db_path,
+            )
         return f"Changed {_possessive_label(selected)} to {_format_clock(local.timetz().replace(tzinfo=None))}.", _selected_details(
             "edit_schedule", AlarmSubject(updated_schedule, occurrence), clock
         )
@@ -311,6 +343,13 @@ def _create_alarm(normalized: str, *, source_id: str, session_id: str | None,
     )
     if anchor_weekday_recurrence:
         rule = RecurrenceRule("weekly", interval=2, weekdays=(due_at.astimezone(ZoneInfo(timezone_name)).weekday(),))
+    if new_alert_requires_dnd_clarification(
+        normalized, household=household, now=now, due_at=due_at, db_path=db_path,
+    ):
+        return (
+            "Do Not Disturb is active then. Should this alarm occurrence sound anyway?",
+            _details("create", status="clarification_required", clarification_kind="dnd_new_alert", options=["sound anyway", "keep it silent"], original_text=normalized, subject_text="alarm"),
+        )
     scope, target_id = _target_from_text(normalized, household)
     target = resolve_alert_targets(
         household=household, satellites=satellites, scope=scope,
@@ -324,12 +363,19 @@ def _create_alarm(normalized: str, *, source_id: str, session_id: str | None,
         kind="alarm", start_at=due_at, timezone_name=timezone_name,
         creator_source_id=source_id, session_id=session_id,
         message=_alarm_message(name, local_due), target_scope=scope, target_id=target_id,
-        recurrence=rule, metadata={"name": name, "recurrence_text": recurrence_text}, db_path=db_path,
+        recurrence=rule, metadata={"name": name, "recurrence_text": recurrence_text, "dnd_override": _persistent_dnd_override_requested(normalized)}, db_path=db_path,
     )
     occurrences = materialize_schedule_occurrences(
         schedule, through=now + timedelta(days=366) if rule else due_at, db_path=db_path
     )
     occurrence = occurrences[0] if occurrences else _next_for_schedule(schedule.schedule_id, db_path)
+    if occurrence is not None and _dnd_override_requested(normalized) and not _persistent_dnd_override_requested(normalized):
+        occurrence = transition_alert_occurrence(
+            occurrence.occurrence_id, status=occurrence.status,
+            actor_type="person", actor_id=source_id,
+            reason="alarm_occurrence_dnd_override_confirmed", now=now,
+            metadata_update={"dnd_occurrence_override": True}, db_path=db_path,
+        )
     label = f"{name.title()} alarm" if name else "Alarm"
     recurrence_words = f" {recurrence_text}" if recurrence_text else ""
     target_words = " throughout the house" if scope == "household" else (
@@ -497,6 +543,26 @@ def _alarm_name(text: str) -> str:
     candidate = match.group(1).strip()
     if candidate in {"", "my", "house", "whole house", "weekday", "weekend"}: return ""
     return candidate[:80]
+
+
+def _dnd_override_requested(text: str) -> bool:
+    return bool(re.search(r"\b(?:even|sound|ring) (?:while|during|through) (?:dnd|do not disturb|quiet mode)\b", text))
+
+
+def _persistent_dnd_override_requested(text: str) -> bool:
+    return bool(re.search(r"\b(?:always|every occurrence|every time).{0,40}(?:dnd|do not disturb|quiet mode)\b", text))
+
+
+def _dnd_silent_requested(text: str) -> bool:
+    return bool(re.search(r"\b(?:silent|silently|do not sound).{0,20}(?:dnd|do not disturb|quiet mode)\b", text))
+
+
+def _occurrence_dnd_override(text: str, current: bool) -> bool:
+    if _dnd_silent_requested(text):
+        return False
+    if _dnd_override_requested(text):
+        return True
+    return current
 
 
 def _operation(text: str) -> str:

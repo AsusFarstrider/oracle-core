@@ -180,6 +180,115 @@ class HomeAssistantRuntimeSettingsTests(unittest.TestCase):
             self.assertIn("config.identity.duplicate_provider_mapping", codes)
             self.assertIn("config.identity.duplicate_lifecycle_owner", codes)
 
+    def test_person_presence_mapping_is_user_bound_read_only_and_unique(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary) / "bundle"
+            shutil.copytree(EXAMPLE_ROOT, bundle)
+            self._write_enabled_role(bundle, automation=False)
+            role_path = bundle / "domains" / "home-assistant.yaml"
+            role = json.loads(role_path.read_text(encoding="utf-8"))
+            role["mappings"]["resident_presence"] = {
+                "kind": "person_presence",
+                "oracle_id": "resident_one",
+                "entity_id": "person.provider_resident",
+                "allowed_operations": ["read"],
+            }
+            role_path.write_text(json.dumps(role), encoding="utf-8")
+            (bundle / "secrets.env").write_text(
+                "HOME_ASSISTANT_TOKEN=token\n", encoding="utf-8"
+            )
+
+            valid = inspect_candidate(bundle)
+            self.assertTrue(valid.report.activation_eligible, valid.report)
+            self.assertEqual(
+                valid.bundle.roles["domains/home-assistant.yaml"]
+                .mappings["resident_presence"]
+                .oracle_id,
+                "resident_one",
+            )
+
+            role["mappings"]["invalid_presence"] = {
+                "kind": "person_presence",
+                "oracle_id": "resident_one",
+                "entity_id": "device_tracker.provider_resident",
+                "allowed_operations": ["read"],
+            }
+            role_path.write_text(json.dumps(role), encoding="utf-8")
+            invalid = inspect_candidate(bundle)
+            codes = {item.code for item in invalid.report.validation_findings}
+            self.assertFalse(invalid.report.activation_eligible)
+            self.assertIn("config.reference.mapping_type", codes)
+            self.assertIn("config.identity.duplicate_presence_mapping", codes)
+
+    def test_provider_action_routine_phrase_collision_warns_without_activation_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary) / "bundle"
+            shutil.copytree(EXAMPLE_ROOT, bundle)
+            self._write_enabled_role(bundle, automation=False)
+            household_path = bundle / "household.yaml"
+            household_path.write_text(
+                household_path.read_text(encoding="utf-8").replace(
+                    "sources: []",
+                    "sources:\n  - id: browser_one\n    enabled: true\n    type: browser\n    fixed: false\n    associated_user_id: resident_one",
+                ),
+                encoding="utf-8",
+            )
+            access_path = bundle / "access.yaml"
+            access_path.write_text(
+                access_path.read_text(encoding="utf-8")
+                + "\nsource_authentication:\n  credential_bindings:\n    - source_id: browser_one\n      credential_secret: BROWSER_ONE_TOKEN\n",
+                encoding="utf-8",
+            )
+            routines_path = bundle / "domains" / "routines.yaml"
+            routines = {
+                "enabled": True,
+                "definitions": [{
+                    "id": "example_routine",
+                    "display_name": "Example Routine",
+                    "description": "Collision fixture.",
+                    "enabled": True,
+                    "user_id": "resident_one",
+                    "source_ids": ["browser_one"],
+                    "triggers": {
+                        "ui": True,
+                        "voice": True,
+                        "source_phrases": [],
+                        "global_phrases": ["Run living room lights"],
+                    },
+                    "inputs": {},
+                    "steps": [{
+                        "id": "invoke_provider_unit",
+                        "label": "Invoke provider unit",
+                        "required": True,
+                        "on_failure": "stop",
+                        "type": "ui_action",
+                        "action_id": "lights_on",
+                    }],
+                }],
+            }
+            routines_path.write_text(json.dumps(routines), encoding="utf-8")
+            (bundle / "secrets.env").write_text(
+                "HOME_ASSISTANT_TOKEN=token\nBROWSER_ONE_TOKEN=browser-token\n",
+                encoding="utf-8",
+            )
+
+            inspection = inspect_candidate(bundle)
+
+            collision = next(
+                (
+                    item for item in inspection.report.validation_findings
+                    if item.code == "config.identity.callable_alias_collision"
+                ),
+                None,
+            )
+            self.assertIsNotNone(collision, inspection.report)
+            assert collision is not None
+            self.assertEqual(collision.severity, "warning")
+            self.assertFalse(collision.blocks_activation)
+            self.assertTrue(inspection.report.activation_eligible, inspection.report)
+            self.assertIsNotNone(inspection.normalized_candidate_revision)
+            self.assertIsNotNone(inspection.secrets)
+
     def _effective_config(
         self,
         *,
@@ -230,7 +339,8 @@ class HomeAssistantRuntimeSettingsTests(unittest.TestCase):
                 "kind": "action",
                 "oracle_id": "living_room_lights_on",
                 "entity_id": "script.living_room_lights_on",
-                "allowed_operations": ["run"],
+                "allowed_operations": ["invoke"],
+                "aliases": ["Run living room lights"],
             },
         }
         automations = []

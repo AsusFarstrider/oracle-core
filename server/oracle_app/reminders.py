@@ -442,7 +442,7 @@ def _reminder_subjects(
     schedules = {
         item.schedule_id: item for item in list_alert_schedules(
             statuses=VISIBLE_REMINDER_SCHEDULE_STATUSES, db_path=db_path or DB_PATH
-        ) if item.kind == "reminder"
+        ) if item.kind == "reminder" and not item.metadata.get("calendar_alert")
     }
     occurrences = list_alert_occurrences(db_path=db_path or DB_PATH)
     deliveries = list_alert_records(

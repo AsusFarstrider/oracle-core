@@ -17,17 +17,12 @@ from oracle_app.home_assistant_policy import (
 from oracle_app.provider_bridges.home_assistant import HomeAssistantBridge
 class HomeAssistantBridgeTests(unittest.TestCase):
     @patch("oracle_app.provider_bridges.home_assistant.request.urlopen")
-    def test_execute_command_translates_provider_conversation_identity(self, mock_urlopen) -> None:
+    def test_typed_methods_are_the_only_mutating_bridge_surface(self, mock_urlopen) -> None:
         captured_bodies: list[dict[str, object]] = []
 
         class _FakeResponse:
             def read(self) -> bytes:
-                return json.dumps(
-                    {
-                        "conversation_id": "ha-new",
-                        "response": {"speech": {"plain": {"speech": "Done"}}},
-                    }
-                ).encode("utf-8")
+                return b"{}"
 
             def __enter__(self):
                 return self
@@ -42,15 +37,10 @@ class HomeAssistantBridgeTests(unittest.TestCase):
         mock_urlopen.side_effect = fake_urlopen
         bridge = HomeAssistantBridge(base_url="http://ha.local", token="token")
 
-        result = bridge.execute_command(
-            "turn them off",
-            conversation_id="ha-old",
-        )
-
-        self.assertEqual(result.payload["conversation_id"], "ha-new")
-        self.assertIsNone(result.verification_failure)
-        self.assertEqual(captured_bodies[0]["conversation_id"], "ha-old")
-        self.assertEqual(result.returned_conversation_id, "ha-new")
+        bridge.set_power(entity_id="light.reading_room", enabled=False)
+        self.assertFalse(hasattr(bridge, "execute_command"))
+        self.assertEqual(captured_bodies, [{"entity_id": "light.reading_room"}])
+        self.assertEqual(mock_urlopen.call_args.args[0].full_url, "http://ha.local/api/services/light/turn_off")
 
     def test_detect_failed_success_targets_returns_oracle_domain_error(self) -> None:
         bridge = HomeAssistantBridge(base_url="http://ha.local", token="token")

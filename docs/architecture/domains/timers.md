@@ -54,3 +54,12 @@ refresh does not accelerate unrelated home providers.
 The permanent cross-family scheduling page and active fullscreen takeover are
 owned by Slice 10. Slice 7 supplies the dynamic home presence and typed Timer
 seams on which that later focused UI builds.
+
+## Do Not Disturb Target
+
+Stage 8 leaves timer definition, occurrence, ringing, and acknowledgement truth
+with the existing Timer owner. A timer definition may explicitly persist
+permission to sound during DND, or a single occurrence may receive an explicit
+one-occurrence override after conflict clarification. DND otherwise withholds
+audio without completing, canceling, or expiring the timer. This is
+presentation metadata, not a second timer lifecycle.

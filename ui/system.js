@@ -523,6 +523,9 @@ async function loadOverview() {
       fetchJson("/api/admin/health/stt"),
       fetchJson("/api/admin/playback-authority"),
       fetchJson("/api/admin/sources"),
+      fetchJson("/api/admin/health/lists"),
+      fetchJson("/api/admin/health/notes"),
+      fetchJson("/api/admin/household-status"),
     ]);
 
     const [
@@ -538,6 +541,9 @@ async function loadOverview() {
       stt,
       playback,
       sources,
+      lists,
+      notes,
+      householdStatus,
     ] = results.map(resolveSettledValue);
 
     const serviceItems = [
@@ -550,6 +556,8 @@ async function loadOverview() {
       buildServiceItem("News", news),
       buildServiceItem("TTS", tts),
       buildServiceItem("STT", stt),
+      buildStage8ProviderItem("Lists", lists),
+      buildStage8ProviderItem("Notes", notes),
     ];
     const healthyCount = serviceItems.filter((item) => item.status === "ok").length;
     const degradedCount = serviceItems.length - healthyCount;
@@ -597,6 +605,7 @@ async function loadOverview() {
       </section>
 
       <section class="overview-grid">
+        ${renderStage8HouseholdStatus(householdStatus)}
         <article class="system-card">
           <div class="card-head">
             <div>
@@ -1156,7 +1165,7 @@ async function loadNetwork() {
 
       ${renderNetworkProviderDiagnostics(network.provider_diagnostics)}
 
-      <div class="notice">Network is read-only in this stage. Oracle interprets inventory and status; providers only supply evidence.</div>
+      <div class="notice">Network controls use Oracle policy, preview, confirmation, and verified execution. Diagnostics remain read-only until a named control is explicitly approved.</div>
     `;
     wireNetworkCommands(elements.networkRoot);
     showFeedback("");
@@ -2350,6 +2359,7 @@ function renderAdminOrchestrationPreview(preview) {
         <span class="status-pill status-pill--${steps.length > 0 ? "warn" : "ok"}">${escapeHtml(preview.status || "unknown")}</span>
       </div>
       <p class="small-copy">${escapeHtml(preview.approval_summary || preview.notice || "")}</p>
+      ${preview.orchestration_id === "restart_network_anyway" ? `<p class="small-copy">Exact ordered recovery / ${escapeHtml(preview.estimated_total_duration || "bounded duration unknown")} / preview expires ${escapeHtml(formatTime(preview.expires_at) || "soon")}</p>` : ""}
       ${steps.map((step, index) => `
         <div class="orchestration-preview__step">
           <span>${index + 1}</span>
@@ -2360,6 +2370,7 @@ function renderAdminOrchestrationPreview(preview) {
           </div>
         </div>
       `).join("")}
+      ${preview.orchestration_id === "restart_network_anyway" ? `<p class="small-copy">Final network, DNS, and edge evidence: ${Array.isArray(preview.final_evidence_ids) ? preview.final_evidence_ids.map(escapeHtml).join(", ") : "unavailable"}. No step is skipped because diagnostics are healthy.</p>` : ""}
       ${preview.approval_available ? '<button class="admin-button" type="button" data-orchestration-approve="true"><span class="material-symbols-outlined">verified_user</span><span>Approve these fixes</span></button>' : '<div class="notice">Current health does not require an approved action.</div>'}
     </div>
   `;
@@ -2367,23 +2378,38 @@ function renderAdminOrchestrationPreview(preview) {
 
 function renderOrchestrationRun(run) {
   const steps = Array.isArray(run.steps) ? run.steps : [];
+  const completed = steps.filter((step) => ["completed", "skipped"].includes(step.status)).length;
+  const phase = run.phase === "on_failure" ? "Failure compensation" : run.phase === "on_cancel" ? "Cancellation compensation" : "Main run";
+  const compensation = run.compensation_outcome && run.compensation_outcome !== "not_required" && run.compensation_outcome !== "unknown"
+    ? ` / Compensation: ${statusLabel(run.compensation_outcome)}` : "";
   return `
     <details class="orchestration-run">
       <summary>
-        <div><strong>${escapeHtml(formatTime(run.started_at) || run.run_id || "Run")}</strong><p class="small-copy">${escapeHtml(run.summary || "No summary.")}</p></div>
+        <div><strong>${escapeHtml(formatTime(run.started_at) || run.run_id || "Run")}</strong><p class="small-copy">${escapeHtml(run.summary || "No summary.")}</p><p class="small-copy">${escapeHtml(phase)} / ${completed} of ${steps.length} steps complete or skipped${escapeHtml(compensation)}${run.cancellation_requested ? " / Cancellation requested" : ""}</p></div>
         <span class="status-pill status-pill--${statusTone(run.status)}">${escapeHtml(statusLabel(run.status))}</span>
       </summary>
       <div class="orchestration-run__steps">
         ${steps.length > 0 ? steps.map((step) => `
           <div class="orchestration-run__step">
-            <div><strong>${escapeHtml(step.target_label || step.step_id || "Step")}</strong><p class="small-copy">${escapeHtml(step.summary || step.action_id || "No summary.")}</p></div>
+            <div><strong>${escapeHtml(step.target_label || step.step_id || "Step")}</strong><p class="small-copy">${escapeHtml(step.summary || "No summary.")}</p><p class="small-copy">${escapeHtml(renderOrchestrationStepProgress(step))}</p></div>
             <span class="status-pill status-pill--${statusTone(step.status)}">${escapeHtml(statusLabel(step.status))}</span>
           </div>
         `).join("") : '<p class="small-copy">No step records.</p>'}
-        ${run.kind === "routine" && run.status === "waiting" ? `<button class="admin-button--secondary" type="button" data-orchestration-cancel="${escapeHtml(run.run_id || "")}"><span class="material-symbols-outlined">cancel</span><span>Cancel routine</span></button>` : ""}
+        ${run.kind === "routine" && ["running", "waiting"].includes(run.status) ? `<button class="admin-button--secondary" type="button" data-orchestration-cancel="${escapeHtml(run.run_id || "")}"><span class="material-symbols-outlined">cancel</span><span>Cancel routine</span></button>` : ""}
       </div>
     </details>
   `;
+}
+
+function renderOrchestrationStepProgress(step) {
+  const facts = [];
+  if (step.phase === "on_failure" || step.phase === "on_cancel") facts.push("Explicit compensation");
+  if (step.status === "waiting" && step.due_at) facts.push(`Waiting until ${formatTime(step.due_at)}`);
+  if (step.attempt > 1) facts.push(`Attempt ${step.attempt}`);
+  if (step.iteration > 0) facts.push(`${step.iteration} bounded repetition${step.iteration === 1 ? "" : "s"} completed`);
+  if (step.child_status) facts.push(`Child run: ${statusLabel(step.child_status)}`);
+  if (step.verification_status) facts.push(`Verification: ${statusLabel(step.verification_status)}`);
+  return facts.join(" / ") || statusLabel(step.status);
 }
 
 function wireOrchestrationControls() {
@@ -2463,7 +2489,7 @@ function wireOrchestrationControls() {
   });
   for (const cancelButton of elements.orchestrationRoot.querySelectorAll("[data-orchestration-cancel]")) {
     cancelButton.addEventListener("click", async () => {
-      if (!globalThis.confirm("Cancel this waiting routine?")) {
+      if (!globalThis.confirm("Cancel this active routine?")) {
         return;
       }
       cancelButton.disabled = true;
@@ -2844,6 +2870,30 @@ function buildServiceItem(label, payload) {
     status: String(payload?.status || (payload?.ok === false ? "failed" : payload?.ok === true ? "ok" : "unknown")),
     detail: String(payload?.detail || payload?.service || "No detail available."),
   };
+}
+
+function buildStage8ProviderItem(label, payload) {
+  const provider = String(payload?.provider || "none configured");
+  const error = String(payload?.error || "");
+  const authRequired = /auth|credential|token|consent/i.test(error);
+  return {
+    label,
+    status: authRequired ? "auth_required" : String(payload?.status || "unavailable"),
+    detail: `Selected provider: ${provider}. ${authRequired ? "Authentication required." : payload?.status === "disabled" ? "Disabled." : payload?.status === "ok" ? "Available." : "Unavailable or degraded."}`,
+  };
+}
+
+function renderStage8HouseholdStatus(payload) {
+  const dnd = payload?.dnd || { status: "unknown" };
+  const presence = payload?.presence || { status: "unavailable", people: [] };
+  const people = Array.isArray(presence.people) ? presence.people : [];
+  const collisions = Array.isArray(payload?.callable_collision_warnings) ? payload.callable_collision_warnings : [];
+  return `<article class="system-card">
+    <div class="card-head"><div><p class="system-kicker">Household control</p><h4>Communication and presence</h4></div></div>
+    <p class="small-copy">Do Not Disturb: ${escapeHtml(dnd.status || "unknown")}${dnd.expires_at ? ` until ${escapeHtml(formatTime(dnd.expires_at))}` : ""}</p>
+    <p class="small-copy">Presence: ${escapeHtml(presence.status || "unavailable")}${people.length ? ` / ${people.map((person) => `${escapeHtml(person.display_name)}: ${escapeHtml(person.state)}`).join(" / ")}` : ""}</p>
+    ${collisions.length ? `<div class="notice notice--warning">Callable name collisions require clarification: ${collisions.map(escapeHtml).join(", ")}</div>` : ""}
+  </article>`;
 }
 
 function summarizePlaybackSources(sources) {

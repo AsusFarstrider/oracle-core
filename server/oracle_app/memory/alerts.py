@@ -17,7 +17,7 @@ TERMINAL_ALERT_STATUSES = frozenset(
     {"acknowledged", "completed", "canceled", "expired"}
 )
 ALERT_STATUSES = ACTIVE_ALERT_STATUSES | TERMINAL_ALERT_STATUSES
-ALERT_KINDS = frozenset({"alarm", "notification", "reminder", "sleep_timer", "timer"})
+ALERT_KINDS = frozenset({"alarm", "calendar", "notification", "reminder", "sleep_timer", "timer"})
 
 
 @dataclass(frozen=True)

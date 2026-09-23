@@ -189,11 +189,15 @@ def _definition_summary(
     execution_available: bool,
 ) -> dict[str, object]:
     active_run = next((run for run in runs if _run_is_active(run)), None)
+    composition = definition.get("composition") if isinstance(definition.get("composition"), dict) else {}
+    automatic_triggers = list(composition.get("automatic_triggers") or [])
     return {
         **definition,
         "kind": kind,
         "preview_available": kind == "recovery" and execution_available,
         "execution_available": execution_available,
+        "automatic_activation_available": bool(definition.get("enabled") is True and automatic_triggers),
+        "automatic_trigger_kinds": sorted({str(item.get("kind") or "") for item in automatic_triggers if isinstance(item, dict)}),
         "configuration_available": False,
         "run_count": len(runs),
         "active_run": active_run,
@@ -202,12 +206,13 @@ def _definition_summary(
 
 
 def _public_run(run: dict[str, object]) -> dict[str, object]:
-    return {
+    public = {
         key: value
         for key, value in run.items()
         if key
         in {
             "run_id",
+            "orchestration_id",
             "orchestration_id",
             "kind",
             "status",
@@ -215,9 +220,29 @@ def _public_run(run: dict[str, object]) -> dict[str, object]:
             "started_at",
             "completed_at",
             "approval_consumed",
-            "steps",
         }
     }
+    state = run.get("controller_state") if isinstance(run.get("controller_state"), dict) else {}
+    public["phase"] = state.get("phase") if state.get("phase") in {"main", "on_failure", "on_cancel"} else "main"
+    public["compensation_outcome"] = state.get("compensation_outcome") if state.get("compensation_outcome") in {"not_required", "running", "completed", "failed"} else "unknown"
+    public["cancellation_requested"] = state.get("cancellation_requested") is True
+    steps = run.get("steps") if isinstance(run.get("steps"), list) else []
+    public["steps"] = [_public_step(step) for step in steps if isinstance(step, dict)]
+    return public
+
+
+def _public_step(step: dict[str, object]) -> dict[str, object]:
+    state = step.get("payload") if isinstance(step.get("payload"), dict) else {}
+    result = {
+        key: step.get(key)
+        for key in ("step_id", "target_label", "status", "summary", "started_at", "completed_at", "verification_status")
+    }
+    result["phase"] = (state.get("definition") or {}).get("phase", "main") if isinstance(state.get("definition"), dict) else "main"
+    result["attempt"] = state.get("attempt") if isinstance(state.get("attempt"), int) and 0 <= state["attempt"] <= 100 else 0
+    result["iteration"] = state.get("iteration") if isinstance(state.get("iteration"), int) and 0 <= state["iteration"] <= 100 else 0
+    result["due_at"] = state.get("due_at") if isinstance(state.get("due_at"), str) and len(state["due_at"]) <= 64 else ""
+    result["child_status"] = state.get("child_status") if state.get("child_status") in {"running", "waiting", "completed", "completed_with_issues", "failed", "canceled", "stopped"} else ""
+    return result
 
 
 def _run_is_active(run: dict[str, object]) -> bool:

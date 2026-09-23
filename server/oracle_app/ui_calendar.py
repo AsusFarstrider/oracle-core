@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import hashlib
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -9,10 +10,13 @@ from fastapi import HTTPException
 from . import ui_calendar_drafts
 from .calendar_runtime import CanonicalCalendarExecution
 from .calendar_write import build_confirmation_prompt
+from .temporal import resolve_local_wall_time
 from .schemas import (
     UiCalendarDraftCancelRequest,
     UiCalendarDraftConfirmRequest,
     UiCalendarDraftRequest,
+    UiCalendarMutationDraftRequest,
+    UiCalendarMutationConfirmRequest,
 )
 
 
@@ -34,15 +38,27 @@ def _build_ui_generated_at() -> str:
 
 
 def _serialize_ui_calendar_event(event) -> dict[str, object]:
+    source_id = str(getattr(event, "source_id", ""))
     return {
         "summary": event.summary,
+        "event_ref": _calendar_event_ref(
+            source_id=source_id,
+            uid=event.uid,
+            recurrence_id=getattr(event, "recurrence_id", None),
+        ),
         "start": event.start.isoformat(),
         "end": event.end.isoformat(),
         "all_day": bool(getattr(event, "all_day", False)),
         "location": getattr(event, "location", ""),
-        "source_id": getattr(event, "source_id", ""),
+        "source_id": source_id,
         "source_label": getattr(event, "source_label", ""),
+        "recurring": bool(getattr(event, "recurring", False)),
     }
+
+
+def _calendar_event_ref(*, source_id: str, uid: str, recurrence_id: str | None) -> str:
+    material = "\x1f".join((str(source_id), str(uid), str(recurrence_id or "")))
+    return f"calendar-event-{hashlib.sha256(material.encode('utf-8')).hexdigest()[:32]}"
 
 
 def _normalize_ui_calendar_date(value: str) -> str:
@@ -374,6 +390,117 @@ def _confirm_calendar_draft(payload: UiCalendarDraftConfirmRequest, commit_event
             "all_day": bool(committed_draft.get("all_day")),
             "start_time": committed_draft.get("start_time"),
             "end_time": committed_draft.get("end_time"),
+        },
+        "refresh": {"refresh_pages": ["calendar", "home"]},
+    }
+
+
+def ui_calendar_mutation_draft_impl(
+    payload: UiCalendarMutationDraftRequest,
+    *, canonical_execution: CanonicalCalendarExecution,
+) -> dict[str, object]:
+    client_id = _normalize_ui_client_id(payload.client_id)
+    if payload.calendar_id != canonical_execution.settings.write.feed_id:
+        raise HTTPException(status_code=409, detail="Selected Calendar source is not writable.")
+    snapshot = canonical_execution.load_calendar(
+        scope="personal", calendar_id=payload.calendar_id, require_config=True,
+        force_refresh=True, allow_stale=False,
+    )
+    matches = [
+        event for event in snapshot.events
+        if _calendar_event_ref(
+            source_id=str(event.source_id), uid=event.uid,
+            recurrence_id=event.recurrence_id,
+        ) == payload.event_ref
+    ]
+    if len(matches) != 1:
+        raise HTTPException(status_code=409, detail="Calendar event selection is missing or ambiguous.")
+    event = matches[0]
+    if event.recurring and payload.recurrence_scope is None:
+        return {"ok": False, "stage": "clarification", "error": "recurrence_scope_required", "detail": "Choose this occurrence or the whole series.", "options": ["occurrence", "series"]}
+    scope = payload.recurrence_scope or "series"
+    changes: dict[str, object] = {}
+    if payload.operation == "edit":
+        if payload.title is not None:
+            title = payload.title.strip()
+            if not title:
+                raise HTTPException(status_code=422, detail="Title cannot be empty.")
+            changes["title"] = title
+        temporal_change = any(value is not None for value in (payload.date, payload.all_day, payload.start_time, payload.end_time, payload.duration_minutes))
+        if temporal_change:
+            zone = ZoneInfo(canonical_execution.settings.timezone)
+            local_start, local_end = event.start.astimezone(zone), event.end.astimezone(zone)
+            event_date = local_start.date() if payload.date is None else date.fromisoformat(_normalize_ui_calendar_date(payload.date))
+            all_day = event.all_day if payload.all_day is None else payload.all_day
+            if all_day:
+                start = resolve_local_wall_time(event_date, datetime.min.time(), canonical_execution.settings.timezone)
+                end = start + timedelta(days=1)
+            else:
+                start_text = payload.start_time or local_start.strftime("%H:%M")
+                start_value = datetime.strptime(_normalize_ui_calendar_time(start_text, field_name="start_time"), "%H:%M").time()
+                start = resolve_local_wall_time(event_date, start_value, canonical_execution.settings.timezone)
+                if payload.end_time is not None and payload.duration_minutes is not None:
+                    raise HTTPException(status_code=422, detail="Choose an end time or duration, not both.")
+                if payload.end_time is not None:
+                    end_value = datetime.strptime(_normalize_ui_calendar_time(payload.end_time, field_name="end_time"), "%H:%M").time()
+                    end = resolve_local_wall_time(event_date, end_value, canonical_execution.settings.timezone)
+                    if end <= start:
+                        end += timedelta(days=1)
+                elif payload.duration_minutes is not None:
+                    if not 1 <= payload.duration_minutes <= 1440:
+                        raise HTTPException(status_code=422, detail="Duration must be 1 to 1440 minutes.")
+                    end = start + timedelta(minutes=payload.duration_minutes)
+                else:
+                    end = start + (local_end - local_start)
+            changes.update(start=start, end=end, all_day=all_day)
+        if not changes:
+            raise HTTPException(status_code=422, detail="No supported Calendar field change was supplied.")
+    mutation = {
+        "operation": payload.operation, "uid": event.uid, "source_id": event.source_id,
+        "calendar_id": payload.calendar_id,
+        "request_source_id": payload.source_id,
+        "ui_session_id": payload.ui_session_id,
+        "person_id": canonical_execution.settings.effective_person_id("", source_id=payload.source_id),
+        "recurrence_scope": scope,
+        "recurrence_id": event.recurrence_id or (event.start.isoformat() if event.recurring and scope == "occurrence" else None),
+        "changes": changes, "summary": event.summary, "original_start": event.start.isoformat(),
+    }
+    draft_id = f"ui-cal-mutation-{uuid.uuid4().hex}"
+    ui_calendar_drafts.clear_ui_calendar_drafts_for_client(client_id)
+    ui_calendar_drafts.store_ui_calendar_draft(client_id, draft_id, {"mutation": mutation})
+    return {
+        "ok": True, "stage": "confirmation", "draft_id": draft_id,
+        "draft": {
+            "operation": payload.operation, "source_id": event.source_id,
+            "recurrence_scope": scope, "summary": event.summary,
+            "changes": changes,
+        },
+        "confirmation": {"message": f"Confirm {payload.operation} for {event.summary}?"},
+        "refresh": {"refresh_pages": []},
+    }
+
+
+def ui_calendar_mutation_confirm_impl(
+    payload: UiCalendarMutationConfirmRequest,
+    *, canonical_execution: CanonicalCalendarExecution,
+) -> dict[str, object]:
+    client_id = _normalize_ui_client_id(payload.client_id)
+    draft = ui_calendar_drafts.load_ui_calendar_draft(client_id, payload.draft_id)
+    mutation = None if draft is None else draft.get("mutation")
+    if not isinstance(mutation, dict):
+        return {"ok": False, "error": "draft_not_found", "draft_id": payload.draft_id, "refresh": {"refresh_pages": []}}
+    if (
+        mutation.get("request_source_id") != payload.source_id
+        or mutation.get("ui_session_id") != payload.ui_session_id
+    ):
+        raise HTTPException(status_code=403, detail="Calendar mutation draft belongs to another source or UI session.")
+    result = canonical_execution.mutate_event(mutation)
+    ui_calendar_drafts.clear_ui_calendar_draft(client_id, payload.draft_id)
+    return {
+        "ok": True, "draft_id": payload.draft_id,
+        "result": {
+            "status": "executed", "operation": mutation.get("operation"),
+            "deleted": bool(result.get("deleted")),
         },
         "refresh": {"refresh_pages": ["calendar", "home"]},
     }

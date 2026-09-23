@@ -164,9 +164,18 @@ class UiBrowserSurfaceTests(unittest.TestCase):
     def test_satellite_ui_prioritizes_source_bound_routine_over_calendar_card(self) -> None:
         content = (ROOT / "satellite_ui" / "app.js").read_text(encoding="utf-8")
 
-        self.assertIn("routineActions.length > 0,", content)
+        self.assertIn("routineActions.length > 0 || routineRuns.some((run) => run.active),", content)
+        self.assertIn("data-routine-cancel", content)
         self.assertIn('selected[calendarIndex] = "routine_actions"', content)
         self.assertIn('const calendarIndex = selected.indexOf("calendar")', content)
+
+    def test_house_ui_reports_and_cancels_unambiguous_routine_runs(self) -> None:
+        content = (ROOT / "house_ui" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('fetchJson("/api/ui/orchestration-runs"', content)
+        self.assertIn("Routine Status", content)
+        self.assertIn("data-routine-cancel", content)
+        self.assertIn("client_id: \"browser-house\"", content)
 
     def test_satellite_ui_prioritizes_room_environment_over_calendar_fallback(self) -> None:
         content = (ROOT / "satellite_ui" / "app.js").read_text(encoding="utf-8")

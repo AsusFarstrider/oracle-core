@@ -80,6 +80,25 @@ Disallowed:
 - the domain interpreting provider internals inside that reference
 - the domain reconstructing provider meaning from provider field names or payload fragments
 
+For mutating household control, the domain must first resolve a finite
+Oracle-owned capability ID, canonical target identity, typed bounded arguments,
+correlation/idempotency facts, and semantic authorization. Only then may its
+private adapter edge select the configured provider mapping and call an exact
+typed bridge method. Provider-native identifiers and operations are confined to
+that mapping/bridge edge. A provider natural-language conversation endpoint,
+discovered service, raw provider payload, or caller-supplied provider identifier
+cannot be a mutating fallback.
+
+Bridges return bounded Oracle-native results. Where readable provider state can
+verify a mutation, transport acceptance alone cannot be reported as success.
+Ambiguous provider outcomes remain unknown and cannot be retried blindly.
+
+Calendar bridges preserve the owning calendar, stable provider event reference,
+concurrency/version evidence, and explicit occurrence-versus-series scope for
+edit, reschedule, and delete/cancel. Unsupported provider operations fail
+honestly. A bridge must not emulate an update by deleting and recreating an
+event or silently widen one-occurrence scope to a recurrence series.
+
 ## Leakage Rule
 
 The target architecture forbids domains from depending on:
@@ -143,6 +162,18 @@ remote behavior rely on distinct provider responsibilities in current code.
 Provider-free solar calculation is not a provider role.
 
 This weather exception must not be generalized into a default multi-bridge architecture.
+
+Lists and Notes follow the default rule independently: each optional domain role
+selects exactly one active provider. Supporting several schema-known adapters
+does not authorize simultaneous providers, health-based selection, or provider
+multiplexing within one role.
+
+Lists/Notes bridges own native object IDs, pagination, concurrency tokens,
+provider CRUD translation, and authentication/OAuth mechanics. Domains receive
+only bounded Oracle-native objects/results plus opaque mappings needed for
+minimal identity registration. Providers remain content authority. Delegated
+OAuth refresh-token rotation must cross the canonical secret-generation
+boundary and cannot create a hidden token cache or credential file.
 
 ### Shared-Inference Ordering Exception
 
@@ -297,6 +328,14 @@ Required:
 - Oracle-native request to provider-native request translation
 - provider-native response to Oracle-native object translation
 - provider error to domain-scoped Oracle error translation
+
+Calendar reminder translation is a provider-bridge responsibility. A bridge
+may depend on a pinned provider-specific parser or recurrence utility declared
+in that bridge's additive dependency profile. Installing/enabling that bridge
+must install and readiness-check those dependencies; they do not become
+universal Oracle runtime dependencies. Provider reminder syntax and delivery
+mechanisms remain inside the bridge, which returns only provider-neutral
+concrete reminder intents to Oracle.
 
 ### Domain Boundary Tests
 

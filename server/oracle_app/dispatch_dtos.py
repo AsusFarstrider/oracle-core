@@ -95,6 +95,14 @@ class MusicDispatchPayload(_TargetPayload):
     pass
 
 
+class ListsDispatchPayload(_TargetPayload):
+    confirmed_arguments: dict[str, Any] | None = None
+
+
+class NotesDispatchPayload(_TargetPayload):
+    confirmed_arguments: dict[str, Any] | None = None
+
+
 class NetworkDispatchPayload(_TargetPayload):
     pass
 
@@ -118,7 +126,9 @@ TARGET_PAYLOAD_MODELS: dict[RouteTarget, type[_TargetPayload]] = {
     "fallback_router": FallbackRouterDispatchPayload,
     "home_assistant": HomeAssistantDispatchPayload,
     "music": MusicDispatchPayload,
+    "lists": ListsDispatchPayload,
     "network": NetworkDispatchPayload,
+    "notes": NotesDispatchPayload,
     "news": NewsDispatchPayload,
     "system": SystemDispatchPayload,
     "weather": WeatherDispatchPayload,

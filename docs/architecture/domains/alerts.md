@@ -1,7 +1,8 @@
 # Alerts
 
 This document describes the current alerts subsystem surface and the shared
-semantic foundation for timers, alarms, and reminders.
+semantic foundation for timers, alarms, reminders, and normalized Calendar
+alert occurrences.
 
 The ratified Stage 6 target behavior is governed by
 [`system-utilities.md`](../../contracts/system-utilities.md). Timer, Alarm, and
@@ -28,6 +29,8 @@ The current subsystem is split across:
   occurrence-management, and source-bound state policy
 - `server/oracle_app/reminders.py` for complete deterministic Reminder
   recipient, schedule, occurrence-management, privacy, and state policy
+- `server/oracle_app/calendar_alerts.py` for opt-in projection of normalized
+  provider reminder intents into the canonical alert lifecycle
 - `server/oracle_app/memory/alerts.py` for transactional records, leases, transitions, and retention inputs
 - `server/oracle_app/memory/alert_lifecycle.py` for schedule, occurrence,
   acknowledgement, and exception transactions
@@ -97,7 +100,10 @@ pending. The old pending-alert GET routes remain temporary Slice 9 client
 migration surfaces and do not provide reliable completion semantics.
 
 Each alert delivery remains source-scoped, while its occurrence may fan out to
-multiple source-scoped deliveries.
+multiple source-scoped deliveries. One Calendar reminder intent becomes one
+logical Calendar alert occurrence. Destination dismissal completes that same
+occurrence and converges its remaining household deliveries; it does not create
+per-satellite acknowledgement truth.
 
 The pending-alerts surface only returns due deliveries for the authenticated
 requesting source. The semantic target resolver determines whether the logical
@@ -173,11 +179,11 @@ freezes the applied configuration revision and resolved destinations on first
 due reconciliation; later configuration changes affect future occurrences but
 do not rewrite created occurrence history.
 
-The fixed late foundations are 10 minutes for timers and 20 minutes for alarms
-and reminders. After those windows the coordinator marks timers/alarms missed
-and reminders overdue without creating surprise delivery work. A reminder with
-no eligible destination remains truthfully outstanding until it becomes
-overdue. The Timer family owns its complete ten-minute ringing, late
+The fixed late foundations are 10 minutes for timers and 20 minutes for alarms,
+reminders, and Calendar alerts. After those windows the coordinator marks
+timers/alarms missed and reminders or Calendar alerts overdue without creating
+surprise delivery work. A reminder with no eligible destination remains
+truthfully outstanding until it becomes overdue. The Timer family owns its complete ten-minute ringing, late
 identification, selection, adjustment, cancellation, and dismissal policy. The
 Alarm family owns its persistent schedule, occurrence exception, snooze,
 20-minute ringing, display-attention, and missed-state policy. The Reminder
@@ -201,6 +207,13 @@ the existing alert and source identity. Notification and audiobook sleep-timer
 rows retain their existing owners.
 
 ## V2 Configuration Reconciliation
+
+The ratified Stage 8 communication-mode evaluator is a shared presentation
+policy seam below the existing family owners. DND never changes schedule,
+occurrence, delivery, or acknowledgement truth. Reminders and Calendar alerts
+remain durable and visible while silent; alarm/timer definition and occurrence
+overrides are explicit metadata interpreted by their family owner. Unknown mode
+evidence withholds unsolicited audio without claiming completion.
 
 Alert runtime truth remains Brain-owned operational state. Any configurable
 policy belongs with the owning alert/notification capability, while delivery

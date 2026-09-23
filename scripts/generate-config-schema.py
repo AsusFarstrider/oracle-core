@@ -27,6 +27,8 @@ ROLE_OWNERS = {
     "domains/audiobooks.yaml": "audiobooks",
     "domains/weather.yaml": "weather",
     "domains/calendar.yaml": "calendar",
+    "domains/lists.yaml": "lists",
+    "domains/notes.yaml": "notes",
     "domains/home-assistant.yaml": "home-assistant",
     "domains/notifications.yaml": "notifications",
     "domains/routines.yaml": "routines",

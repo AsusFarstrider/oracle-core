@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
 from typing import Any
 from urllib import error, request
 
@@ -29,13 +28,6 @@ class HomeAssistantBridgeServiceError(HomeAssistantBridgeError):
         self.detail = detail
 
 
-@dataclass(frozen=True)
-class HomeAssistantExecutionResult:
-    payload: dict[str, Any]
-    verification_failure: dict[str, Any] | None = None
-    returned_conversation_id: str | None = None
-
-
 class HomeAssistantBridge:
     def __init__(self, *, base_url: str, token: str, timeout_seconds: float | None = None) -> None:
         self.base_url = str(base_url or "").rstrip("/")
@@ -45,60 +37,6 @@ class HomeAssistantBridge:
     def _timeout(self, legacy_default: float) -> float:
         return self.timeout_seconds if self.timeout_seconds is not None else legacy_default
 
-    def execute_command(
-        self,
-        command_text: str,
-        *,
-        conversation_id: str | None = None,
-    ) -> HomeAssistantExecutionResult:
-        payload = self._post_conversation(
-            command_text,
-            conversation_id=conversation_id,
-        )
-        try:
-            parsed = json.loads(payload)
-        except json.JSONDecodeError:
-            return HomeAssistantExecutionResult(payload={"raw": payload})
-        if not isinstance(parsed, dict):
-            return HomeAssistantExecutionResult(payload={"raw": payload})
-
-        returned_conversation_id = parsed.get("conversation_id")
-        return HomeAssistantExecutionResult(
-            payload=parsed,
-            returned_conversation_id=(
-                returned_conversation_id.strip()
-                if isinstance(returned_conversation_id, str) and returned_conversation_id.strip()
-                else None
-            ),
-        )
-
-    def _post_conversation(
-        self,
-        command_text: str,
-        *,
-        conversation_id: str | None,
-    ) -> str:
-        body_payload: dict[str, Any] = {"text": command_text, "language": "en"}
-        if conversation_id:
-            body_payload["conversation_id"] = conversation_id
-        req = request.Request(
-            f"{self.base_url}/api/conversation/process",
-            data=json.dumps(body_payload).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        try:
-            with request.urlopen(req, timeout=self._timeout(10)) as response:
-                return response.read().decode("utf-8")
-        except error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise HomeAssistantBridgeHttpError(status_code=exc.code, detail=detail) from exc
-        except error.URLError as exc:
-            raise HomeAssistantBridgeUnreachableError(str(exc.reason)) from exc
-
     def call_service(
         self,
         *,
@@ -107,9 +45,67 @@ class HomeAssistantBridge:
         entity_id: str,
         timeout: float | None = None,
     ) -> None:
+        self._post_service(
+            service_domain=service_domain,
+            service_name=service_name,
+            data={"entity_id": entity_id},
+            timeout=timeout,
+        )
+
+    def set_power(self, *, entity_id: str, enabled: bool) -> None:
+        domain = self._require_entity_domain(entity_id, {"fan", "light", "switch"})
+        self._post_service(
+            service_domain=domain,
+            service_name="turn_on" if enabled else "turn_off",
+            data={"entity_id": entity_id},
+        )
+
+    def set_access(self, *, entity_id: str, state: str) -> None:
+        operations = {
+            ("lock", "locked"): "lock",
+            ("lock", "unlocked"): "unlock",
+            ("cover", "closed"): "close_cover",
+            ("cover", "open"): "open_cover",
+            ("alarm_control_panel", "armed"): "alarm_arm_away",
+            ("alarm_control_panel", "disarmed"): "alarm_disarm",
+        }
+        domain = self._require_entity_domain(entity_id, {item[0] for item in operations})
+        service = operations.get((domain, state))
+        if service is None:
+            raise HomeAssistantBridgeServiceError("Unsupported mapped access operation.")
+        self._post_service(service_domain=domain, service_name=service, data={"entity_id": entity_id})
+
+    def set_climate_temperature(self, *, entity_id: str, temperature: float) -> None:
+        self._require_entity_domain(entity_id, {"climate"})
+        self._post_service(
+            service_domain="climate",
+            service_name="set_temperature",
+            data={"entity_id": entity_id, "temperature": temperature},
+        )
+
+    def invoke_configured_unit(self, *, entity_id: str) -> None:
+        domain = self._require_entity_domain(entity_id, {"automation", "scene", "script"})
+        service = "trigger" if domain == "automation" else "turn_on"
+        self._post_service(service_domain=domain, service_name=service, data={"entity_id": entity_id})
+
+    @staticmethod
+    def _require_entity_domain(entity_id: str, allowed: set[str]) -> str:
+        domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
+        if domain not in allowed:
+            raise HomeAssistantBridgeServiceError("Mapped entity is incompatible with this operation.")
+        return domain
+
+    def _post_service(
+        self,
+        *,
+        service_domain: str,
+        service_name: str,
+        data: dict[str, object],
+        timeout: float | None = None,
+    ) -> None:
         req = request.Request(
             f"{self.base_url}/api/services/{service_domain}/{service_name}",
-            data=json.dumps({"entity_id": entity_id}).encode("utf-8"),
+            data=json.dumps(data).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {self.token}",
                 "Content-Type": "application/json",
@@ -119,7 +115,7 @@ class HomeAssistantBridge:
         try:
             with request.urlopen(req, timeout=timeout if timeout is not None else self._timeout(8)):
                 return
-        except (error.HTTPError, error.URLError) as exc:
+        except (error.HTTPError, error.URLError, TimeoutError) as exc:
             detail = getattr(exc, "reason", None) or str(exc)
             raise HomeAssistantBridgeServiceError(str(detail)) from exc
 
@@ -150,7 +146,7 @@ class HomeAssistantBridge:
         try:
             with request.urlopen(req, timeout=self._timeout(5)) as response:
                 raw_body = response.read().decode("utf-8")
-        except (error.HTTPError, error.URLError):
+        except (error.HTTPError, error.URLError, TimeoutError):
             return None
         try:
             payload = json.loads(raw_body)

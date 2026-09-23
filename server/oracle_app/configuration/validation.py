@@ -298,6 +298,13 @@ def _validate_domain_references(
                             f"providers.{provider_id}.feeds[{feed_index}].user_ids[{user_index}]",
                             f"Calendar feed user {user_id!r} is not an enabled canonical household user.",
                         )
+                for user_index, user_id in enumerate(feed.default_for_user_ids):
+                    if user_id not in enabled_users:
+                        unknown(
+                            "domains/calendar.yaml",
+                            f"providers.{provider_id}.feeds[{feed_index}].default_for_user_ids[{user_index}]",
+                            f"Calendar default user {user_id!r} is not an enabled canonical household user.",
+                        )
 
     notifications = roles.get("domains/notifications.yaml")
     notification_ids: set[str] = set()
@@ -337,6 +344,8 @@ def _validate_domain_references(
         event_mapping_ids: set[str] = set()
         event_mapping_ids_by_entity: dict[str, str] = {}
         mode_state_mapping_ids_by_subject: dict[str, list[str]] = {}
+        presence_mapping_ids_by_user: dict[str, str] = {}
+        presence_mapping_ids_by_entity: dict[str, str] = {}
         for mapping_id, mapping in home_assistant.mappings.items():  # type: ignore[attr-defined]
             if mapping.kind == "event":
                 event_mapping_ids.add(mapping_id)
@@ -358,8 +367,84 @@ def _validate_domain_references(
                 unknown("domains/home-assistant.yaml", f"mappings.{mapping_id}.oracle_id", f"Room {mapping.oracle_id!r} is not enabled.")
             if mapping.kind == "mode" and mapping.oracle_id not in enabled_modes:
                 unknown("domains/home-assistant.yaml", f"mappings.{mapping_id}.oracle_id", f"Mode {mapping.oracle_id!r} is not enabled.")
+            if mapping.kind == "person_presence":
+                if mapping.oracle_id not in enabled_users:
+                    unknown(
+                        "domains/home-assistant.yaml",
+                        f"mappings.{mapping_id}.oracle_id",
+                        f"Presence user {mapping.oracle_id!r} is not enabled.",
+                    )
+                if mapping.allowed_operations != ["read"] or not mapping.entity_id.startswith("person."):
+                    unknown(
+                        "domains/home-assistant.yaml",
+                        f"mappings.{mapping_id}",
+                        "A person-presence mapping requires exactly read access to a Home Assistant person entity.",
+                        "config.reference.mapping_type",
+                    )
+                previous_user_mapping = presence_mapping_ids_by_user.get(mapping.oracle_id)
+                if previous_user_mapping is not None:
+                    unknown(
+                        "domains/home-assistant.yaml",
+                        f"mappings.{mapping_id}.oracle_id",
+                        f"Presence user {mapping.oracle_id!r} is already owned by mapping {previous_user_mapping!r}.",
+                        "config.identity.duplicate_presence_mapping",
+                    )
+                else:
+                    presence_mapping_ids_by_user[mapping.oracle_id] = mapping_id
+                normalized_entity = mapping.entity_id.casefold()
+                previous_entity_mapping = presence_mapping_ids_by_entity.get(normalized_entity)
+                if previous_entity_mapping is not None:
+                    unknown(
+                        "domains/home-assistant.yaml",
+                        f"mappings.{mapping_id}.entity_id",
+                        f"Presence entity {mapping.entity_id!r} is already owned by mapping {previous_entity_mapping!r}.",
+                        "config.identity.duplicate_provider_mapping",
+                    )
+                else:
+                    presence_mapping_ids_by_entity[normalized_entity] = mapping_id
             if mapping.kind == "action":
                 action_ids.add(mapping_id)
+                operation = mapping.allowed_operations[0] if len(mapping.allowed_operations) == 1 else ""
+                domain = str(mapping.entity_id).split(".", 1)[0]
+                compatible = {
+                    "turn_on": {"fan", "light", "switch"},
+                    "turn_off": {"fan", "light", "switch"},
+                    "lock": {"lock"}, "unlock": {"lock"},
+                    "open": {"cover"}, "close": {"cover"},
+                    "arm": {"alarm_control_panel"}, "disarm": {"alarm_control_panel"},
+                    "cooler": {"climate"}, "warmer": {"climate"},
+                    "invoke": {"automation", "scene", "script"},
+                }
+                if operation not in compatible or domain not in compatible[operation]:
+                    unknown(
+                        "domains/home-assistant.yaml",
+                        f"mappings.{mapping_id}.allowed_operations",
+                        "Home Assistant action must select one compatible finite Oracle operation.",
+                        "config.reference.mapping_operation",
+                    )
+                if operation == "invoke" and not mapping.aliases:
+                    unknown(
+                        "domains/home-assistant.yaml",
+                        f"mappings.{mapping_id}.aliases",
+                        "Opaque provider actions require at least one explicit full callable phrase.",
+                        "config.reference.callable_alias",
+                    )
+                if operation in {"cooler", "warmer"}:
+                    policy_owner = next(
+                        (
+                            item for item in home_assistant.mappings.values()  # type: ignore[attr-defined]
+                            if getattr(item, "entity_id", None) == mapping.entity_id
+                            and getattr(item, "normal_temperature_min", None) is not None
+                        ),
+                        None,
+                    )
+                    if policy_owner is None:
+                        unknown(
+                            "domains/home-assistant.yaml",
+                            f"mappings.{mapping_id}",
+                            "Finite climate writes require configured normal temperature bounds and unit.",
+                            "config.reference.climate_policy",
+                        )
             if mapping.kind == "entity":
                 state_check_ids.add(mapping_id)
         if notifications is not None:
@@ -497,13 +582,110 @@ def _validate_domain_references(
         audiobook_playback_sources = set(audiobooks.playback.source_ids)  # type: ignore[attr-defined]
     routines = roles.get("domains/routines.yaml")
     if routines is not None:
-        routine_action_operations = {"lock", "turn_off", "turn_on", "unlock"}
+        routine_action_operations = {"arm", "close", "disarm", "invoke", "lock", "open", "turn_off", "turn_on", "unlock"}
+        routine_callable_phrases = {
+            _normalized_alias(phrase)
+            for definition in routines.definitions  # type: ignore[attr-defined]
+            if definition.enabled and definition.triggers.voice
+            for phrase in (*definition.triggers.global_phrases, *definition.triggers.source_phrases)
+        }
+        if home_assistant is not None:
+            for mapping_id, mapping in home_assistant.mappings.items():  # type: ignore[attr-defined]
+                if mapping.kind != "action" or mapping.allowed_operations != ["invoke"]:
+                    continue
+                for alias_index, alias in enumerate(mapping.aliases):
+                    if _normalized_alias(alias) in routine_callable_phrases:
+                        findings.append(
+                            ConfigurationFinding(
+                                code="config.identity.callable_alias_collision",
+                                file_role="domains/home-assistant.yaml",
+                                path=f"mappings.{mapping_id}.aliases[{alias_index}]",
+                                message=f"Provider action phrase {alias!r} collides with an enabled routine phrase and must be clarified at runtime.",
+                                severity="warning",
+                                blocks_activation=False,
+                            )
+                        )
         for definition_index, definition in enumerate(routines.definitions):  # type: ignore[attr-defined]
             if definition.user_id is not None and definition.user_id not in enabled_users:
                 unknown("domains/routines.yaml", f"definitions[{definition_index}].user_id", f"Routine user {definition.user_id!r} is not enabled.")
             for source_index, source_id in enumerate(definition.source_ids):
                 if source_id not in enabled_sources:
                     unknown("domains/routines.yaml", f"definitions[{definition_index}].source_ids[{source_index}]", f"Routine source {source_id!r} is not enabled.")
+            composition = definition.composition
+            if composition is not None:
+                for operation_index, operation in enumerate(composition.operations):
+                    operation_path = f"definitions[{definition_index}].composition.operations[{operation_index}]"
+                    if operation.type == "capability":
+                        arguments = operation.arguments
+                        capability_id = operation.capability_id
+                        if capability_id.startswith("home."):
+                            target_id = arguments.get("target_id")
+                            if definition.enabled and not home_assistant_enabled:
+                                unknown("domains/routines.yaml", operation_path, "Enabled composite Home control requires Home Assistant.", "config.reference.disabled_capability")
+                            if home_assistant is None:
+                                unknown("domains/routines.yaml", operation_path, "Composite Home target has no configured mapping.")
+                            else:
+                                expected_operation = {
+                                    "on": "turn_on", "off": "turn_off", "armed": "arm", "closed": "close",
+                                    "disarmed": "disarm", "locked": "lock", "open": "open", "unlocked": "unlock",
+                                }.get(arguments.get("state"))
+                                if capability_id == "home.provider_action.invoke":
+                                    action_id = arguments.get("action_id")
+                                    mapping = home_assistant.mappings.get(action_id) if isinstance(action_id, str) else None
+                                    matches = [mapping] if mapping is not None and mapping.kind == "action" and mapping.allowed_operations == ["invoke"] and mapping.oracle_id == target_id else []
+                                elif capability_id == "home.environment.setpoint":
+                                    matches = [mapping for mapping in home_assistant.mappings.values()
+                                               if mapping.kind in {"action", "entity"} and mapping.oracle_id == target_id
+                                               and str(mapping.entity_id).startswith("climate.") and mapping.normal_temperature_min is not None]
+                                else:
+                                    matches = [mapping for mapping in home_assistant.mappings.values()
+                                               if mapping.kind == "action" and mapping.oracle_id == target_id
+                                               and mapping.allowed_operations == [expected_operation]
+                                               and (capability_id != "home.lights.set" or str(mapping.entity_id).startswith("light."))]
+                                if len(matches) != 1:
+                                    unknown("domains/routines.yaml", operation_path, "Composite Home capability must resolve exactly one compatible configured Oracle target/operation.", "config.reference.mapping_operation")
+                        elif capability_id == "audiobooks.start_current":
+                            if arguments.get("user_id") != definition.user_id or arguments.get("source_id") not in definition.source_ids:
+                                unknown("domains/routines.yaml", operation_path, "Composite audiobook start must preserve the owning user and source scope.")
+                            if definition.enabled and (arguments.get("user_id") not in enabled_audiobook_users or arguments.get("source_id") not in audiobook_playback_sources):
+                                unknown("domains/routines.yaml", operation_path, "Composite audiobook target is not enabled.", "config.reference.disabled_capability")
+                        elif capability_id in {"audiobooks.sleep_timer.set", "alerts.sound"}:
+                            if arguments.get("source_id") not in definition.source_ids:
+                                unknown("domains/routines.yaml", operation_path, "Composite source must belong to its parent routine.")
+                        elif capability_id == "notifications.trigger":
+                            if arguments.get("notification_id") not in enabled_notification_ids and definition.enabled:
+                                unknown("domains/routines.yaml", operation_path, "Composite notification must name an enabled canonical type.", "config.reference.disabled_capability")
+                    if operation.type == "wait_until" or (operation.condition is not None and operation.condition.source == "state"):
+                        predicate_id = operation.predicate_id if operation.type == "wait_until" else operation.condition.reference_id
+                        target_id = operation.target_id if operation.type == "wait_until" else operation.condition.target_id
+                        if predicate_id == "home_target_state" and (home_assistant is None or not any(
+                            mapping.kind == "entity" and mapping.oracle_id == target_id and "read" in mapping.allowed_operations
+                            for mapping in home_assistant.mappings.values()
+                        )):
+                            unknown("domains/routines.yaml", operation_path, "Composite state predicate requires a configured readable Oracle Home target.")
+                        if predicate_id == "audiobook_playback" and target_id not in audiobook_playback_sources:
+                            unknown("domains/routines.yaml", operation_path, "Composite playback predicate requires an enabled playback source.")
+                for trigger_index, trigger in enumerate(composition.automatic_triggers):
+                    trigger_path = f"definitions[{definition_index}].composition.automatic_triggers[{trigger_index}]"
+                    if trigger.kind == "home_event" and (home_assistant is None or trigger.evidence_id not in home_assistant.mappings or home_assistant.mappings[trigger.evidence_id].kind != "event"):
+                        unknown("domains/routines.yaml", trigger_path, "Home event trigger must name a configured typed event mapping.")
+                    if trigger.kind == "home_event" and home_assistant is not None and trigger.evidence_id in home_assistant.mappings:
+                        mapping = home_assistant.mappings[trigger.evidence_id]
+                        allowed_states = (
+                            {"active", "inactive"}
+                            if getattr(mapping, "event_type", "") == "mode_state"
+                            else {"open", "closed"}
+                        )
+                        if trigger.expected_state not in allowed_states:
+                            unknown("domains/routines.yaml", trigger_path, "Home event trigger state must match its configured Oracle event type.")
+                    if trigger.kind == "presence" and (trigger.evidence_id not in enabled_users or trigger.expected_state not in {"home", "away"}):
+                        unknown("domains/routines.yaml", trigger_path, "Presence trigger must name an enabled user and home/away state.")
+                    if trigger.kind == "network_event" and (trigger.evidence_id != "internet_health" or trigger.expected_state not in {"degraded", "recovered"}):
+                        unknown("domains/routines.yaml", trigger_path, "Network trigger must use registered observation-only internet-health evidence.")
+                    if trigger.kind == "alert_event" and trigger.evidence_id not in enabled_notification_ids:
+                        unknown("domains/routines.yaml", trigger_path, "Alert trigger must name an enabled canonical notification type.")
+                    if trigger.kind == "alert_event" and trigger.expected_state not in {"triggered", "acknowledged"}:
+                        unknown("domains/routines.yaml", trigger_path, "Alert trigger must use a canonical lifecycle state.")
             for step_index, step in enumerate(definition.steps):
                 step_path = f"definitions[{definition_index}].steps[{step_index}]"
                 if step.type == "ui_action" and step.action_id not in action_ids:
@@ -690,5 +872,22 @@ def _validate_domain_references(
             for phrase_index, phrase in enumerate(recovery.triggers.global_phrases):
                 if " ".join(phrase.casefold().split()) in routine_phrases:
                     unknown("domains/network/policy.yaml", f"recoveries[{recovery_index}].triggers.global_phrases[{phrase_index}]", f"Network recovery phrase {phrase!r} conflicts with a routine trigger.", "config.identity.trigger_collision")
+
+    for role_path, collection_name in (
+        ("domains/lists.yaml", "lists"),
+        ("domains/notes.yaml", "notes"),
+    ):
+        domain = roles.get(role_path)
+        if domain is None:
+            continue
+        for provider_id, provider in domain.providers.items():  # type: ignore[attr-defined]
+            for object_index, provider_object in enumerate(getattr(provider, collection_name)):
+                for user_index, user_id in enumerate(provider_object.user_ids):
+                    if user_id not in enabled_users:
+                        unknown(
+                            role_path,
+                            f"providers.{provider_id}.{collection_name}[{object_index}].user_ids[{user_index}]",
+                            f"{collection_name[:-1].title()} association user {user_id!r} is not an enabled household user.",
+                        )
 
     return findings

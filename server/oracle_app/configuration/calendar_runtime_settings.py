@@ -16,6 +16,8 @@ class CalendarFeedRuntimeSettings:
     kind: str
     label: str
     user_ids: tuple[str, ...]
+    default_for_user_ids: tuple[str, ...]
+    alert_enabled: bool
     credential_free_url: str | None
     url_secret: str | None
     read_user: str | None
@@ -49,6 +51,7 @@ class CalendarWriteRuntimeSettings:
     base_url: str | None
     user: str | None
     calendar_uri: str | None
+    feed_id: str | None
     credential_secret: str | None
     credential: str | None = field(default=None, repr=False)
 
@@ -69,6 +72,7 @@ class CalendarRuntimeSettings:
     timezone: str
     timeout_seconds: int | None
     default_person_id: str | None
+    default_calendar_ids: Mapping[str, str]
     people: Mapping[str, CalendarPersonRuntimeSettings]
     source_person_ids: Mapping[str, str]
     read: CalendarReadRuntimeSettings
@@ -102,6 +106,16 @@ class CalendarRuntimeSettings:
         }
         return next(iter(matches)) if len(matches) == 1 else None
 
+    def effective_person_id(self, text: str, *, source_id: str | None = None) -> str | None:
+        return (
+            self.person_id_for_query(text, source_id=source_id)
+            or self.source_person_ids.get(str(source_id or ""))
+            or self.default_person_id
+        )
+
+    def default_calendar_id(self, person_id: str | None) -> str | None:
+        return self.default_calendar_ids.get(str(person_id or ""))
+
     @classmethod
     def from_effective_config(cls, effective: EffectiveConfig) -> CalendarRuntimeSettings:
         role = effective.role("domains/calendar.yaml")
@@ -134,6 +148,11 @@ class CalendarRuntimeSettings:
             timezone=household.household.timezone,
             timeout_seconds=None if provider is None else provider.timeout_seconds,
             default_person_id=household.default_user_id,
+            default_calendar_ids=MappingProxyType({
+                user_id: feed.id
+                for feed in (() if provider is None else provider.feeds)
+                for user_id in feed.default_for_user_ids
+            }),
             people=MappingProxyType({
                 user.id: CalendarPersonRuntimeSettings(
                     id=user.id,
@@ -181,6 +200,8 @@ def _read_settings(
                 kind=feed.kind,
                 label=feed.label or feed.id.replace("_", " ").title(),
                 user_ids=tuple(feed.user_ids),
+                default_for_user_ids=tuple(feed.default_for_user_ids),
+                alert_enabled=feed.alert_enabled,
                 credential_free_url=None if feed.ics_url is None else str(feed.ics_url),
                 url_secret=feed.ics_url_secret,
                 read_user=feed.read_user,
@@ -209,6 +230,7 @@ def _write_settings(
             base_url=None,
             user=None,
             calendar_uri=None,
+            feed_id=None,
             credential_secret=None,
         )
     if (
@@ -216,6 +238,7 @@ def _write_settings(
         or provider.write_base_url is None
         or provider.write_user is None
         or provider.write_calendar_uri is None
+        or provider.write_feed_id is None
         or provider.write_credential_secret is None
     ):
         raise ValueError("Enabled canonical calendar write lacks its complete provider tuple.")
@@ -228,6 +251,7 @@ def _write_settings(
         base_url=str(provider.write_base_url),
         user=provider.write_user,
         calendar_uri=provider.write_calendar_uri,
+        feed_id=provider.write_feed_id,
         credential_secret=provider.write_credential_secret,
         credential=credential,
     )

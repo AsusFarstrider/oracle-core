@@ -91,10 +91,58 @@ Compatibility request fields cannot establish trust, authorization, preview
 ownership, or audit identity. A routine remains active while running or
 waiting, and a second start of the same routine is rejected.
 
+Automatic activation uses only the reviewed trigger envelope of an enabled
+bounded-composite definition. Schedule occurrences use household-local time and
+the shared DST gap/fold policy. Domain owners normalize entry-state, coarse
+presence, alert lifecycle, and network-health evidence into provider-neutral
+Oracle identities before orchestration sees it. Stable occurrence identity and
+a durable event handoff make duplicate, reordered, and restart delivery
+idempotent. Automatic invocation never asks a person for missing input.
+
+Public run status and cancellation resolve only current configured composite
+routines. Status exposes bounded sanitized lifecycle state; cancellation
+requires one exact active run. Voice resolves one exact configured routine ID
+or display name and clarifies ambiguity before cancellation.
+
 Typed actions preserve their owning domain contracts. For example, media start
 uses the established playback target, session, deferred-audio, verification,
 and cleanup boundaries; a routine does not acquire direct provider or satellite
 control authority.
+
+## Bounded Composite Definitions
+
+Composite definitions remain a finite declarative model over registered Oracle
+capabilities. They may declare static acyclic dependencies, fail-fast or
+best-effort policy, criticality, deterministic three-state conditions, bounded
+typed inputs, safe retry and repetition limits, fixed waits or wait-until
+checks, statically named child runs, deterministic triggers, and explicit
+failure or cancellation compensation.
+
+They are not a workflow programming language. Definitions cannot contain
+arbitrary expressions, scripts, shell, HTTP, provider payloads, dynamic child
+or capability selection, generic variables, JSON traversal, inferred
+dependencies or inverses, or unbounded waits and loops. Unknown evidence never
+silently becomes false; it follows the explicit authored policy or stops.
+
+Consequential actions still use their owning capability's confirmation policy
+unless an enabled definition has a reviewed deterministic preauthorization
+manifest for those exact powers, target bindings, invocation bounds, and
+automatic-trigger envelope. Material expansion requires renewed configuration
+acknowledgement. Provider-specific steps remain encapsulated behind configured
+Oracle capability mappings.
+
+The bounded controller persists the frozen definition, resolved inputs, exact
+applied revision, and complete operation plan before dispatch. It selects ready
+operations in stable authored order, blocks descendants of failed dependencies,
+and lets independent work follow the declared run policy. Durable waits,
+registered-state polls, safe retries, bounded repetition, and linked child runs
+reuse the shared repository and scheduler.
+
+A persisted running capability is uncertain after restart and is never blindly
+replayed. Cancellation stops pending work, propagates to active child runs, and
+does not claim a noncancelable provider operation stopped. Only explicitly
+authored failure/cancel compensation runs; its outcome is reported separately
+and never implies transactional rollback.
 
 ## Inspection And System Mode
 
@@ -102,6 +150,11 @@ Read-only administration may present normalized definitions, latest-run
 summaries, bounded recent run and step history, and sanitized active state. It
 must omit credentials, provider-native details, internal preview secrets, and
 unbounded evidence.
+Public progress is a bounded projection of durable run and step records:
+phase, cancellation request, explicit compensation outcome, wait/retry and
+repetition progress, child status, verification, and terminal state. Raw
+controller/step payloads and provider-native target IDs are not browser
+progress data. Presentation must not infer unrecorded state.
 
 System Mode may later request structured activation, cancellation, preview, or
 approval through the same domain contracts. Configuration editing is separate:

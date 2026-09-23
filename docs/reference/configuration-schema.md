@@ -444,6 +444,12 @@ Mode entries define identity and policy semantics only. Current values are
 operational state. Home Assistant-backed mode entity mappings belong in
 `domains/home-assistant.yaml`; activation never toggles them.
 
+The Stage 8 DND target extends one configured mode with whether indefinite
+activation is allowed and bounded duration/expiry limits accepted by the
+deterministic temporal model. Active state and expiry remain Brain operational
+Memory, not configuration or provider truth. These fields are documentary
+target shape until Slice 8.5 implements the schema.
+
 ## `satellites.yaml`
 
 ```yaml
@@ -608,6 +614,63 @@ canonical people in `household.yaml`; an empty list means shared household
 membership. Optional feed read credentials belong to that feed and do not
 become user credentials or borrow the independent write credential.
 
+Each event feed may also declare `alert_enabled` independently from `user_ids`
+and from per-user default-calendar selection. A feed may be associated with
+multiple users and may be the default for multiple users. Alert projection uses
+only applicable provider event reminder metadata; configuration supplies no
+Oracle lead-time field. These are ratified target shapes, not implemented
+schema fields in Slice 8.1.
+
+The Slice 8.5 Calendar-write target retains one selected provider and the
+existing calendar/user/source/default ownership. It adds only bounded policy
+needed for deterministic existing-event selection and supported
+edit/reschedule/delete operations. Recurrence mutation scope is an explicit
+`occurrence` or `series` semantic value and cannot default when ambiguous.
+Configuration does not contain provider commands, invite/attendee/RSVP/sharing
+administration, or permission to emulate unsupported updates by delete/recreate.
+Exact executable fields remain owned by the implementing slice.
+
+### `domains/lists.yaml`
+
+Optional fixed role owning list policy, one explicitly selected provider,
+configured provider-backed list IDs/aliases, zero-or-more canonical `user_ids`,
+provider mappings, and the bounded list operations in
+[`lists-notes.md`](../contracts/lists-notes.md). Runtime-created lists are
+registered as minimal operational identity/association metadata rather than
+written into this file. Provider content is never configuration.
+`user_ids` are routing/default/context associations, not privacy or access
+controls. Provider-account identity is separate from those associations.
+
+### `domains/notes.yaml`
+
+Optional fixed role owning note policy, one explicitly selected provider,
+configured provider-backed note IDs/aliases, zero-or-more canonical `user_ids`,
+provider mappings, and bounded read/search/write limits. Runtime-created notes
+use the same minimal operational registration boundary. Provider content is
+never configuration. Neither association nor provider-account choice makes a
+note private or establishes ownership/authorization in Stage 8.
+
+For both roles, a deployment selects exactly one provider. Multiple adapters
+may be schema-known, but provider health, credentials, discovery, and definition
+order never select or combine them. Slice 8.9 implements both fixed roles and
+their generated JSON Schema. The Nextcloud Tasks definition carries its
+credential-free base URL, user, logical credential reference, timeout, and
+configured list identities with native calendar-collection mappings. The
+Nextcloud Notes definition carries the same connection tuple and configured
+note identities with native note mappings. Both policies independently enable
+reads and writes, require confirmation for destructive operations, and bound
+their reconstructable read caches; Notes also bounds returned content and
+search results.
+
+The alternative `microsoft_todo` Lists definition uses a fixed Microsoft Graph
+endpoint, an explicit tenant (`consumers`, `organizations`, or tenant UUID), a
+registered public-client application UUID, a canonical logical refresh-token
+secret, timeout, and optional configured list identities with opaque Graph list
+IDs. It does not select itself because its credentials exist. Consent and secret
+installation use the operator procedure in
+[`microsoft-todo-setup.md`](../runbooks/microsoft-todo-setup.md). Access tokens
+remain in bridge memory only; provider auth failure reports reauthorization.
+
 ### `domains/home-assistant.yaml`
 
 Owns the Home Assistant bridge, Oracle-to-provider room/entity/action mappings,
@@ -644,6 +707,34 @@ Owns composite Oracle routines only. Steps use registered Oracle-native
 operations and typed bounded inputs. They must never reference scripts, URLs,
 provider-native commands, service names, raw external entity IDs, credentials,
 or executable adapter details.
+
+The Stage 8 target adds explicit acyclic dependencies, three-state condition
+policy, bounded waits/retries/repetition, statically named child runbooks,
+deterministic triggers, simple typed inputs/results, cancellation behavior, and
+explicit compensation. A deterministic reviewed safety manifest records
+consequential capability powers and trigger scope; material expansion requires
+configuration acknowledgement. No arbitrary expressions, provider payloads,
+generic variables/dataflow, dynamic child selection, or executable adapters are
+schema fields. The bounded definition shape landed in Slice 8.6 and the Slice
+8.7 durable controller executes it.
+The role provides a `composition` form, mutually exclusive
+with schema-v1 `steps` and `inputs`. It has `run_policy` (`fail_fast` or
+`best_effort`), `preauthorize_consequential`, bounded boolean/integer/allowed-
+string inputs, static `capability`/`wait`/`wait_until`/`child` operations,
+explicit `depends_on`, criticality, three-state condition and unknown policy,
+bounded retry/repetition, separate explicit failure/cancel compensation, and
+fixed schedule or registered evidence trigger descriptors. Exact schema is in
+the generated JSON Schema. The compatibility form remains unchanged.
+Schedule and evidence triggers may bind only declared bounded input values;
+empty input maps are omitted from the normalized safety envelope for backward
+compatibility. Evidence triggers name only configured Oracle identities and
+their code-owned states: entry events use `open`/`closed`, mode events use
+`active`/`inactive`, presence uses `home`/`away`, network uses
+`degraded`/`recovered`, and alert lifecycle evidence uses
+`triggered`/`acknowledged`. These fields do not admit provider entity IDs,
+services, payload syntax, or dynamic values.
+The fixture `tests/fixtures/stage8_slice6_composite.yaml` is disabled and is
+not a household configuration candidate.
 
 There is no `domains/alerts.yaml`. Alert schedules and records are operational
 state; persistence mechanics belong to Brain storage, local polling/cue/playback
@@ -849,6 +940,9 @@ Global and source-scoped voice phrases are frozen into unambiguous indexes.
 Disabled definitions become neither executable entries nor trigger owners.
 Construction never creates or resumes a run, and an absent optional routines
 role creates no defaults.
+The construction binds flat compatibility steps to their retained interpreter
+and binds new-form `composition` definitions to the closed semantic capability
+and predicate adapters used by the durable controller.
 - `network/inventory.yaml` owns Oracle hosts, devices, services, service groups,
   monitors, dependencies, and power-target identity. `policy.yaml` owns bounded
   confirmation-required actions, code-known preconditions, execution/recovery
@@ -881,6 +975,14 @@ Assistant power adapters bind to the enabled canonical Home Assistant runtime
 edge instead of defining duplicate credentials. Dormant adapters remain
 unselected. Construction performs no probe or control operation and grants no
 policy authority.
+
+The named `restart_network_anyway` recovery is the sole fixed-sequence Network
+recovery. `policy.yaml` lists its four enabled action policy IDs in standard
+modem/router/Oracle-host DNS/edge-host order, the canonical post-action
+evidence IDs and bounded waits, and final network/DNS/edge evidence IDs.
+Construction validates target roles and known monitor references; these fields
+do not authorize raw provider commands or expand the action allowlist. The
+separate `fix_internet` recovery remains diagnosis-driven.
 
 `NetworkPolicyRuntimeSettings.from_effective_config` constructs only enabled
 policy definitions. Every enabled action binds its exact inventory target and

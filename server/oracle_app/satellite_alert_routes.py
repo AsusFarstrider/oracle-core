@@ -8,7 +8,7 @@ from . import alerts as alerts_module
 from .brain_application_composition import CanonicalBrainApplicationComposition
 from .memory.alerts import acknowledge_alert, claim_due_alerts
 from .alert_lifecycle import acknowledge_alert_occurrence
-from .memory.alert_lifecycle import list_alert_occurrences, transition_alert_occurrence
+from .memory.alert_lifecycle import list_alert_occurrences, list_alert_schedules, transition_alert_occurrence
 from .notifications.channels.satellite_announcement import (
     ensure_active_satellite_receipts,
     reconcile_satellite_receipts,
@@ -30,6 +30,9 @@ from .session_state import resolve_request_session, set_utility_context
 from .timers import build_timer_state, dismiss_timer
 from .alarms import build_alarm_state, manage_alarm
 from .reminders import build_reminder_state, manage_reminder
+from .communication_modes import presentation_decision
+from .calendar_alerts import build_calendar_alert_state, dismiss_calendar_alert
+from .memory.runtime import safe_record_event
 
 
 def satellite_alert_claim(
@@ -67,7 +70,15 @@ def satellite_alert_claim(
                 due_at=alert.due_at.isoformat(),
                 source_id=alert.source_id,
                 session_id=alert.session_id,
-                metadata=dict(alert.metadata),
+                metadata={
+                    **dict(alert.metadata),
+                    **_presentation_metadata(
+                        alert.kind,
+                        dict(alert.metadata),
+                        composition=composition,
+                        now=now,
+                    ),
+                },
             )
             for alert in alerts
         ]
@@ -79,7 +90,7 @@ def satellite_alert_acknowledge(
     payload: SatelliteAlertAcknowledgeRequest,
     request: Request,
 ) -> SatelliteAlertAcknowledgeResponse:
-    _composition, source_id = _authenticated_alert_source(request, payload.source_id)
+    composition, source_id = _authenticated_alert_source(request, payload.source_id)
     try:
         alert = acknowledge_alert(
             alert_id=alert_id,
@@ -102,7 +113,31 @@ def satellite_alert_acknowledge(
             source_id=source_id,
             status="accepted",
         )
-    elif alert.kind in {"timer", "alarm", "reminder"} and alert.occurrence_id:
+        if composition.routine_execution is not None:
+            try:
+                composition.routine_execution.activate_evidence(
+                    kind="alert_event",
+                    evidence_id=str(alert.metadata.get("notification_id") or ""),
+                    state="acknowledged",
+                    occurrence_id=str(alert.metadata.get("event_id") or ""),
+                )
+            except Exception as exc:
+                # Acknowledgement truth is already durable; trigger failure must
+                # not rewrite it or make the satellite repeat dismissal.
+                safe_record_event(
+                    "orchestration_automatic_trigger_failed",
+                    severity="error",
+                    source_id="brain",
+                    domain="orchestration",
+                    status="failed",
+                    correlation_id=str(alert.metadata.get("event_id") or "") or None,
+                    payload={
+                        "kind": "alert_event",
+                        "evidence_id": str(alert.metadata.get("notification_id") or ""),
+                        "error_class": type(exc).__name__,
+                    },
+                )
+    elif alert.kind in {"timer", "alarm", "reminder", "calendar"} and alert.occurrence_id:
         occurrence = next(
             (
                 item for item in list_alert_occurrences(db_path=alerts_module.ALERT_DB_PATH)
@@ -110,7 +145,7 @@ def satellite_alert_acknowledge(
             ),
             None,
         )
-        if alert.kind == "reminder" and occurrence is not None and occurrence.status == "outstanding":
+        if alert.kind in {"reminder", "calendar"} and occurrence is not None and occurrence.status == "outstanding":
             acknowledge_alert_occurrence(
                 occurrence_id=occurrence.occurrence_id,
                 alert_id=alert.alert_id,
@@ -202,15 +237,43 @@ def satellite_alert_state(source_id: str, request: Request) -> SatelliteAlertSta
         satellites=composition.runtime.satellites,
         db_path=alerts_module.ALERT_DB_PATH,
     )
+    calendar_state = build_calendar_alert_state(
+        source_id=authenticated_source,
+        db_path=alerts_module.ALERT_DB_PATH,
+    )
+    clock = datetime.now(timezone.utc)
+    schedules = {item.schedule_id: item for item in list_alert_schedules(db_path=alerts_module.ALERT_DB_PATH)}
+    occurrences = {item.occurrence_id: item for item in list_alert_occurrences(db_path=alerts_module.ALERT_DB_PATH)}
+
+    def decorated(item: dict[str, object]) -> dict[str, object]:
+        occurrence = occurrences.get(str(item.get("occurrence_id") or ""))
+        schedule = schedules.get(occurrence.schedule_id) if occurrence is not None else None
+        metadata = {
+            **({} if schedule is None else schedule.metadata),
+            **({} if occurrence is None else occurrence.metadata),
+        }
+        return {
+            **item,
+            "metadata": {
+                **metadata,
+                **_presentation_metadata(
+                    str(item.get("kind") or ""), metadata,
+                    composition=composition, now=clock,
+                ),
+            },
+        }
+
+    ringing = [decorated(item) for item in [*timer_state["ringing"], *alarm_state["ringing"]]]
     return SatelliteAlertStateResponse.model_validate(
         {
             **timer_state,
             "alarms": alarm_state["alarms"],
             "reminders": reminder_state["reminders"],
-            "outstanding": reminder_state["outstanding"],
-            "ringing": [*timer_state["ringing"], *alarm_state["ringing"]],
-            "count": int(timer_state["count"]) + int(alarm_state["count"]) + int(reminder_state["count"]),
-            "display_attention_required": bool(alarm_state["ringing"] or reminder_state["outstanding"]),
+            "calendar_alerts": calendar_state["calendar_alerts"],
+            "outstanding": [*reminder_state["outstanding"], *calendar_state["calendar_alerts"]],
+            "ringing": ringing,
+            "count": int(timer_state["count"]) + int(alarm_state["count"]) + int(reminder_state["count"]) + int(calendar_state["count"]),
+            "display_attention_required": bool(alarm_state["ringing"] or reminder_state["outstanding"] or calendar_state["calendar_alerts"]),
         }
     )
 
@@ -222,6 +285,15 @@ def satellite_alert_action(
 ) -> SatelliteAlertActionResponse:
     composition, source_id = _authenticated_alert_source(request, payload.source_id)
     try:
+        calendar = build_calendar_alert_state(source_id=source_id, db_path=alerts_module.ALERT_DB_PATH)
+        if any(item["occurrence_id"] == occurrence_id for item in calendar["calendar_alerts"]):
+            if payload.action != "dismiss":
+                raise ValueError("Calendar alerts may be dismissed but not snoozed.")
+            result = dismiss_calendar_alert(
+                occurrence_id, source_id=source_id, idempotency_key=payload.idempotency_key,
+                now=datetime.now(timezone.utc), db_path=alerts_module.ALERT_DB_PATH,
+            )
+            return SatelliteAlertActionResponse.model_validate(result)
         try:
             result = manage_reminder(
                 source_id=source_id, occurrence_id=occurrence_id, action=payload.action,
@@ -269,6 +341,21 @@ def _authenticated_alert_source(
     if satellite is None or not satellite.alert_capable:
         raise HTTPException(status_code=403, detail="Source is not an alert-capable satellite.")
     return composition, source_id
+
+
+def _presentation_metadata(kind: str, metadata: dict[str, object], *, composition: CanonicalBrainApplicationComposition, now: datetime) -> dict[str, object]:
+    decision = presentation_decision(
+        kind=kind,
+        metadata=metadata,
+        household=composition.runtime.household,
+        now=now,
+        db_path=alerts_module.ALERT_DB_PATH,
+    )
+    return {
+        "audible": decision.audible,
+        "dnd_state": decision.dnd_state,
+        "presentation_reason": decision.reason,
+    }
 
 
 def register_satellite_alert_routes(app: FastAPI) -> None:

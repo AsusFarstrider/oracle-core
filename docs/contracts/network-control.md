@@ -73,10 +73,12 @@ component/service restarts default to 60 seconds and host, router, or power
 actions default to 300 seconds. Requests during cooldown fail closed with
 `network_control_action_cooldown`.
 
-The execution lease and cooldown registry are process-local safety state, not a
-durable scheduler. A Brain restart clears them. They must never be treated as
-authorization or as a replacement for confirmation, policy, preconditions, or
-provider verification.
+The execution lease remains process-local and is never restored. Cooldown
+enforcement is reconstructable safety state: after restart Oracle rebuilds only
+the still-unexpired target/action safety window from sanitized durable started/
+final audit facts. Reconstruction never restores a lease, confirmation,
+approval, request claim, or permission to execute, and never substitutes for
+fresh policy, preconditions, or verification.
 
 Dry-run must not change external state. A mutating action must not execute from
 status refresh, provider alert ingestion, UI page load, voice interpretation, or
@@ -612,8 +614,10 @@ one synthetic final outcome:
   the started event.
 
 Interruption reconciliation is reporting only. Oracle must not retry the
-provider action, restore its old execution lease, restore its old cooldown, or
-assume the action failed. A later attempt must use a new request ID, fresh
+provider action, restore its old execution lease, or assume the action failed.
+It must conservatively reconstruct any still-unexpired configured cooldown from
+the durable attempt time without treating that as authorization. A later
+attempt must use a new request ID, fresh
 precondition evidence, and explicit confirmation. Reconciliation must be
 idempotent: once the synthetic final event exists, later startups must not
 create another one.
@@ -644,8 +648,56 @@ The recent-result read model must not expose command arguments, systemd unit
 names, Docker container names, host addresses, credentials, stdout, stderr,
 tokens, raw provider URLs, or arbitrary provider payloads.
 
-Execution leases and cooldowns remain process-local safety state. They are not
-reconstructed from audit history after Brain restart.
+Execution leases remain process-local. Unexpired cooldown windows are
+reconstructed from sanitized durable audit history after Brain restart; no
+other guard, claim, confirmation, or authorization state is reconstructed.
+The durable attempt must be recorded before provider execution. At startup,
+Oracle scans bounded recent start/final audit facts and restores only target
+cooldown deadlines, clamping future timestamps to a configured window. A
+missing or unreadable audit store blocks network mutation until repaired; a
+failed durable start write sends no provider action. The default cooldown is
+60 seconds for service control and 300 seconds for host/router/power control,
+with configured values bounded to 0–3600 seconds.
+
+## Standard Restart-Anyway Recovery
+
+`Restart the Network Anyway` is one named Network recovery runbook, separate
+from diagnosis-driven `Fix Internet`. After explicit consequential-action
+confirmation it may bypass only the healthy/no-action conclusion and an
+included prerequisite whose sole purpose is proving current unhealthiness.
+
+Its configured standard sequence is exact and closed:
+
+1. power-cycle the configured modem and wait for WAN readiness;
+2. restart the configured router and wait for router/LAN/WAN recovery;
+3. restart only the Pi-hole service on the Oracle server;
+4. restart the entire configured Renegade edge host;
+5. wait for configured edge readiness, including existing Pi-hole, Caddy,
+   Tailscale, and Cloudflare-related edge/tunnel evidence where available; and
+6. perform bounded network, DNS, and edge verification.
+
+The runbook does not infer any switch, access point, bridge, server, storage
+host, satellite, smart-home object, service, or inventory member into that
+sequence. Renegade is one whole-host recovery target, not four additional
+service-restart targets. Its existing configured graceful host lifecycle
+explicitly stops Caddy, Cloudflare Tunnel, Tailscale, and Pi-hole before the
+host reboot, starts and checks them after the host returns, and then requires
+fresh edge readiness evidence. These fixed lifecycle phases do not authorize
+the runbook to independently select, invoke, retry, or supervise those
+internal services as separate recovery actions.
+
+The override never bypasses confirmation, allowlists, authentication, supported
+mechanisms, ordering/dependencies, safety prerequisites, bounded waits/timeouts,
+verification, audit, cooldowns, or honest partial/failure reporting. A failed
+readiness dependency blocks later unsafe work under ordinary runbook failure
+law. Monitoring evidence cannot start this runbook automatically.
+The configured four action IDs and ordered post-action evidence checks are
+frozen into the preview digest. A healthy diagnosis does not remove any step.
+Each action enters the ordinary confirmed control path and must report verified
+completion before fresh, post-action evidence can satisfy its bounded wait.
+An unavailable, stale, or old healthy sample is not readiness. An action or
+readiness failure stops later dependent mutations; final network, DNS, and
+edge evidence failure is reported as an issue, never as verified completion.
 
 ## Control Coverage
 

@@ -9,6 +9,7 @@ from .capabilities.information import (
 )
 from .capabilities.media import AudiobookCapability, MusicCapability, ProbableAudiobookTitleCapability
 from .capabilities.registry import CapabilityRegistry
+from .capabilities.lists_notes import ListsNotesCapability
 from .capabilities.session import (
     PendingAudiobookCapability, PendingCalendarCapability,
     PendingConfirmationCapability, PendingHomeCapability, PendingInformationalCapability, PendingMusicCapability,
@@ -28,7 +29,7 @@ from .schemas import RouteResponse
 
 
 DETERMINISTIC_FALLBACK_REENTRY_TARGETS = frozenset(
-    {"home_assistant", "calendar", "music", "news", "audiobook", "weather", "system"}
+    {"home_assistant", "calendar", "lists", "notes", "music", "news", "audiobook", "weather", "system"}
 )
 
 
@@ -38,6 +39,8 @@ def build_route_capability_registry(
     facts_enabled: bool = False,
     news_settings: NewsRuntimeSettings | None = None,
     calendar_settings: CalendarRuntimeSettings | None = None,
+    lists_enabled: bool = False,
+    notes_enabled: bool = False,
 ) -> CapabilityRegistry:
     registry = CapabilityRegistry()
     registry.register(SystemCommandCapability())
@@ -49,6 +52,7 @@ def build_route_capability_registry(
     registry.register(MathAndConversionCapability())
     registry.register(AlertsCapability())
     registry.register(AudiobookCapability())
+    registry.register(ListsNotesCapability(lists_enabled=lists_enabled, notes_enabled=notes_enabled))
     registry.register(
         CalendarCapability(calendar_settings)
     )

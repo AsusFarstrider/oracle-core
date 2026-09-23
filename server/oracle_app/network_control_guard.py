@@ -10,13 +10,38 @@ from uuid import uuid4
 _LOCK = Lock()
 _ACTIVE: dict[str, Any] | None = None
 _COOLDOWNS: dict[tuple[str, str], dict[str, Any]] = {}
+_AUDIT_AVAILABLE = True
 
 
 def clear_network_control_guard() -> None:
-    global _ACTIVE
+    global _ACTIVE, _AUDIT_AVAILABLE
     with _LOCK:
         _ACTIVE = None
         _COOLDOWNS.clear()
+        _AUDIT_AVAILABLE = True
+
+
+def restore_network_control_cooldowns(cooldowns: dict[tuple[str, str], tuple[float, str]]) -> int:
+    """Install only unexpired target safety windows; never restore a lease."""
+    global _AUDIT_AVAILABLE
+    with _LOCK:
+        now = time.monotonic()
+        _COOLDOWNS.clear()
+        for key, (remaining_seconds, cooldown_until) in cooldowns.items():
+            if remaining_seconds <= 0:
+                continue
+            _COOLDOWNS[key] = {
+                "expires_monotonic": now + min(3600, remaining_seconds),
+                "cooldown_until": cooldown_until,
+            }
+        _AUDIT_AVAILABLE = True
+        return len(_COOLDOWNS)
+
+
+def mark_network_control_audit_unavailable() -> None:
+    global _AUDIT_AVAILABLE
+    with _LOCK:
+        _AUDIT_AVAILABLE = False
 
 
 def network_control_cooldown_seconds(action_policy: dict[str, Any]) -> int:
@@ -138,6 +163,8 @@ def _availability_locked(
     action_id: str,
     now: float,
 ) -> dict[str, Any]:
+    if not _AUDIT_AVAILABLE:
+        return {"status": "audit_unavailable"}
     if isinstance(_ACTIVE, dict):
         same_action = (
             str(_ACTIVE.get("target_type") or "") == target_type

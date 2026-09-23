@@ -107,6 +107,37 @@ must never be treated as confirmed inactive.
 Each definition chooses its suppression modes. A notification is not globally
 suppressed merely because some other definition uses Quiet Mode.
 
+### General Communication Mode
+
+Stage 8 Do Not Disturb is separate from definition-specific notification
+suppression. One Brain-owned communication-mode evaluator returns an explicit
+presentation decision to existing delivery owners. It never owns, deletes,
+completes, reschedules, or retargets an occurrence.
+
+DND may be indefinite or bounded by the existing deterministic temporal model
+and clears automatically at bounded expiry. Canonical configuration declares
+the mode identity and bounds; Brain operational Memory owns active state,
+optional expiry, and restart reconciliation. Unknown state fails safe for
+unsolicited Oracle-controlled audio.
+
+For DND only, the Stage 8 household morning boundary is 7:00 AM in the
+configured household timezone. `until tomorrow` resolves to 7:00 AM on the
+next local calendar day. `for the rest of the night` resolves to the next 7:00
+AM boundary only from an ordinary overnight context; an obviously daytime use
+must clarify rather than silently extend through the following night. This is
+a fixed DND temporal interpretation, not a configurable daypart, sleep, or
+presence policy.
+
+DND suppresses unsolicited audible interruption. Direct user-initiated
+interactions answer normally. Reminders and Calendar alerts retain durable and
+visual/status truth without a conflict question while audio is withheld.
+Visual/status and text/external delivery are not suppressed merely by DND.
+
+Alarm/timer definitions may carry an explicit persistent override, and one
+occurrence may receive an occurrence-only override. A non-overriding conflict
+is clarified. This presentation decision cannot be supplied by callers or
+bypass definition-specific HA suppression, which retains discard semantics.
+
 ## Satellite Announcement Channel
 
 The current `satellite_announcement` channel fans one accepted occurrence into

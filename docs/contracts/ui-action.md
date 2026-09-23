@@ -22,6 +22,7 @@ Required request fields:
 Optional request fields:
 
 - `target_source_id`
+- `confirmed`
 
 ## Request Rules
 
@@ -70,6 +71,19 @@ from this action target. `ui_session_id` and `target_source_id` do not establish
 authorization or audit actor identity. Current `client_id` and `source` target
 fields are bounded Stage 3 aliases for deployed UIs.
 
+### `confirmed`
+
+- optional boolean; defaults to `false`
+- asserts only that the user accepted the server-classified consequential
+  action currently being submitted
+- cannot change semantic risk, select a provider operation, authorize a raw
+  target, or serve as reusable/preauthorized runbook authority
+
+Clients normally render `requires_confirmation` metadata before submission.
+When risk depends on fresh state or configured bounds, the server may instead
+return `pending_confirmation`; a client may then ask and repeat the same
+structured action with `confirmed: true`.
+
 Rules:
 
 - clients must provide `target_source_id` when the action definition or page context requires explicit playback targeting
@@ -91,6 +105,11 @@ Internal implementation may map `action_id` to:
 - curated domain execution paths
 
 That mapping is internal and not part of the public contract.
+
+Home-control actions resolve the same Oracle-owned capability, target,
+arguments, semantic direction, and confirmation class as voice and runbooks.
+The public request never accepts Home Assistant entity IDs, service domains,
+service names, or provider payloads.
 
 Some curated action IDs are global and do not require `target_source_id`.
 

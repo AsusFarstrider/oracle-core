@@ -1,0 +1,29 @@
+enabled: false
+provider: null
+providers:
+  nextcloud_tasks:
+    type: nextcloud_tasks
+    base_url: https://nextcloud.example.invalid
+    user: oracle-example
+    credential_secret: NEXTCLOUD_TASKS_APP_PASSWORD
+    timeout_seconds: 8
+    lists:
+      - id: groceries
+        display_name: Groceries
+        aliases:
+          - shopping
+        user_ids: []
+        calendar_uri: groceries
+  microsoft_todo:
+    type: microsoft_todo
+    tenant: consumers
+    client_id: 11111111-1111-1111-1111-111111111111
+    refresh_token_secret: MICROSOFT_TODO_REFRESH_TOKEN
+    timeout_seconds: 8
+    lists: []
+policy:
+  read_enabled: true
+  write_enabled: false
+  confirmation_required: true
+  fresh_seconds: 30
+  stale_if_error_seconds: 120

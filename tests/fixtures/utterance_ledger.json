@@ -936,6 +936,32 @@
     "capability_disposition": "supported"
   },
   {
+    "id": "system-effective-user-route",
+    "category": "route_positive",
+    "utterance": "who am I",
+    "expected_target": "system",
+    "expected_behavior": "route_only",
+    "expected_action": "effective_user",
+    "risk": "low",
+    "origin": "synthetic",
+    "owner": "system",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
+  },
+  {
+    "id": "system-presence-route",
+    "category": "route_positive",
+    "utterance": "who is home",
+    "expected_target": "system",
+    "expected_behavior": "route_only",
+    "expected_action": "presence",
+    "risk": "low",
+    "origin": "synthetic",
+    "owner": "system",
+    "execution_level": "route_executed",
+    "capability_disposition": "supported"
+  },
+  {
     "id": "system-calculation-route",
     "category": "route_positive",
     "utterance": "what is 12 times 13",

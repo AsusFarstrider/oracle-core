@@ -270,9 +270,11 @@ dismissal cannot create a person acknowledgement.
 - Create/update: `home_assistant_cache.py`, invoked by the canonical system
   handler with the installed typed Home Assistant runtime settings; writes are
   atomic replacements.
-- Read: HA routing helpers and cache-backed lookups.
+- Read: HA interpretation helpers, room vocabulary, diagnostics, and advisory
+  collectors. Finite mutation resolution and authorization do not read it.
 - Clear: cache refresh or explicit operational maintenance.
-- Forbidden: treating cache contents as durable truth instead of refreshable convenience data.
+- Forbidden: treating cache contents as durable truth, callable inventory,
+  mutation aliases, or write authority instead of refreshable convenience data.
 
 ### Facts result cache
 

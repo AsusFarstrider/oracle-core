@@ -42,6 +42,7 @@ from .projections import (
 )
 from .runtime_compatibility_store import SatelliteRuntimeCompatibilityStore
 from .runtime_cutover import RuntimeCutoverMarker, arm_runtime_cutover, runtime_cutover_required
+from .safety_acknowledgements import KNOWN_SAFETY_ACKNOWLEDGEMENTS
 from .secret_transactions import (
     SecretAlreadyExists,
     SecretCompanionDrift,
@@ -73,15 +74,6 @@ VALIDATION_VERSION = "oracle-configuration-validation-v1"
 Actor = Literal["service", "host_local_cli", "system_mode"]
 AuthoringMode = Literal["managed_writable", "external_read_only"]
 _LOGICAL_SECRET_ID = re.compile(r"^[A-Z][A-Z0-9_]*$")
-_KNOWN_ACKNOWLEDGEMENTS = frozenset(
-    {
-        "access_expansion",
-        "credential_role_change",
-        "identity_removal",
-        "mutating_control_enablement",
-        "public_health_enablement",
-    }
-)
 
 
 def initial_safety_acknowledgements(inspection: CandidateInspection) -> frozenset[str]:
@@ -99,6 +91,12 @@ def initial_safety_acknowledgements(inspection: CandidateInspection) -> frozense
         role = roles.get(role_path)
         if role is not None and role["enabled"]:
             required.add("mutating_control_enablement")
+    routines_role = roles.get("domains/routines.yaml")
+    if routines_role is not None and routines_role["enabled"] and any(
+        item.get("enabled") and item.get("composition", {}).get("preauthorize_consequential")
+        for item in routines_role.get("definitions", ())
+    ):
+        required.add("runbook_power_expansion")
     return frozenset(required)
 
 
@@ -1328,7 +1326,9 @@ class ConfigurationService:
 
     @staticmethod
     def _validate_acknowledgements(acknowledgements: frozenset[str]) -> None:
-        if not isinstance(acknowledgements, frozenset) or not acknowledgements.issubset(_KNOWN_ACKNOWLEDGEMENTS):
+        if not isinstance(acknowledgements, frozenset) or not acknowledgements.issubset(
+            KNOWN_SAFETY_ACKNOWLEDGEMENTS
+        ):
             raise ValueError("Safety acknowledgements must be a set of supported acknowledgement IDs.")
 
     def _persist_report(

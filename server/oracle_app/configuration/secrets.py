@@ -258,6 +258,19 @@ def collect_secret_references(bundle: LoadedBundle) -> tuple[SecretReferenceUse,
                 calendar.enabled and calendar.policy.write_enabled and calendar.provider == provider_id,  # type: ignore[attr-defined]
             )
 
+    for role_path in ("domains/lists.yaml", "domains/notes.yaml"):
+        domain = bundle.roles.get(role_path)
+        if domain is None:
+            continue
+        for provider_id, provider in domain.providers.items():  # type: ignore[attr-defined]
+            secret_id = getattr(provider, "credential_secret", None) or getattr(provider, "refresh_token_secret", None)
+            add(
+                secret_id,
+                role_path,
+                f"providers.{provider_id}.{'refresh_token_secret' if getattr(provider, 'type', None) == 'microsoft_todo' else 'credential_secret'}",
+                domain.enabled and domain.provider == provider_id,  # type: ignore[attr-defined]
+            )
+
     home_assistant = bundle.roles.get("domains/home-assistant.yaml")
     if home_assistant is not None:
         enabled_automation = any(automation.enabled for automation in home_assistant.automations)  # type: ignore[attr-defined]

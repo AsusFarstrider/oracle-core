@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any
 
 from .memory.events import EventQuery, query_events, record_event
+from .memory.store import DB_PATH
+from .network_control_guard import mark_network_control_audit_unavailable, restore_network_control_cooldowns
 
 
 _MAX_RESULTS = 100
 _RESULTS: dict[tuple[str, str, str], dict[str, Any]] = {}
 _LOCK = Lock()
 logger = logging.getLogger("oracle-brain.network_control_results")
+_MAX_COOLDOWN_SECONDS = 3600
+_MAX_COOLDOWN_EVENTS = 10000
 
 
 def clear_network_control_results() -> None:
@@ -77,6 +81,77 @@ def safe_restore_network_control_results_from_memory() -> int:
         return restore_network_control_results_from_memory()
     except Exception as exc:
         logger.warning("network_control_result_restore_failed detail=%s", exc)
+        return 0
+
+
+def restore_network_control_cooldowns_from_memory(*, db_path: Path | None = None, now: datetime | None = None, audit_preexisting: bool | None = None) -> int:
+    """Rebuild target cooldowns from durable attempts, never authorizations."""
+    if audit_preexisting is False or (audit_preexisting is None and not (db_path or DB_PATH).is_file()):
+        raise ValueError("Network control audit database is missing.")
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    cutoff = current - timedelta(seconds=_MAX_COOLDOWN_SECONDS)
+    deadlines: dict[tuple[str, str], datetime] = {}
+    for event_type in ("network_control_started", "network_control_confirm"):
+        offset = 0
+        while offset < _MAX_COOLDOWN_EVENTS:
+            events = query_events(
+                EventQuery(event_type=event_type, domain="network_control", created_after=cutoff.isoformat(), limit=500, offset=offset),
+                db_path=db_path,
+            )
+            for event in events:
+                payload = event.get("payload")
+                if not isinstance(payload, dict) or payload.get("_payload_parse_error"):
+                    raise ValueError("Recent network control audit payload is unreadable.")
+                if event_type == "network_control_confirm" and str(payload.get("result_status") or "") not in {"executed", "failed", "interrupted"}:
+                    continue
+                target_type = str(payload.get("target_type") or "").strip().lower()
+                target_id = str(payload.get("target_id") or "").strip()
+                execution = payload.get("execution") if isinstance(payload.get("execution"), dict) else {}
+                if not target_type or not target_id or not str(payload.get("request_id") or "").strip():
+                    raise ValueError("Recent network control audit identity is incomplete.")
+                if event_type == "network_control_confirm" and "cooldown_seconds" not in execution:
+                    # An interrupted synthetic final has no cooldown field; its
+                    # original durable started event supplies the attempt time.
+                    if payload.get("result_status") == "interrupted":
+                        continue
+                if "cooldown_seconds" not in execution:
+                    raise ValueError("Recent network control audit lacks cooldown policy evidence.")
+                try:
+                    seconds = int(execution["cooldown_seconds"])
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("Recent network control cooldown is invalid.") from exc
+                if not 0 <= seconds <= _MAX_COOLDOWN_SECONDS:
+                    raise ValueError("Recent network control cooldown exceeds the policy bound.")
+                try:
+                    recorded = datetime.fromisoformat(str(event.get("created_at") or "")).astimezone(timezone.utc)
+                except ValueError as exc:
+                    raise ValueError("Recent network control audit time is invalid.") from exc
+                # A backward wall-clock adjustment must not create an unbounded
+                # future lockout; conservatively restart the bounded window.
+                recorded = min(recorded, current)
+                deadline = recorded + timedelta(seconds=seconds)
+                key = (target_type, target_id)
+                if deadline > deadlines.get(key, cutoff):
+                    deadlines[key] = deadline
+            if len(events) < 500:
+                break
+            offset += len(events)
+        else:
+            raise ValueError("Recent network control audit exceeded its safety read bound.")
+    restored = {
+        key: ((deadline - current).total_seconds(), deadline.isoformat())
+        for key, deadline in deadlines.items()
+        if deadline > current
+    }
+    return restore_network_control_cooldowns(restored)
+
+
+def safe_restore_network_control_cooldowns_from_memory(*, db_path: Path | None = None, audit_preexisting: bool | None = None) -> int:
+    try:
+        return restore_network_control_cooldowns_from_memory(db_path=db_path, audit_preexisting=audit_preexisting)
+    except Exception as exc:
+        mark_network_control_audit_unavailable()
+        logger.warning("network_control_cooldown_restore_failed detail=%s", exc)
         return 0
 
 

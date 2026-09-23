@@ -176,7 +176,11 @@ class OrchestrationRoutineRouteTests(unittest.TestCase):
             routine_execution=execution,
         )
 
-        self.assertEqual(payload["run"], {"run_id": "run-1", "status": "waiting"})
+        self.assertEqual(payload["run"]["run_id"], "run-1")
+        self.assertEqual(payload["run"]["status"], "waiting")
+        self.assertEqual(payload["run"]["phase"], "main")
+        self.assertNotIn("controller_state", payload["run"])
+        self.assertNotIn("activation_idempotency_key", payload["run"])
 
     def test_run_rejects_unbound_source(self) -> None:
         with self.assertRaises(HTTPException) as raised:

@@ -519,7 +519,8 @@ def record_alert_acknowledgement(
     clock = _timestamp(now, "now")
     with transaction(path) as conn:
         occurrence_row = conn.execute(
-            """SELECT occurrence.status, occurrence.recipient_user_id, schedule.kind
+            """SELECT occurrence.status, occurrence.recipient_user_id, schedule.kind,
+                      schedule.metadata_json
                FROM memory_alert_occurrences AS occurrence
                JOIN memory_alert_schedules AS schedule
                  ON schedule.schedule_id=occurrence.schedule_id
@@ -543,6 +544,7 @@ def record_alert_acknowledgement(
             action=clean_action,
             occurrence_status=str(occurrence_row["status"]),
             occurrence_kind=str(occurrence_row["kind"]),
+            calendar_alert=bool(_object(occurrence_row["metadata_json"]).get("calendar_alert")),
             recipient_user_id=str(occurrence_row["recipient_user_id"] or "") or None,
             delivery=delivery,
         )
@@ -744,6 +746,7 @@ def _validate_acknowledgement_context(
     action: str,
     occurrence_status: str,
     occurrence_kind: str,
+    calendar_alert: bool,
     recipient_user_id: str | None,
     delivery: Any | None,
 ) -> None:
@@ -761,12 +764,16 @@ def _validate_acknowledgement_context(
             raise ValueError("Destination dismissal requires that destination's delivery")
         if action == "copy_dismissed" and str(delivery["delivery_role"]) != "common":
             raise ValueError("Common-copy dismissal requires that destination's common delivery")
-        if action == "dismissed" and (
-            str(delivery["delivery_role"]) == "common"
-            or occurrence_kind not in {"timer", "alarm"}
-            or occurrence_status not in {"due", "ringing"}
-        ):
-            raise ValueError("Logical destination dismissal requires an active timer or alarm delivery")
+        if action == "dismissed":
+            active_alert = (
+                occurrence_kind in {"timer", "alarm"}
+                and occurrence_status in {"due", "ringing"}
+            ) or (
+                calendar_alert
+                and occurrence_status in {"outstanding", "overdue"}
+            )
+            if str(delivery["delivery_role"]) == "common" or not active_alert:
+                raise ValueError("Logical destination dismissal requires an active logical alert delivery")
     elif actor_type == "person" and occurrence_status not in {
         "due", "ringing", "outstanding", "overdue"
     }:

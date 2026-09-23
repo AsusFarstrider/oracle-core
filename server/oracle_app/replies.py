@@ -446,7 +446,14 @@ def _shape_dispatch_reply(dispatch: DispatchPlan) -> str:
 
     if dispatch.target == "system":
         action = str(result.get("action", "")).strip()
-        if action in {"repeat", "help", "courtesy", "unsupported_utility"}:
+        if action in {
+            "courtesy",
+            "effective_user",
+            "help",
+            "presence",
+            "repeat",
+            "unsupported_utility",
+        }:
             return str(result.get("speech") or "").strip() or "I couldn't answer that right now."
         if dispatch.status == "failed":
             if action == "confirm_pending":

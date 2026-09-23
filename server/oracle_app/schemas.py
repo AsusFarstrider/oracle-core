@@ -12,8 +12,10 @@ RouteTarget = Literal[
     "facts",
     "fallback_router",
     "home_assistant",
+    "lists",
     "music",
     "network",
+    "notes",
     "news",
     "system",
     "weather",
@@ -124,6 +126,10 @@ class UiActionRequest(BaseModel):
         default=None,
         description="Optional explicit playback-capable Oracle source for source-scoped UI actions",
     )
+    confirmed: bool = Field(
+        default=False,
+        description="Explicit confirmation for a server-classified consequential action",
+    )
 
 
 class UiContextStartRequest(BaseModel):
@@ -180,6 +186,29 @@ class UiCalendarDraftConfirmRequest(BaseModel):
 class UiCalendarDraftCancelRequest(BaseModel):
     client_id: str = Field(..., min_length=1, description="Stable UI client identifier")
     draft_id: str = Field(..., min_length=1, description="UI-owned calendar draft identifier")
+
+
+class UiCalendarMutationDraftRequest(BaseModel):
+    client_id: str = Field(..., min_length=1)
+    ui_session_id: str = Field(..., min_length=1, max_length=128)
+    source_id: str = Field(..., min_length=1, description="Authenticated canonical request source")
+    event_ref: str = Field(..., min_length=1, description="Opaque Oracle Calendar event selection reference")
+    calendar_id: str = Field(..., min_length=1, description="Canonical Calendar feed id")
+    recurrence_scope: Literal["occurrence", "series"] | None = None
+    operation: Literal["edit", "delete"]
+    title: str | None = None
+    date: str | None = None
+    all_day: bool | None = None
+    start_time: str | None = None
+    end_time: str | None = None
+    duration_minutes: int | None = None
+
+
+class UiCalendarMutationConfirmRequest(BaseModel):
+    client_id: str = Field(..., min_length=1)
+    ui_session_id: str = Field(..., min_length=1, max_length=128)
+    source_id: str = Field(..., min_length=1, description="Authenticated canonical request source")
+    draft_id: str = Field(..., min_length=1)
 
 
 class UiAudioSearchRequest(BaseModel):
@@ -553,6 +582,7 @@ class SatelliteAlertStateResponse(BaseModel):
     timers: list[dict[str, Any]] = Field(default_factory=list)
     alarms: list[dict[str, Any]] = Field(default_factory=list)
     reminders: list[dict[str, Any]] = Field(default_factory=list)
+    calendar_alerts: list[dict[str, Any]] = Field(default_factory=list)
     outstanding: list[dict[str, Any]] = Field(default_factory=list)
     ringing: list[dict[str, Any]] = Field(default_factory=list)
     display_attention_required: bool = False

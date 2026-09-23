@@ -10,6 +10,7 @@ from .information_runtime import CanonicalFactsExecution, CanonicalNewsExecution
 from .calendar_runtime import CanonicalCalendarExecution
 from .weather_runtime import CanonicalWeatherExecution
 from .network_runtime import CanonicalNetworkExecution
+from .lists_notes_runtime import CanonicalListsExecution, CanonicalNotesExecution
 from .handlers import (
     AudiobookHandler,
     CalendarHandler,
@@ -18,6 +19,8 @@ from .handlers import (
     HandlerRegistry,
     HomeAssistantHandler,
     MusicHandler,
+    ListsHandler,
+    NotesHandler,
     NetworkHandler,
     NewsHandler,
     SystemHandler,
@@ -64,6 +67,8 @@ def _plan_dispatch_target(
         return _plan_home_assistant_target(payload, route)
     if route.target == "music":
         return _plan_text_target(payload, route, target="music")
+    if route.target in {"lists", "notes"}:
+        return _plan_text_target(payload, route, target=route.target)
     if route.target == "network":
         return _plan_text_target(payload, route, target="network")
     if route.target == "calendar":
@@ -213,6 +218,8 @@ def build_dispatch_registry(
     facts_execution: CanonicalFactsExecution | None = None,
     news_execution: CanonicalNewsExecution | None = None,
     calendar_execution: CanonicalCalendarExecution | None = None,
+    lists_execution: CanonicalListsExecution | None = None,
+    notes_execution: CanonicalNotesExecution | None = None,
     weather_execution: CanonicalWeatherExecution | None = None,
     network_execution: CanonicalNetworkExecution | None = None,
 ) -> HandlerRegistry:
@@ -247,6 +254,8 @@ def build_dispatch_registry(
     registry.register(
         CalendarHandler(calendar_execution)
     )
+    registry.register(ListsHandler(lists_execution))
+    registry.register(NotesHandler(notes_execution))
     registry.register(
         MusicHandler(
             canonical_execution=music_execution,

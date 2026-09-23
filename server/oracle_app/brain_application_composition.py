@@ -25,6 +25,7 @@ from .information_runtime import CanonicalFactsExecution, CanonicalNewsExecution
 from .calendar_runtime import CanonicalCalendarExecution
 from .weather_runtime import CanonicalWeatherExecution
 from .network_runtime import CanonicalNetworkExecution
+from .lists_notes_runtime import CanonicalListsExecution, CanonicalNotesExecution
 from .suggestions.canonical import CanonicalSuggestionsExecution
 from .runtime_paths import validate_standard_storage_settings
 
@@ -50,6 +51,8 @@ class CanonicalBrainApplicationComposition:
     facts_execution: CanonicalFactsExecution | None = None
     news_execution: CanonicalNewsExecution | None = None
     calendar_execution: CanonicalCalendarExecution | None = None
+    lists_execution: CanonicalListsExecution | None = None
+    notes_execution: CanonicalNotesExecution | None = None
     weather_execution: CanonicalWeatherExecution | None = None
     network_execution: CanonicalNetworkExecution | None = None
     suggestions_execution: CanonicalSuggestionsExecution | None = None
@@ -125,10 +128,17 @@ class CanonicalBrainApplicationComposition:
             if runtime.music is not None and runtime.music.enabled
             else None
         )
+        routine_holder: dict[str, CanonicalRoutineExecution] = {}
+
+        def notification_trigger_sink(**evidence) -> object:
+            execution = routine_holder.get("execution")
+            return [] if execution is None else execution.activate_evidence(**evidence)
+
         notification_execution = CanonicalNotificationExecution(
             settings=runtime.notifications,
             home_assistant=runtime.home_assistant,
             satellites=runtime.satellites,
+            trigger_sink=notification_trigger_sink,
         )
         routine_execution = (
             CanonicalRoutineExecution(
@@ -140,6 +150,8 @@ class CanonicalBrainApplicationComposition:
             if runtime.routines is not None and runtime.routines.enabled
             else None
         )
+        if routine_execution is not None:
+            routine_holder["execution"] = routine_execution
         facts_execution = (
             CanonicalFactsExecution(runtime.information.facts, inference=core_consumers.inference)
             if runtime.information is not None
@@ -153,6 +165,22 @@ class CanonicalBrainApplicationComposition:
         calendar_execution = (
             CanonicalCalendarExecution(runtime.calendar)
             if runtime.calendar is not None
+            else None
+        )
+        lists_execution = (
+            CanonicalListsExecution(
+                runtime.lists,
+                db_path=runtime.brain.memory_storage.database_path,
+            )
+            if runtime.lists is not None and runtime.lists.enabled
+            else None
+        )
+        notes_execution = (
+            CanonicalNotesExecution(
+                runtime.notes,
+                db_path=runtime.brain.memory_storage.database_path,
+            )
+            if runtime.notes is not None and runtime.notes.enabled
             else None
         )
         weather_execution = (
@@ -188,6 +216,8 @@ class CanonicalBrainApplicationComposition:
                 calendar_settings=(
                     None if calendar_execution is None else calendar_execution.settings
                 ),
+                lists_enabled=lists_execution is not None,
+                notes_enabled=notes_execution is not None,
             ),
             dispatch_registry=build_dispatch_registry(
                 inference_client=core_consumers.inference,
@@ -199,6 +229,8 @@ class CanonicalBrainApplicationComposition:
                 facts_execution=facts_execution,
                 news_execution=news_execution,
                 calendar_execution=calendar_execution,
+                lists_execution=lists_execution,
+                notes_execution=notes_execution,
                 weather_execution=weather_execution,
                 network_execution=network_execution,
             ),
@@ -217,6 +249,8 @@ class CanonicalBrainApplicationComposition:
             facts_execution=facts_execution,
             news_execution=news_execution,
             calendar_execution=calendar_execution,
+            lists_execution=lists_execution,
+            notes_execution=notes_execution,
             weather_execution=weather_execution,
             network_execution=network_execution,
             suggestions_execution=suggestions_execution,

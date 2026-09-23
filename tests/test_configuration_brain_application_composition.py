@@ -384,6 +384,7 @@ class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
                 alert_worker.assert_called_once_with(
                     household=composition.runtime.household,
                     audiobook_execution=composition.audiobook_execution,
+                    calendar_execution=composition.calendar_execution,
                     satellites=composition.runtime.satellites,
                 )
                 home_required.assert_called_once_with(composition.runtime.home_assistant)

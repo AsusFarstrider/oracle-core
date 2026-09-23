@@ -9,8 +9,10 @@ from .domain_models import (
     HomeAssistantConfiguration,
     HomeAssistantEventMapping,
     HomeAssistantMapping,
+    HomeAssistantObjectMapping,
     HomeAssistantProvider,
     HomeAssistantViews,
+    RoutinesConfiguration,
 )
 from .effective import EffectiveConfig
 
@@ -43,6 +45,7 @@ class HomeAssistantRuntimeSettings:
     event_ingress_secret: str | None
     credential: str | None = field(default=None, repr=False)
     event_ingress_credential: str | None = field(default=None, repr=False)
+    callable_alias_collisions: frozenset[str] = frozenset()
 
     @classmethod
     def from_effective_config(cls, effective: EffectiveConfig) -> HomeAssistantRuntimeSettings:
@@ -62,6 +65,7 @@ class HomeAssistantRuntimeSettings:
         event_ingress_credential = None
         mappings: dict[str, HomeAssistantMapping] = {}
         automations: dict[str, HomeAssistantAutomationRuntimeSettings] = {}
+        callable_alias_collisions: set[str] = set()
         if role.enabled:
             provider_id = role.provider
             if provider_id is None:
@@ -77,6 +81,23 @@ class HomeAssistantRuntimeSettings:
             if credential is None:
                 raise ValueError("Enabled canonical Home Assistant lacks its provider credential.")
             mappings = dict(role.mappings)
+            routines = effective.role("domains/routines.yaml")
+            if isinstance(routines, RoutinesConfiguration) and routines.enabled:
+                routine_phrases = {
+                    " ".join(phrase.casefold().split())
+                    for definition in routines.definitions
+                    if definition.enabled and definition.triggers.voice
+                    for phrase in (*definition.triggers.global_phrases, *definition.triggers.source_phrases)
+                }
+                callable_alias_collisions = {
+                    " ".join(alias.casefold().split())
+                    for mapping in mappings.values()
+                    if isinstance(mapping, HomeAssistantObjectMapping)
+                    and mapping.kind == "action"
+                    and mapping.allowed_operations == ["invoke"]
+                    for alias in mapping.aliases
+                    if " ".join(alias.casefold().split()) in routine_phrases
+                }
 
             enabled_automations = [automation for automation in role.automations if automation.enabled]
             if enabled_automations:
@@ -120,6 +141,7 @@ class HomeAssistantRuntimeSettings:
             event_ingress_secret=event_ingress_secret,
             credential=credential,
             event_ingress_credential=event_ingress_credential,
+            callable_alias_collisions=frozenset(callable_alias_collisions),
         )
 
     def mapping(self, mapping_id: str | None) -> HomeAssistantMapping | None:

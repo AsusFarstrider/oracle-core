@@ -100,6 +100,24 @@ def _serialize_routine_actions(
     return output
 
 
+def _serialize_routine_runs(source: str, *, routine_execution) -> list[dict[str, object]]:
+    if routine_execution is None:
+        return []
+    runs = routine_execution.list_runs(source_id=source, limit=25)
+    return [
+        {
+            "run_id": str(run.get("run_id") or ""),
+            "orchestration_id": str(run.get("orchestration_id") or ""),
+            "status": str(run.get("status") or ""),
+            "summary": str(run.get("summary") or ""),
+            "started_at": str(run.get("started_at") or ""),
+            "completed_at": str(run.get("completed_at") or ""),
+            "active": str(run.get("status") or "") in {"running", "waiting"},
+        }
+        for run in runs
+    ]
+
+
 def _coerce_float(value: object) -> float | None:
     try:
         return float(value)
@@ -498,6 +516,7 @@ def build_satellite_ui_home_snapshot(
     fleet_settings: SatelliteUiRuntimeSettings | None,
     household_settings: HouseholdRuntimeSettings | None,
     routine_settings: RoutineRuntimeSettings | None,
+    routine_execution=None,
 ) -> dict[str, object]:
     config = build_satellite_ui_config(
         satellite_id,
@@ -562,6 +581,10 @@ def build_satellite_ui_home_snapshot(
         "routine_actions": _serialize_routine_actions(
             resolved_source_id,
             routine_settings=routine_settings,
+        ),
+        "routine_runs": _serialize_routine_runs(
+            resolved_source_id,
+            routine_execution=routine_execution,
         ),
         "weather": dict(home_snapshot.get("weather") or {}),
         "calendar": build_ui_calendar_snapshot(limit=4),

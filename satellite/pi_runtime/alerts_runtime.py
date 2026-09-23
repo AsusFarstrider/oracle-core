@@ -200,23 +200,26 @@ def poll_due_alerts_if_needed(
             credential=getattr(args, "brain_api_key", ""),
         )
         for alert in alerts:
-            if str(alert.get("kind") or "") == "reminder":
+            if str(alert.get("kind") or "") in {"reminder", "calendar"}:
                 alert["occurrence_id"] = str((alert.get("metadata") or {}).get("occurrence_id") or "").strip()
-                handoff = _begin_alert_handoff(args=args, logger=logger, alert=alert)
+                audible = bool((alert.get("metadata") or {}).get("audible", True))
+                handoff = _begin_alert_handoff(args=args, logger=logger, alert=alert) if audible else None
                 if not set_alarm_display_attention(True):
                     logger.warning("Reminder display attention request failed occurrence_id=%s", alert["occurrence_id"])
                 try:
-                    _play_alert_audio(args=args, logger=logger, alert=alert)
-                    clear_audio_queue(frame_queue, pre_roll)
-                    runtime_state.next_wake_time = max(runtime_state.next_wake_time, time.time() + args.post_playback_block_seconds)
+                    if audible:
+                        _play_alert_audio(args=args, logger=logger, alert=alert)
+                        clear_audio_queue(frame_queue, pre_roll)
+                        runtime_state.next_wake_time = max(runtime_state.next_wake_time, time.time() + args.post_playback_block_seconds)
                 finally:
                     set_alarm_display_attention(False)
-                    finalize_foreground_handoff(
-                        control_url=args.music_control_url,
-                        api_key=str(getattr(args, "music_control_api_key", "") or "").strip(),
-                        handoff=handoff,
-                        logger=logger,
-                    )
+                    if handoff is not None:
+                        finalize_foreground_handoff(
+                            control_url=args.music_control_url,
+                            api_key=str(getattr(args, "music_control_api_key", "") or "").strip(),
+                            handoff=handoff,
+                            logger=logger,
+                        )
                 runtime_state.active_session_id, runtime_state.last_conversation_activity_at = get_active_session_id(
                     args.source,
                     getattr(runtime_state, "active_session_id", None),
@@ -236,11 +239,13 @@ def poll_due_alerts_if_needed(
                 alert["occurrence_id"] = occurrence_id
                 if kind == "alarm" and not set_alarm_display_attention(True):
                     logger.warning("Alarm display attention request failed occurrence_id=%s", occurrence_id)
-                if getattr(runtime_state, "active_timer_handoff", None) is None:
+                audible = bool((alert.get("metadata") or {}).get("audible", True))
+                if audible and getattr(runtime_state, "active_timer_handoff", None) is None:
                     runtime_state.active_timer_handoff = _begin_alert_handoff(
                         args=args, logger=logger, alert=alert
                     )
-                _play_alert_audio(args=args, logger=logger, alert=alert)
+                if audible:
+                    _play_alert_audio(args=args, logger=logger, alert=alert)
                 active_timers[occurrence_id or str(alert.get("alert_id") or "")] = {
                     **dict(alert),
                     "next_reassert_at": time.time() + (60.0 if kind == "alarm" else 30.0),
@@ -299,11 +304,13 @@ def poll_due_alerts_if_needed(
             current = active_timers.get(occurrence_id)
             if current is None:
                 timer["occurrence_id"] = occurrence_id
-                if getattr(runtime_state, "active_timer_handoff", None) is None:
+                audible = bool((timer.get("metadata") or {}).get("audible", True))
+                if audible and getattr(runtime_state, "active_timer_handoff", None) is None:
                     runtime_state.active_timer_handoff = _begin_alert_handoff(
                         args=args, logger=logger, alert=timer
                     )
-                _play_alert_audio(args=args, logger=logger, alert=timer)
+                if audible:
+                    _play_alert_audio(args=args, logger=logger, alert=timer)
                 if str(timer.get("kind") or "") == "alarm" and not set_alarm_display_attention(True):
                     logger.warning("Alarm display attention request failed occurrence_id=%s", occurrence_id)
                 timer["next_reassert_at"] = time.time() + (60.0 if str(timer.get("kind") or "") == "alarm" else 30.0)

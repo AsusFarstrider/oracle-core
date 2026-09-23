@@ -17,7 +17,7 @@ class OptionalConfigurationModelTests(unittest.TestCase):
         self.parser = RestrictedYamlParser()
 
     def test_every_fixed_optional_example_passes_its_registered_schema(self) -> None:
-        self.assertEqual(len(OPTIONAL_ROLE_MODELS), 11)
+        self.assertEqual(len(OPTIONAL_ROLE_MODELS), 13)
         for role_path in sorted(OPTIONAL_ROLE_MODELS):
             with self.subTest(role=role_path):
                 parsed = self.parser.parse((EXAMPLE_ROOT / role_path).read_text(encoding="utf-8"))
@@ -50,6 +50,8 @@ class OptionalConfigurationModelTests(unittest.TestCase):
             "domains/audiobooks.yaml": ("providers",),
             "domains/weather.yaml": ("providers",),
             "domains/calendar.yaml": ("providers",),
+            "domains/lists.yaml": ("providers",),
+            "domains/notes.yaml": ("providers",),
             "domains/home-assistant.yaml": ("providers",),
             "domains/notifications.yaml": ("providers", "types", "recipient_groups"),
             "domains/routines.yaml": ("definitions",),

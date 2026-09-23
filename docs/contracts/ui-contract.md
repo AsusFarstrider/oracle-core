@@ -31,6 +31,17 @@ Examples:
 - `/api/ui/audio`
 - `/api/ui/house`
 
+Stage 8 adds a bounded `/api/ui/household-status` snapshot for current DND
+state and coarse configured-person presence. It includes generation/freshness
+metadata, canonical display names and `home/away/unknown` only; it never
+exposes provider entity IDs, trackers, location, credentials, or authentication
+claims. It includes sanitized Lists/Notes availability summaries. The shared
+House page may separately request the existing bounded provider-backed
+Lists/Notes snapshots and individual note content, and use their typed action
+routes with existing confirmation rules. This household visibility is not
+per-user privacy or authorization. House Mode pairs these with existing
+routine-run status/cancel routes; it does not compose execution client-side.
+
 ### Snapshot-Based
 
 Alpha UI endpoints return snapshots.

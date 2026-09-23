@@ -139,6 +139,13 @@ The authority layer may report one primary output owner for status purposes, but
 
 The runtime may treat reply, acknowledgement cues, follow-up cues, due alerts, and sleep-expiry decisions as foreground-audio events.
 
+The Brain's Stage 8 communication-mode evaluator decides whether unsolicited
+audio is eligible before it reaches this handoff. DND does not redefine
+playback ownership, volume, interruption, or resume. Direct replies remain
+eligible; suppressed reminder/Calendar-alert audio never enters arbitration;
+alarm/timer audio enters only with the applicable definition or occurrence
+override. Satellites do not evaluate or override DND policy.
+
 For those events, the runtime must make one explicit handoff decision per event:
 
 - what is asking for the speaker

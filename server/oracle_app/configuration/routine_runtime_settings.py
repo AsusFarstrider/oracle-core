@@ -48,6 +48,7 @@ class RoutineRuntimeSettings:
     selection_operation_id: str
     selection_revision: int
     config_revision: str
+    household_timezone: str
     enabled: bool
     definitions: Mapping[str, RoutineDefinitionRuntimeSettings]
     global_voice_phrases: Mapping[str, str]
@@ -69,6 +70,60 @@ class RoutineRuntimeSettings:
         if role.enabled:
             for definition in role.definitions:
                 if not definition.enabled:
+                    continue
+                if definition.composition is not None:
+                    owner = household.user(definition.user_id)
+                    if owner is None:
+                        raise ValueError("Enabled canonical routine lacks its owning user.")
+                    sources: dict[str, SourceConfiguration] = {}
+                    for source_id in definition.source_ids:
+                        source = household.source(source_id)
+                        if source is None:
+                            raise ValueError("Enabled canonical routine lacks one of its sources.")
+                        sources[source_id] = source
+                    capability_ids = {
+                        operation.capability_id
+                        for operation in definition.composition.operations
+                        if operation.type == "capability"
+                    }
+                    predicates = {
+                        operation.predicate_id
+                        for operation in definition.composition.operations
+                        if operation.type == "wait_until"
+                    } | {
+                        operation.condition.reference_id
+                        for operation in definition.composition.operations
+                        if operation.condition is not None and operation.condition.source == "state"
+                    }
+                    if any(item.startswith("home.") for item in capability_ids) or "home_target_state" in predicates:
+                        if home_assistant is None:
+                            home_assistant = HomeAssistantRuntimeSettings.from_effective_config(effective)
+                        if not home_assistant.enabled:
+                            raise ValueError("Enabled composite routine requires Home Assistant.")
+                    if any(item.startswith("audiobooks.") for item in capability_ids) or "audiobook_playback" in predicates:
+                        if audiobooks is None:
+                            audiobooks = AudiobookRuntimeSettings.from_effective_config(effective)
+                        if not audiobooks.enabled:
+                            raise ValueError("Enabled composite routine requires audiobooks.")
+                    if "notifications.trigger" in capability_ids:
+                        notification_role = effective.role("domains/notifications.yaml")
+                        if not isinstance(notification_role, NotificationsConfiguration):
+                            raise TypeError("Effective notifications role does not use its executable schema.")
+                        notifications = notification_role
+                        if not notifications.enabled:
+                            raise ValueError("Enabled composite routine requires notifications.")
+                    definitions[definition.id] = RoutineDefinitionRuntimeSettings(
+                        definition=definition,
+                        owner=owner,
+                        sources=MappingProxyType(sources),
+                        steps=(),
+                    )
+                    for phrase in definition.triggers.global_phrases:
+                        global_phrases[_normalized_phrase(phrase)] = definition.id
+                    for source_id in definition.source_ids:
+                        index = source_phrases.setdefault(source_id, {})
+                        for phrase in definition.triggers.source_phrases:
+                            index[_normalized_phrase(phrase)] = definition.id
                     continue
                 owner = household.user(definition.user_id)
                 if owner is None:
@@ -129,6 +184,7 @@ class RoutineRuntimeSettings:
             selection_operation_id=effective.selection_operation_id,
             selection_revision=effective.selection_revision,
             config_revision=effective.config_revision,
+            household_timezone=household.household.timezone,
             enabled=role.enabled,
             definitions=MappingProxyType(definitions),
             global_voice_phrases=MappingProxyType(global_phrases),

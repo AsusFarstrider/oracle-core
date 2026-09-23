@@ -5,7 +5,7 @@ import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from oracle_app.configuration.domain_models import (
     HomeAssistantEventMapping,
@@ -48,6 +48,32 @@ class CanonicalNotificationExecutionTests(unittest.TestCase):
             ("living_room_voice",),
         )
         self.assertEqual(dispatch.call_args.kwargs["message"], runtime.definition.message)
+
+    def test_submission_emits_normalized_alert_trigger_without_changing_delivery_result(self) -> None:
+        execution, _runtime = self._execution(suppressed_by=[])
+        sink = Mock()
+        execution = CanonicalNotificationExecution(
+            settings=execution.settings,
+            home_assistant=execution.home_assistant,
+            satellites=execution.satellites,
+            trigger_sink=sink,
+        )
+        with (
+            patch(
+                "oracle_app.notifications.canonical.dispatch_satellite_announcement_values",
+                return_value={"status": "queued", "queued_targets": ["living_room_voice"], "target_count": 1},
+            ),
+            patch("oracle_app.notifications.canonical.record_notification_event"),
+        ):
+            result = execution.submit("door_open", "event-trigger-1", caller="test")
+
+        self.assertEqual(result["status"], "queued")
+        sink.assert_called_once_with(
+            kind="alert_event",
+            evidence_id="door_open",
+            state="triggered",
+            occurrence_id="event-trigger-1",
+        )
 
     def test_suppression_uses_exact_canonical_mode_mapping(self) -> None:
         execution, runtime = self._execution(suppressed_by=["quiet"])

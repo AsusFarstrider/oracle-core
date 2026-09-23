@@ -2760,3 +2760,61 @@ select {
   margin: 0.2rem 0 0;
   color: var(--muted);
 }
+
+.house-content-panel,
+.house-content-form {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.house-content-panel {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+}
+
+.house-content-form label,
+.house-content-panel > label,
+.house-content-panel .routine-list > label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.house-content-form input,
+.house-content-form textarea,
+.house-content-panel select,
+.house-content-panel textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font: inherit;
+}
+
+.house-content-form :is(input, textarea):focus-visible,
+.house-content-panel :is(select, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.house-content-panel .list-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.house-content-panel .row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

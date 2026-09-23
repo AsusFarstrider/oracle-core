@@ -105,4 +105,116 @@ def semantic_diff(before: NormalizedBundle, after: NormalizedBundle) -> tuple[Se
                 break
         else:
             raise RuntimeError(f"Access safety classification lacks semantic change path {path!r}.")
+    if _composite_power_expanded(before.configuration, after.configuration):
+        reviewed_prefixes = (
+            "roles.domains/routines.yaml",
+            "roles.domains/home-assistant.yaml",
+            "roles.domains/audiobooks.yaml",
+            "roles.domains/notifications.yaml",
+            "roles.household.yaml",
+        )
+        for index, change in enumerate(changes):
+            if change.path.startswith(reviewed_prefixes):
+                changes[index] = replace(
+                    change,
+                    safety_acknowledgements=tuple(sorted(
+                        set(change.safety_acknowledgements) | {"runbook_power_expansion"}
+                    )),
+                )
+                break
+        else:
+            raise RuntimeError("Composite safety expansion lacks a reviewed semantic change.")
     return tuple(changes)
+
+
+def _composite_power_expanded(before: Mapping[str, Any], after: Mapping[str, Any]) -> bool:
+    from oracle_app.capabilities.preauthorization import required_safety_acknowledgements
+    from oracle_app.capabilities.semantic import SEMANTIC_CAPABILITY_REGISTRY
+
+    from .composite_semantics import composite_review_digest, validate_composite_collection
+    from .domain_models import RoutinesConfiguration
+
+    def routines(configuration: Mapping[str, Any]) -> RoutinesConfiguration | None:
+        role = configuration.get("roles", {}).get("domains/routines.yaml")
+        return RoutinesConfiguration.model_validate(_plain(role)) if role is not None else None
+
+    before_role = routines(before)
+    after_role = routines(after)
+    if after_role is None or not after_role.enabled:
+        return False
+    before_by_id = {} if before_role is None else {item.id: item for item in before_role.definitions}
+    before_manifests = {} if before_role is None else validate_composite_collection(before_role.definitions)
+    after_manifests = validate_composite_collection(after_role.definitions)
+    for definition in after_role.definitions:
+        composition = definition.composition
+        if not definition.enabled or composition is None or not composition.preauthorize_consequential:
+            continue
+        previous = before_by_id.get(definition.id)
+        previous_authorized = (
+            previous is not None and previous.enabled and previous.composition is not None
+            and previous.composition.preauthorize_consequential
+        )
+        previous_manifest = before_manifests.get(definition.id) if previous_authorized else None
+        if previous_manifest is None:
+            return True
+        if required_safety_acknowledgements(
+            SEMANTIC_CAPABILITY_REGISTRY, previous_manifest, after_manifests[definition.id]
+        ):
+            return True
+        if composite_review_digest(previous) != composite_review_digest(definition):
+            return True
+        if _reviewed_target_binding_changed(before, after, after_manifests[definition.id], definition):
+            return True
+    return False
+
+
+def _reviewed_target_binding_changed(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+    manifest: Any,
+    definition: Any,
+) -> bool:
+    """A stable Oracle ID cannot hide a changed provider or household binding."""
+    before_roles = before.get("roles", {})
+    after_roles = after.get("roles", {})
+    capability_ids = {power.capability_id for power in manifest.powers}
+    targets = {target for power in manifest.powers for target in power.target_ids}
+    if any(item.startswith("home.") for item in capability_ids):
+        role_name = "domains/home-assistant.yaml"
+        previous, current = before_roles.get(role_name, {}), after_roles.get(role_name, {})
+        if (previous.get("provider"), previous.get("providers")) != (current.get("provider"), current.get("providers")):
+            return True
+        mapping_ids = {
+            scope
+            for power in manifest.powers
+            for name, scope in power.argument_bindings
+            if name == "mapping_id"
+        }
+
+        def selected_mappings(role: Mapping[str, Any]) -> dict[str, Any]:
+            return {
+                mapping_id: mapping for mapping_id, mapping in role.get("mappings", {}).items()
+                if mapping_id in mapping_ids or mapping.get("oracle_id") in targets
+            }
+
+        if selected_mappings(previous) != selected_mappings(current):
+            return True
+    if any(item.startswith("audiobooks.") for item in capability_ids):
+        if before_roles.get("domains/audiobooks.yaml") != after_roles.get("domains/audiobooks.yaml"):
+            return True
+    if any(item.startswith("notifications.") for item in capability_ids):
+        if before_roles.get("domains/notifications.yaml") != after_roles.get("domains/notifications.yaml"):
+            return True
+    selected_ids = targets | {definition.user_id, *definition.source_ids}
+
+    def household_bindings(role: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            category: {
+                item["id"]: item for item in role.get(category, ()) if item["id"] in selected_ids
+            }
+            for category in ("users", "sources", "rooms")
+        }
+
+    return household_bindings(before_roles.get("household.yaml", {})) != household_bindings(
+        after_roles.get("household.yaml", {})
+    )

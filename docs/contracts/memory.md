@@ -105,8 +105,8 @@ Do not create separate durable SQLite stores for operational records without a d
 
 ## Required Core Tables
 
-Current development schema `0011_suggestions_advisory_review` retains the
-`0010_alert_lifecycle` alert tables and includes:
+Current development schema `0013_composite_runbook_execution` retains the
+`0011_suggestions_advisory_review` and `0010_alert_lifecycle` tables and includes:
 
 - `memory_schema_migrations`
 - `memory_users`
@@ -124,6 +124,7 @@ Current development schema `0011_suggestions_advisory_review` retains the
 - `memory_alert_occurrences`
 - `memory_alert_occurrence_transitions`
 - `memory_alert_acknowledgements`
+- `memory_communication_modes`
 - `suggestion_runs`
 - `suggestions`
 - `suggestion_reviews`
@@ -132,6 +133,18 @@ Current development schema `0011_suggestions_advisory_review` retains the
 Schema `0011_suggestions_advisory_review` adds run-level Suggestions collection
 status, normalized failure class, and suppressed-repeat count. These are review
 and diagnostic records only; they cannot authorize execution.
+
+Schema `0012_communication_modes` adds the sole durable Brain-owned active DND
+state and optional expiry. It stores no provider state and does not alter alert,
+notification, schedule, occurrence, delivery, or acknowledgement truth.
+Bounded expiry is reconciled transactionally on read after process or host
+restart.
+
+Schema `0013_composite_runbook_execution` adds nullable parent run and parent
+operation identity plus their lookup index to the existing orchestration run
+store. Composite attempt, repetition, wait/poll, sanitized result, and child
+state remain bounded operation metadata in the existing step payload; no
+second workflow store or scheduler is introduced.
 
 The orchestration tables are also the compatibility store for the staged
 runbook-kernel extraction. Schema version `0004_runbook_kernel_metadata` adds

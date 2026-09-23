@@ -33,12 +33,14 @@ from .memory.identity_reconciliation import reconcile_identities
 from .memory.correlation import correlation_context
 from .memory.orchestrations import safe_reconcile_interrupted_orchestration_runs
 from .memory.runtime import safe_record_event
+from .memory.store import DB_PATH as MEMORY_DB_PATH
 from .memory.sources import default_internal_sources, seed_sources
 from .network_control_local_restart import safe_complete_pending_local_host_restart
 from .network_control_local_service_restart import safe_complete_pending_local_service_restart
 from .network_control_results import (
     safe_reconcile_interrupted_network_controls,
     safe_restore_network_control_results_from_memory,
+    safe_restore_network_control_cooldowns_from_memory,
 )
 from .notifications.external_worker import (
     external_delivery_worker_loop,
@@ -154,6 +156,7 @@ def admin_cache_diagnostics() -> dict[str, object]:
 
 @asynccontextmanager
 async def lifespan(target_app: FastAPI):
+    network_audit_preexisting = MEMORY_DB_PATH.is_file()
     startup = resolve_brain_configuration_startup()
     startup_composition = CanonicalBrainApplicationComposition.from_startup(startup)
     install_brain_application_composition(target_app, startup_composition)
@@ -179,6 +182,9 @@ async def lifespan(target_app: FastAPI):
         reconciled_orchestration_interruptions = safe_reconcile_interrupted_orchestration_runs()
         reconciled_network_control_interruptions = safe_reconcile_interrupted_network_controls()
         restored_network_control_results = safe_restore_network_control_results_from_memory()
+        restored_network_control_cooldowns = safe_restore_network_control_cooldowns_from_memory(
+            audit_preexisting=network_audit_preexisting,
+        )
         findings: list[dict[str, object]] = []
         if findings_have_errors(findings):
             raise RuntimeError("Brain config validation failed")
@@ -213,6 +219,7 @@ async def lifespan(target_app: FastAPI):
                 "reconciled_network_control_interruption_count": reconciled_network_control_interruptions,
                 "reconciled_orchestration_interruption_count": reconciled_orchestration_interruptions,
                 "restored_network_control_result_count": restored_network_control_results,
+                "restored_network_control_cooldown_count": restored_network_control_cooldowns,
                 "local_restart_completion_status": str(local_restart_completion.get("status") or "none"),
                 "cache_maintenance": cache_maintenance,
             },
@@ -251,6 +258,9 @@ async def lifespan(target_app: FastAPI):
                     routine_scheduler_loop(
                         adapters=startup_composition.routine_execution.adapters,
                         required_config_revision=startup_composition.routine_execution.settings.config_revision,
+                        automatic_trigger_tick=lambda: startup_composition.routine_execution.automatic_trigger_tick(
+                            network_execution=startup_composition.network_execution,
+                        ),
                     )
                 )
             )
@@ -259,6 +269,7 @@ async def lifespan(target_app: FastAPI):
                 alert_scheduler_loop(
                     household=startup_composition.runtime.household,
                     audiobook_execution=startup_composition.audiobook_execution,
+                    calendar_execution=startup_composition.calendar_execution,
                     satellites=startup_composition.runtime.satellites,
                 )
             )

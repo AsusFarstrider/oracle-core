@@ -239,6 +239,25 @@ class CanonicalCalendarExecution:
         self._cache.invalidate("calendar:events:")
         return committed
 
+    def mutate_event(self, mutation: dict[str, Any]) -> dict[str, Any]:
+        source_id = str(mutation.get("source_id") or "")
+        calendar_id = str(mutation.get("calendar_id") or source_id)
+        if source_id != self.settings.write.feed_id or calendar_id != source_id:
+            raise CalendarBridgeConfigurationError(
+                "calendar_source_not_writable",
+                "The selected event is not in the configured writable Calendar source.",
+            )
+        result = self.bridge.mutate_typed_event(
+            uid=str(mutation.get("uid") or ""),
+            operation=str(mutation.get("operation") or ""),
+            changes=dict(mutation.get("changes") or {}),
+            recurrence_scope=str(mutation.get("recurrence_scope") or "series"),
+            recurrence_id=str(mutation.get("recurrence_id") or "") or None,
+            settings=self.settings,
+        )
+        self._cache.invalidate("calendar:events:")
+        return result
+
     def health(self) -> dict[str, Any]:
         configured = self.settings.enabled and self.settings.read.enabled and bool(self.settings.read.feeds)
         if not configured:

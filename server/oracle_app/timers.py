@@ -27,6 +27,7 @@ from .memory.alert_lifecycle import (
 )
 from .memory.alerts import ALERT_STATUSES, AlertRecord, list_alert_records
 from .memory.store import DB_PATH
+from .communication_modes import new_alert_requires_dnd_clarification
 
 
 MAX_TIMER_SECONDS = 7 * 24 * 60 * 60
@@ -168,6 +169,13 @@ def execute_timer_command(
         )
         if new_due <= clock:
             raise ValueError("That adjustment would end the timer now or in the past. Cancel it instead.")
+        if new_alert_requires_dnd_clarification(
+            normalized, household=household, now=clock, due_at=new_due, db_path=db_path,
+        ):
+            return (
+                "Do Not Disturb is active then. Should this timer sound anyway?",
+                _details("adjust", status="clarification_required", clarification_kind="dnd_new_alert", options=["sound anyway", "keep it silent"], original_text=normalized, subject_text="timer"),
+            )
         updated = reschedule_alert_occurrence(
             selected.occurrence.occurrence_id,
             due_at=new_due,
@@ -184,7 +192,12 @@ def execute_timer_command(
             actor_id=source_id,
             reason="timer_adjusted",
             now=clock,
-            metadata_update={"duration_seconds": effective_duration},
+            metadata_update={
+                "duration_seconds": effective_duration,
+                "dnd_occurrence_override": _occurrence_dnd_override(
+                    normalized, bool(selected.occurrence.metadata.get("dnd_occurrence_override"))
+                ),
+            },
             db_path=db_path,
         )
         adjusted = TimerSubject(selected.schedule, updated, selected.delivery)
@@ -286,6 +299,13 @@ def _create_timer(
         raise ValueError("That timer target has no enabled alert-capable satellite.")
     name = _timer_name(normalized, duration_text=duration_text, target_phrase=target_phrase)
     due_at = now + timedelta(seconds=duration_seconds)
+    if new_alert_requires_dnd_clarification(
+        normalized, household=household, now=now, due_at=due_at, db_path=db_path,
+    ):
+        return (
+            "Do Not Disturb is active then. Should this timer sound anyway?",
+            _details("create", status="clarification_required", clarification_kind="dnd_new_alert", options=["sound anyway", "keep it silent"], original_text=normalized, subject_text="timer"),
+        )
     label = f"{name.title()} timer" if name else "Timer"
     schedule, _created = create_semantic_alert_schedule(
         kind="timer",
@@ -309,7 +329,10 @@ def _create_timer(
         actor_id=source_id,
         reason="timer_created",
         now=now,
-        metadata_update={"duration_seconds": duration_seconds},
+        metadata_update={
+            "duration_seconds": duration_seconds,
+            "dnd_occurrence_override": _dnd_override_requested(normalized),
+        },
         db_path=db_path,
     )
     target_words = (
@@ -476,6 +499,18 @@ def _context_unit_seconds(context: dict[str, Any] | None, subject: TimerSubject)
         return Decimal(3600)
     seconds = subject.duration_seconds
     return Decimal(3600 if seconds and seconds % 3600 == 0 else 60 if seconds >= 60 else 1)
+
+
+def _dnd_override_requested(text: str) -> bool:
+    return bool(re.search(r"\b(?:even|sound|ring) (?:while|during|through) (?:dnd|do not disturb|quiet mode)\b", text))
+
+
+def _occurrence_dnd_override(text: str, current: bool) -> bool:
+    if re.search(r"\b(?:silent|silently|do not sound).{0,20}(?:dnd|do not disturb|quiet mode)\b", text):
+        return False
+    if _dnd_override_requested(text):
+        return True
+    return current
 
 
 def _operation(text: str) -> str:

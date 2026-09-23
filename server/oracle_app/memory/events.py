@@ -40,6 +40,7 @@ class EventQuery:
     domain: str | None = None
     observed_after: str | None = None
     observed_before: str | None = None
+    created_after: str | None = None
     limit: int = 100
     offset: int = 0
 
@@ -136,6 +137,10 @@ def query_events(query: EventQuery | None = None, *, db_path: Path | None = None
     if observed_before:
         where.append("observed_at <= ?")
         args.append(observed_before)
+    created_after = _clean_filter(query.created_after)
+    if created_after:
+        where.append("created_at >= ?")
+        args.append(created_after)
     if where:
         sql += " WHERE " + " AND ".join(where)
     limit = _clamp_limit(query.limit)

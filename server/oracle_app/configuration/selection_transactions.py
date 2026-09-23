@@ -8,6 +8,7 @@ import secrets
 from typing import Mapping
 
 from .generations import GenerationIntegrityError, GenerationStore, _fsync_directory, _json_bytes, _read_json, _write_new
+from .safety_acknowledgements import KNOWN_SAFETY_ACKNOWLEDGEMENTS
 
 
 SELECTION_TRANSACTION_FORMAT = "oracle-selection-transaction-v1"
@@ -25,9 +26,6 @@ _AUDIT_OPERATIONS = frozenset(
     {"activate", "rollback", "replace_authored_candidate", "create_secret", "replace_secret", "rotate_secret", "remove_secret"}
 )
 _ACTORS = frozenset({"service", "host_local_cli", "system_mode"})
-_ACKNOWLEDGEMENTS = frozenset(
-    {"access_expansion", "credential_role_change", "identity_removal", "mutating_control_enablement", "public_health_enablement"}
-)
 
 
 class SelectionRecoveryAmbiguous(GenerationIntegrityError):
@@ -141,7 +139,9 @@ class SelectionTransactionEnvelope:
             or SELECTION_OPERATION_ID_PATTERN.fullmatch(self.previous_selection_operation_id) is None
         ):
             raise SelectionRecoveryAmbiguous("Previous selection operation identity is invalid.")
-        if tuple(sorted(set(self.acknowledgements))) != self.acknowledgements or not set(self.acknowledgements).issubset(_ACKNOWLEDGEMENTS):
+        if tuple(sorted(set(self.acknowledgements))) != self.acknowledgements or not set(
+            self.acknowledgements
+        ).issubset(KNOWN_SAFETY_ACKNOWLEDGEMENTS):
             raise SelectionRecoveryAmbiguous("Selection acknowledgements are invalid.")
         self._projection_map(self.previous_satellite_projection_activation_ids, "previous")
         self._projection_map(self.target_satellite_projection_activation_ids, "target")

@@ -1,0 +1,4 @@
+# Nextcloud Calendar provider bridge only.
+-r requirements.txt
+icalendar==7.3.0
+recurring-ical-events==3.8.1

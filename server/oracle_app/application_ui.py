@@ -12,7 +12,6 @@ from .calendar_runtime import CalendarReadUnavailableError
 from .configuration.request_source_resolution import ResolvedRequestSource
 from .home_assistant_actions import (
     execute_home_assistant_ui_action,
-    resolve_home_assistant_dynamic_ui_action,
 )
 from .network import build_ui_network_health_snapshot
 from .schemas import (
@@ -42,6 +41,8 @@ from .ui_calendar import (
     build_ui_calendar_unavailable_page_snapshot,
     build_ui_calendar_unavailable_snapshot,
     ui_calendar_confirm_impl as _ui_calendar_confirm_impl,
+    ui_calendar_mutation_draft_impl as _ui_calendar_mutation_draft_impl,
+    ui_calendar_mutation_confirm_impl as _ui_calendar_mutation_confirm_impl,
 )
 from .ui_context import ui_context_start_impl, ui_alarm_cancel_impl as _ui_alarm_cancel_impl
 from .ui_house import (
@@ -219,6 +220,29 @@ def _ui_calendar_confirm_impl_cached(payload):
     return result
 
 
+def _ui_calendar_mutation_draft_impl_cached(payload, request: Request):
+    resolved = _canonical_http_request_source(payload.source_id, request)
+    if resolved is None or not resolved.stable or resolved.request_source_id != payload.source_id:
+        raise HTTPException(status_code=403, detail="Calendar mutation requires an authenticated stable source.")
+    composition = brain_application_composition(request.app)
+    if composition.calendar_execution is None:
+        raise HTTPException(status_code=409, detail="Calendar is disabled in canonical configuration.")
+    return _ui_calendar_mutation_draft_impl(payload, canonical_execution=composition.calendar_execution)
+
+
+def _ui_calendar_mutation_confirm_impl_cached(payload, request: Request):
+    resolved = _canonical_http_request_source(payload.source_id, request)
+    if resolved is None or not resolved.stable or resolved.request_source_id != payload.source_id:
+        raise HTTPException(status_code=403, detail="Calendar mutation requires an authenticated stable source.")
+    composition = brain_application_composition(request.app)
+    if composition.calendar_execution is None:
+        raise HTTPException(status_code=409, detail="Calendar is disabled in canonical configuration.")
+    result = _ui_calendar_mutation_confirm_impl(payload, canonical_execution=composition.calendar_execution)
+    if bool(result.get("ok")):
+        invalidate_cached_snapshots("ui_calendar_")
+    return result
+
+
 def _build_ui_home_snapshot() -> dict[str, object]:
     composition = brain_application_composition(app)
     home_assistant = build_canonical_ui_home_assistant_snapshot(
@@ -368,6 +392,7 @@ def _build_application_satellite_ui_home_snapshot(satellite_id: str | None) -> d
         fleet_settings=composition.runtime.satellite_ui,
         household_settings=composition.runtime.household,
         routine_settings=composition.runtime.routines,
+        routine_execution=composition.routine_execution,
     )
     config = build_satellite_ui_config(
         satellite_id,
@@ -598,57 +623,11 @@ def _ui_action_impl(payload: UiActionRequest) -> dict[str, object]:
     direct_result = execute_home_assistant_ui_action(
         action_id,
         home_assistant_settings=home_assistant_settings,
+        confirmed=payload.confirmed,
     )
     if direct_result is not None:
         return direct_result
-    action_spec = resolve_home_assistant_dynamic_ui_action(
-        action_id,
-        home_assistant_settings=home_assistant_settings,
-    )
-    if not action_spec:
-        raise HTTPException(status_code=404, detail=f"Unknown ui action {action_id}")
-    command_text = str(action_spec["command_text"])
-    requires_source = bool(action_spec.get("requires_source"))
-    action_source = _validate_ui_action_source(payload.source) if requires_source else None
-    refresh_pages = list(action_spec.get("refresh_pages") or ["home"])
-    response = command_request(
-        CommandRequest(
-            text=command_text,
-            source=action_source or client_id,
-            session_id=f"ui-action:{client_id}" if action_source is None else f"ui-action:{client_id}:{action_source}",
-            playback_target_source_id=action_source,
-        )
-    )
-    status = str(response.dispatch.status or "")
-    if status == "pending_confirmation" and bool(action_spec.get("auto_confirm_pending")):
-        response = command_request(
-            CommandRequest(
-                text="confirm",
-                source=action_source or client_id,
-                session_id=f"ui-action:{client_id}" if action_source is None else f"ui-action:{client_id}:{action_source}",
-                playback_target_source_id=action_source,
-            )
-        )
-        status = str(response.dispatch.status or "")
-    ok = status in {"executed", "pending_confirmation", "pending_clarification"}
-    result_payload: dict[str, object] = {
-        "status": status,
-        "message": response.reply_text or ("Action executed." if ok else "Action failed."),
-    }
-    if response.reply_text:
-        result_payload["reply_text"] = response.reply_text
-
-    output: dict[str, object] = {
-        "ok": ok,
-        "action_id": action_id,
-        "result": result_payload,
-        "refresh": {"refresh_pages": refresh_pages},
-    }
-    if not ok:
-        dispatch_result = response.dispatch.result or {}
-        output["error"] = str(dispatch_result.get("error") or "action_failed")
-        output["detail"] = str(dispatch_result.get("detail") or response.reply_text or "Action failed.")
-    return output
+    raise HTTPException(status_code=404, detail=f"Unknown ui action {action_id}")
 
 
 def _routine_ui_action_adapter(

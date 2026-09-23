@@ -8,9 +8,10 @@ which consumes HA event evidence and owns delayed workflows.
 
 - `handlers/home_assistant.py` owns command confirmation, room context, dispatch
   status, and reply-facing behavior.
-- `home_assistant_actions.py` owns curated UI action IDs, dynamic climate
-  adjustments, provider error normalization, and verified action outcomes.
-- `provider_bridges/home_assistant.py` owns HA conversation, service, entity
+- `home_assistant_actions.py` owns deterministic finite resolution, shared
+  voice/UI/runbook semantic risk, configured action IDs, climate policy, error
+  normalization, and verified action outcomes.
+- `provider_bridges/home_assistant.py` owns exact typed HA operations, entity
   state, polling, authentication, and payload translation mechanics.
 - `api.py` assembles the public route families; `application_command.py` and
   `application_ui.py` delegate interactive HA work. None owns HA service names
@@ -20,6 +21,41 @@ which consumes HA event evidence and owns delayed workflows.
 entity IDs, service names, credentials, or provider-native payloads. Task
 routines that use curated UI actions execute through the same Brain-owned
 action path.
+
+## Ratified Finite Interactive Target
+
+Stage 8 retires Home Assistant Conversation as mutating authority. Every public
+voice, UI, and runbook mutation must resolve a finite Oracle-owned semantic
+action, Oracle target, typed bounded arguments, semantic risk, and expected
+result before the provider bridge is called. The bridge translates only that
+typed request into an allowlisted provider service operation. There is no
+mutating natural-language Conversation fallback.
+
+Read-only provider discovery may remain an implementation aid, but discovered
+entities, services, scripts, scenes, or automations are not callable authority.
+Provider-owned unit actions become callable only through explicit configured
+Oracle mappings; Home Assistant owns their internals and Oracle authorizes the
+mapped unit rather than recursively inspecting its steps.
+
+Risk is semantic and interface-independent. Lock/close/arm directions are
+normally low friction; unlock/open/disarm require confirmation. Environmental
+changes within configured normal bounds are ordinary, changes outside normal
+but within actual provider/device bounds require confirmation, and changes
+outside provider/device capability fail. Scope participates in risk without
+making every multi-target operation consequential.
+
+Typed results distinguish verified state change, accepted but unverified,
+rejected/unsupported, unavailable, failed, and outcome unknown. Provider
+acceptance is not success when state can be verified. Ambiguous callable names
+clarify and produce a persistent non-blocking warning; Oracle never silently
+chooses between a runbook and provider action.
+
+Presence is implemented as read-only current provider evidence. Only explicitly configured HA
+`person` mappings may associate a provider entity with a canonical Oracle user,
+and Oracle normalizes only `home`, `away`, or `unknown`. Raw device trackers,
+coordinates, non-home zones, history, room inference, and find-device behavior
+remain provider-only. Source `associated_user_id` is context, never presence
+proof.
 
 ## Context and ambiguity
 
@@ -73,20 +109,33 @@ read only canonical room vocabulary. Home Assistant entity discovery may still
 help recognize provider entities, but it cannot override a configured room
 term or create Oracle room identity.
 
-Canonical handler and curated-action execution now construct the provider
-bridge directly from that immutable view. Conversation, service, and entity
-requests use the selected provider URL, credential, and timeout without calling
-a compatibility settings getter. Curated public action IDs resolve exact typed action or
-entity mappings; a missing role, missing mapping, unsupported operation, or
-incomplete provider fails closed and never falls back to a hardcoded provider
-target. Confirmed actions re-enter through the same installed handler,
+Canonical handler and shared semantic execution construct the provider bridge
+directly from that immutable view. Exact typed operations and entity-state
+reads use the selected provider URL, credential, and timeout without calling a
+compatibility settings getter. Curated public action IDs and finite voice
+grammar resolve exact typed action or entity mappings; a missing role, missing
+mapping, unsupported operation, ambiguous target, or incomplete provider fails
+closed and never falls back to a hardcoded or discovered provider target.
+Configured aliases and normal climate bounds live on mappings; actual provider
+minimum/maximum and unit evidence is checked before climate dispatch. Confirmed
+actions re-enter through the same installed handler,
 so approval cannot switch configuration authority. Home, House, Room,
 camera-snapshot, and HA-health reads now use the same immutable runtime view
 under canonical composition and cannot consult hardcoded household inventories,
-provider discovery, or compatibility getters. A separate immutable satellite-UI view
+provider discovery, or compatibility getters. The reconstructable entity cache
+remains available to interpretation/read/advisory consumers but cannot create a
+callable target or alias and is not consulted for mutation authorization. A
+separate immutable satellite-UI view
 supplies only enabled UI definitions; the operational satellite fleet remains a
 narrower control-edge view. No typed settings are converted into compatibility
 dictionaries.
+
+The same applied mapping registry now admits `person_presence` entries. Whole-
+bundle validation requires each entry to bind one unique enabled canonical user
+to one unique provider `person` entity with read-only operation. System-owned
+presence queries resolve people through household user vocabulary, read only
+those mappings, collapse provider-specific non-home zones to `away`, and expose
+no entity ID, zone name, coordinate, tracker, or history value.
 
 Canonical event ingress now selects its credential, provider-event mappings,
 and enabled automation definitions from the installed application composition.

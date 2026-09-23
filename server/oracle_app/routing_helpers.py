@@ -339,8 +339,7 @@ def canonicalize_home_command(
     *,
     household_settings: HouseholdRuntimeSettings,
 ) -> str:
-    cache = load_home_assistant_cache()
-    rooms = _room_vocabulary(household_settings, cache=cache)
+    rooms = _room_vocabulary(household_settings)
     normalized = text
     replacements: set[tuple[int, str, str]] = set()
     canonical_room_terms: set[str] = set()
@@ -366,27 +365,6 @@ def canonicalize_home_command(
     for _, alias_text, spoken_name in ordered_replacements:
         pattern = build_room_alias_pattern(alias_text)
         normalized = re.sub(pattern, spoken_name, normalized)
-
-    entities = cache.get("entities", [])
-    if isinstance(entities, list):
-        entity_replacements: set[tuple[int, str, str]] = set()
-        for entity in entities:
-            spoken_name = str(entity.get("friendly_name", "")).strip().lower()
-            aliases = entity.get("aliases", [])
-            if not spoken_name or not isinstance(aliases, list):
-                continue
-            if spoken_name not in canonical_room_terms:
-                entity_replacements.add((len(spoken_name), spoken_name, spoken_name))
-            for alias in aliases:
-                alias_text = str(alias).strip().lower()
-                if not alias_text:
-                    continue
-                if alias_text in canonical_room_terms:
-                    continue
-                entity_replacements.add((len(alias_text), alias_text, spoken_name))
-        for _, alias_text, spoken_name in sorted(entity_replacements, reverse=True):
-            pattern = build_room_alias_pattern(alias_text)
-            normalized = re.sub(pattern, spoken_name, normalized)
 
     return normalized
 

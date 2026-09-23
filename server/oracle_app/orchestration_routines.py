@@ -15,6 +15,7 @@ from fastapi import HTTPException
 
 from .memory.runtime import safe_record_event
 from .runbook_kernel import RunbookActivation, RunbookDefinitionRef, RunbookRepository
+from .runbook_kernel.registry import routine_controller_registration
 
 
 logger = logging.getLogger("oracle-brain.orchestration.routines")
@@ -58,6 +59,10 @@ def start_routine(
     definition: dict[str, Any] | None = None,
     adapters: Mapping[str, RoutineAdapter] | None = None,
     config_revision: str | None = None,
+    definition_catalog: Mapping[str, dict[str, Any]] | None = None,
+    invocation: str = "manual",
+    activation_idempotency_key: str = "",
+    trigger: Mapping[str, Any] | None = None,
     defer_audible_start: bool = False,
     db_path: Path | None = None,
 ) -> dict[str, Any]:
@@ -66,6 +71,24 @@ def start_routine(
         raise HTTPException(status_code=409, detail="Routine definition identity does not match the requested routine.")
     if definition.get("enabled") is not True:
         raise HTTPException(status_code=409, detail="Routine is disabled.")
+    registration = routine_controller_registration(definition)
+    if not registration.execution_available:
+        raise HTTPException(status_code=409, detail="Routine execution is unavailable.")
+    if definition.get("composition") is not None:
+        from .orchestration_composites import start_composite
+
+        return start_composite(
+            definition,
+            client_id=client_id,
+            inputs=inputs,
+            config_revision=str(config_revision or ""),
+            adapters=adapters or _ADAPTERS,
+            definition_catalog=definition_catalog,
+            invocation=invocation,
+            activation_idempotency_key=activation_idempotency_key,
+            trigger=trigger,
+            db_path=db_path,
+        )
     resolved_inputs = _resolve_inputs(definition, inputs or {})
     repository = _repository(db_path)
     with _START_LOCK:
@@ -149,6 +172,10 @@ def advance_routine(
     repository = _repository(db_path)
     with _RUN_LOCK:
         run = _require_run(run_id, repository=repository)
+        if str(run.get("controller_version") or "") == "2":
+            from .orchestration_composites import advance_composite
+
+            return advance_composite(run_id, db_path=db_path, adapters=adapters or _ADAPTERS)
         if run["status"] not in {"running", "waiting"}:
             return run
         payload = dict(run.get("payload") or {})
@@ -279,7 +306,20 @@ def resume_due_routines(
     current = now or _utc_datetime()
     resumed: list[dict[str, Any]] = []
     repository = _repository(db_path)
+    if required_config_revision is not None:
+        from .orchestration_composites import resume_composite_runs
+
+        resumed.extend(
+            resume_composite_runs(
+                adapters=adapters or _ADAPTERS,
+                required_config_revision=required_config_revision,
+                now=current,
+                db_path=db_path,
+            )
+        )
     for run in repository.list_runs(kind="routine", status="waiting", limit=100):
+        if str(run.get("controller_version") or "") == "2":
+            continue
         if str(run.get("definition_domain") or "") == "home_automation":
             continue
         payload = dict(run.get("payload") or {})
@@ -373,10 +413,20 @@ def cancel_routine(
     *,
     cancellation_requester: str = "",
     db_path: Path | None = None,
+    adapters: Mapping[str, RoutineAdapter] | None = None,
 ) -> dict[str, Any]:
     repository = _repository(db_path)
     with _RUN_LOCK:
         run = _require_run(run_id, repository=repository)
+        if str(run.get("controller_version") or "") == "2":
+            from .orchestration_composites import cancel_composite
+
+            return cancel_composite(
+                run_id,
+                requester=cancellation_requester,
+                adapters=adapters or _ADAPTERS,
+                db_path=db_path,
+            )
         if run["kind"] != "routine":
             raise HTTPException(status_code=409, detail="Only task routines can be canceled.")
         if run["status"] == "running":
@@ -419,9 +469,12 @@ async def routine_scheduler_loop(
     poll_seconds: float = 5.0,
     adapters: Mapping[str, RoutineAdapter] | None = None,
     required_config_revision: str | None = None,
+    automatic_trigger_tick: Callable[[], object] | None = None,
 ) -> None:
     while True:
         try:
+            if automatic_trigger_tick is not None:
+                await asyncio.to_thread(automatic_trigger_tick)
             await asyncio.to_thread(
                 resume_due_routines,
                 adapters=adapters,

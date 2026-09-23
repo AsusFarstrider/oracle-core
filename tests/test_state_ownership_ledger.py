@@ -50,6 +50,7 @@ REQUIRED_STATE_IDS = {
     "memory.alert_occurrences",
     "memory.alert_occurrence_transitions",
     "memory.alert_acknowledgements",
+    "memory.communication_modes",
     "network.status_cache",
     "network.control_guard",
     "network.control_results",
@@ -118,9 +119,9 @@ def test_ledger_entries_resolve_every_required_field_and_evidence_path() -> None
                 assert (ROOT / relative).exists(), (entry["id"], relative)
 
 
-def test_all_twenty_canonical_memory_tables_have_stable_ledger_entries() -> None:
+def test_all_twenty_one_canonical_memory_tables_have_stable_ledger_entries() -> None:
     tables = _sqlite_tables(SCHEMA_PATH) | _sqlite_tables(SUGGESTIONS_STORAGE_PATH)
-    assert len(tables) == 20
+    assert len(tables) == 21
     ledger_ids = {entry["id"] for entry in _ledger()["entries"]}
     assert {_memory_state_id(table) for table in tables} <= ledger_ids
 

@@ -11,6 +11,7 @@ from .home_assistant_runtime_settings import HomeAssistantRuntimeSettings
 from .household_runtime_settings import HouseholdRuntimeSettings
 from .information_runtime_settings import InformationRuntimeSettings
 from .music_runtime_settings import MusicRuntimeSettings
+from .lists_notes_runtime_settings import ListsRuntimeSettings, NotesRuntimeSettings
 from .network_adapter_runtime_settings import NetworkAdaptersRuntimeSettings
 from .network_inventory_runtime_settings import NetworkInventoryRuntimeSettings
 from .network_policy_runtime_settings import NetworkPolicyRuntimeSettings
@@ -36,6 +37,8 @@ class BrainEffectiveRuntimeSettings:
     audiobooks: AudiobookRuntimeSettings | None
     weather: WeatherRuntimeSettings | None
     calendar: CalendarRuntimeSettings | None
+    lists: ListsRuntimeSettings | None
+    notes: NotesRuntimeSettings | None
     home_assistant: HomeAssistantRuntimeSettings | None
     notifications: NotificationRuntimeSettings | None
     routines: RoutineRuntimeSettings | None
@@ -79,6 +82,16 @@ class BrainEffectiveRuntimeSettings:
             calendar=(
                 CalendarRuntimeSettings.from_effective_config(effective)
                 if "domains/calendar.yaml" in roles
+                else None
+            ),
+            lists=(
+                ListsRuntimeSettings.from_effective_config(effective)
+                if "domains/lists.yaml" in roles
+                else None
+            ),
+            notes=(
+                NotesRuntimeSettings.from_effective_config(effective)
+                if "domains/notes.yaml" in roles
                 else None
             ),
             home_assistant=(

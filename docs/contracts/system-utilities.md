@@ -153,6 +153,22 @@ Configuration activation does not itself create, reschedule, acknowledge, or
 delete alerts. Future occurrence projection may resolve destinations from the
 new applied configuration as explicitly allowed for reminders.
 
+Do Not Disturb is presentation policy, not alert truth. Indefinite or bounded
+DND suppresses unsolicited audible presentation while leaving schedules,
+occurrences, deliveries, acknowledgement state, and visual/status truth intact.
+Direct replies are exempt. Reminder and Calendar-alert audio is withheld
+without a conflict question. Alarm/timer audio requires an explicit persistent
+definition override or one-occurrence override; a non-overriding conflict is
+clarified. Unknown DND state fails safe for audio and must not falsely complete
+or discard an occurrence.
+
+The DND-only household morning boundary is 7:00 AM local time. `until
+tomorrow` expires at 7:00 AM on the next local calendar day. `for the rest of
+the night` expires at the next 7:00 AM boundary only when uttered during the
+ordinary overnight period; daytime use clarifies. Persistence, restart
+reconciliation, automatic expiry, and alarm/timer conflict detection consume
+that same resolved instant.
+
 ## Target And Recipient Resolution
 
 Alert target resolution is centralized:

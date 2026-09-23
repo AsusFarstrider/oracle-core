@@ -21,6 +21,8 @@ OPTIONAL_ROLE_PATHS = frozenset(
         "domains/audiobooks.yaml",
         "domains/weather.yaml",
         "domains/calendar.yaml",
+        "domains/lists.yaml",
+        "domains/notes.yaml",
         "domains/home-assistant.yaml",
         "domains/notifications.yaml",
         "domains/routines.yaml",

@@ -391,7 +391,7 @@ def _serialize_canonical_action(
         "label": reference.label or default_label,
         "type": "secondary" if operation in {"cooler", "warmer"} else "button",
         "icon": icon,
-        "requires_confirmation": False,
+        "requires_confirmation": operation in {"disarm", "invoke", "open", "unlock"},
     }
 
 

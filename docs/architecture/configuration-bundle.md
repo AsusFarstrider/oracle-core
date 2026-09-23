@@ -21,6 +21,8 @@ household-authored configuration bundle
 │   ├── audiobooks.yaml
 │   ├── weather.yaml
 │   ├── calendar.yaml
+│   ├── lists.yaml
+│   ├── notes.yaml
 │   ├── home-assistant.yaml
 │   ├── notifications.yaml
 │   ├── routines.yaml
@@ -107,6 +109,12 @@ secret IDs, parse-dependent timestamps, or colon-bearing hashes.
   credential references.
 - domain roles: domain policy, provider selection, provider mappings, and
   domain-owned definitions.
+
+The optional Lists and Notes roles each select exactly one active provider and
+own Oracle-native configured identity/alias and shared/person association
+metadata. Providers own content. Objects created through Oracle may add minimal
+durable operational identity/association plus an opaque provider mapping, but
+never rewrite authored YAML or create a parallel content authority.
 
 Shared provider transport belongs in `brain.yaml` only when it is genuinely a
 Brain-wide service, such as speech or shared inference. Domain use and provider

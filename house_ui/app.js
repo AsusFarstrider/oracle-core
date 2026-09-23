@@ -11,6 +11,14 @@ const state = {
   audioResults: [],
   internetPreview: null,
   internetRun: null,
+  householdContent: {
+    selectedListId: "",
+    selectedNoteRef: "",
+    noteContent: "",
+    noteDraft: "",
+    noteLoaded: false,
+    mutationPending: false,
+  },
   escapeHatches: {},
   refreshTimers: new Map(),
   theme: "dark",
@@ -837,11 +845,19 @@ function wireActionButtons(root, afterAction) {
         const payload = {
           action_id: actionId,
           client_id: "browser-house-ui",
+          confirmed: needsConfirmation,
         };
         if (source) {
           payload.source = source;
         }
-        const result = await postJson("/api/ui/action", payload);
+        let result = await postJson("/api/ui/action", payload);
+        if (result?.result?.status === "pending_confirmation" && !payload.confirmed) {
+          if (!window.confirm(result?.result?.message || "Run this consequential action?")) {
+            return;
+          }
+          payload.confirmed = true;
+          result = await postJson("/api/ui/action", payload);
+        }
         showFeedback(result?.result?.message || "Action complete.");
         if (typeof afterAction === "function") {
           await afterAction(result);
@@ -2290,7 +2306,13 @@ function getSelectedAudioResult() {
 async function loadHouse() {
   setStatus(elements.houseStatus, elements.houseRoot.children.length > 0 ? "Refreshing House snapshot." : "Loading House snapshot.");
   try {
-    const payload = await fetchJson("/api/ui/house", { retries: 3 });
+    const [payload, routinePayload, householdStatus, listsPayload, notesPayload] = await Promise.all([
+      fetchJson("/api/ui/house", { retries: 3 }),
+      fetchJson("/api/ui/orchestration-runs", { retries: 1 }).catch(() => ({ ok: false, runs: [] })),
+      fetchJson("/api/ui/household-status", { retries: 1 }).catch(() => ({ ok: false })),
+      fetchJson("/api/ui/lists", { retries: 1 }).catch(() => ({ ok: false, status: "unavailable", lists: [] })),
+      fetchJson("/api/ui/notes", { retries: 1 }).catch(() => ({ ok: false, status: "unavailable", notes: [] })),
+    ]);
     elements.houseRoot.innerHTML = `
       <section class="house-overview">
         ${renderHouseEntryPoint(payload.front_door)}
@@ -2327,12 +2349,38 @@ async function loadHouse() {
         </div>
       </section>
 
+      <section class="house-section">
+        <div class="house-section__head">
+          <h4><span class="house-section__accent house-section__accent--soft"></span>Routine Status</h4>
+        </div>
+        <div class="routine-list">
+          ${renderHouseRoutineRuns(routinePayload.runs)}
+        </div>
+      </section>
+
+      <section class="house-section">
+        <div class="house-section__head"><h4><span class="house-section__accent house-section__accent--soft"></span>Household Status</h4></div>
+        ${renderHouseholdStatus(householdStatus)}
+      </section>
+
+      <section class="house-section">
+        <div class="house-section__head"><h4><span class="house-section__accent house-section__accent--soft"></span>Lists</h4></div>
+        ${renderHouseLists(listsPayload)}
+      </section>
+
+      <section class="house-section">
+        <div class="house-section__head"><h4><span class="house-section__accent house-section__accent--soft"></span>Notes</h4></div>
+        ${renderHouseNotes(notesPayload)}
+      </section>
+
       ${payload.notice ? `<div class="notice">${escapeHtml(payload.notice)}</div>` : ""}
     `;
     wireActionButtons(elements.houseRoot, async () => {
       await loadHouse();
       await loadHome();
     });
+    wireHouseRoutineControls();
+    wireHouseContentControls();
     showFeedback("");
     setStatus(elements.houseStatus, `Updated ${formatTime(payload.generated_at)}`);
     scheduleRefresh("house", Number(payload.refresh_after_seconds || 30));
@@ -2346,6 +2394,272 @@ async function loadHouse() {
     elements.houseRoot.innerHTML = renderEmpty(message, "house");
     wireRetryButtons(elements.houseRoot);
     setStatus(elements.houseStatus, "House unavailable.");
+  }
+}
+
+function renderHouseholdStatus(status) {
+  const dnd = status?.dnd || { status: "unknown" };
+  const presence = status?.presence || { status: "unavailable", people: [] };
+  const people = Array.isArray(presence.people) ? presence.people : [];
+  const listStatus = status?.lists?.status || "unavailable";
+  const noteStatus = status?.notes?.status || "unavailable";
+  return `<div class="routine-list">
+    <article class="list-row"><div><strong>Do Not Disturb</strong><p class="small-copy">${escapeHtml(dnd.status || "unknown")}${dnd.expires_at ? ` until ${escapeHtml(formatTime(dnd.expires_at))}` : ""}</p></div></article>
+    <article class="list-row"><div><strong>Presence</strong><p class="small-copy">${escapeHtml(presence.status || "unavailable")}${people.length ? ` / ${people.map((person) => `${escapeHtml(person.display_name)}: ${escapeHtml(person.state)}`).join(" / ")}` : ""}</p></div></article>
+    <article class="list-row"><div><strong>Lists</strong><p class="small-copy">${escapeHtml(listStatus)}${Number.isInteger(status?.lists?.configured_lists) ? ` / ${status.lists.configured_lists} configured` : ""}</p></div></article>
+    <article class="list-row"><div><strong>Notes</strong><p class="small-copy">${escapeHtml(noteStatus)}</p></div></article>
+  </div>`;
+}
+
+function renderHouseLists(payload) {
+  if (!payload?.ok) return `<div class="notice">Lists are ${escapeHtml(payload?.status || "unavailable")}.</div>`;
+  const lists = Array.isArray(payload.lists) ? payload.lists : [];
+  const selected = lists.find((item) => item.id === state.householdContent.selectedListId) || lists[0] || null;
+  state.householdContent.selectedListId = selected?.id || "";
+  const items = Array.isArray(selected?.items) ? selected.items : [];
+  return `<div class="routine-list">
+    <p class="small-copy">Provider-backed household content / ${escapeHtml(payload.freshness || "unknown freshness")}. User association is context, not privacy or authorization.</p>
+    <form class="house-content-form" data-house-create-list>
+      <label>New list name <input name="title" required maxlength="200" autocomplete="off"></label>
+      <button class="action-button--secondary" type="submit">Create list</button>
+    </form>
+    ${selected ? `<div class="house-content-panel">
+      <label>List <select data-house-list-select>${lists.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === selected.id ? "selected" : ""}>${escapeHtml(item.display_name)}</option>`).join("")}</select></label>
+      <form class="house-content-form" data-house-add-item>
+        <label>New item <input name="title" required maxlength="1000" autocomplete="off"></label>
+        <button class="action-button" type="submit">Add item</button>
+      </form>
+      <div class="routine-list">${items.length ? items.map((item) => `<article class="list-row">
+        <div><strong>${escapeHtml(item.title || "Item")}</strong><p class="small-copy">${item.completed ? "Completed" : "Open"}${item.recurring ? " / Recurring; Stage 8 mutation may be refused" : ""}</p></div>
+        <div class="row-actions">
+          <button class="action-button--secondary" type="button" data-house-item-action="${item.completed ? "reopen" : "complete"}" data-item-ref="${escapeHtml(item.ref)}">${item.completed ? "Reopen" : "Complete"}</button>
+          <button class="action-button--secondary" type="button" data-house-item-action="edit" data-item-ref="${escapeHtml(item.ref)}">Edit</button>
+          <button class="action-button--secondary" type="button" data-house-item-action="delete" data-item-ref="${escapeHtml(item.ref)}">Delete</button>
+        </div>
+      </article>`).join("") : '<p class="small-copy">No items in this list.</p>'}</div>
+      <div class="row-actions">
+        <button class="action-button--secondary" type="button" data-house-list-bulk="complete_all">Complete all</button>
+        <button class="action-button--secondary" type="button" data-house-list-bulk="reopen_all">Reopen all</button>
+        <button class="action-button--secondary" type="button" data-house-list-bulk="delete_all">Delete all items</button>
+      </div>
+    </div>` : '<p class="small-copy">No lists are configured yet.</p>'}
+  </div>`;
+}
+
+function renderHouseNotes(payload) {
+  if (!payload?.ok) return `<div class="notice">Notes are ${escapeHtml(payload?.status || "unavailable")}.</div>`;
+  const notes = Array.isArray(payload.notes) ? payload.notes : [];
+  const selected = notes.find((note) => note.ref === state.householdContent.selectedNoteRef) || notes[0] || null;
+  if (selected?.ref !== state.householdContent.selectedNoteRef) {
+    state.householdContent.selectedNoteRef = selected?.ref || "";
+    state.householdContent.noteContent = "";
+    state.householdContent.noteDraft = "";
+    state.householdContent.noteLoaded = false;
+  }
+  return `<div class="routine-list">
+    <p class="small-copy">Provider-backed household content / ${escapeHtml(payload.freshness || "unknown freshness")}. Note content loads only when opened.</p>
+    <form class="house-content-form" data-house-create-note>
+      <label>New note title <input name="title" required maxlength="200" autocomplete="off"></label>
+      <label>Content <textarea name="content" rows="3" maxlength="100000"></textarea></label>
+      <button class="action-button--secondary" type="submit">Create note</button>
+    </form>
+    ${selected ? `<div class="house-content-panel">
+      <label>Note <select data-house-note-select>${notes.map((note) => `<option value="${escapeHtml(note.ref)}" ${note.ref === selected.ref ? "selected" : ""}>${escapeHtml(note.title || "Note")}</option>`).join("")}</select></label>
+      <div class="row-actions">
+        <button class="action-button--secondary" type="button" data-house-note-action="read">Open note</button>
+        <button class="action-button--secondary" type="button" data-house-note-action="rename">Rename</button>
+        <button class="action-button--secondary" type="button" data-house-note-action="delete">Delete</button>
+      </div>
+      ${state.householdContent.noteLoaded ? `<div class="routine-list">
+        <label>Replace content <textarea data-house-note-draft rows="8" maxlength="100000">${escapeHtml(state.householdContent.noteDraft)}</textarea></label>
+        <button class="action-button--secondary" type="button" data-house-note-action="replace">Save replacement</button>
+        <form class="house-content-form" data-house-append-note>
+          <label>Append content <textarea name="content" rows="3" maxlength="100000" required></textarea></label>
+          <button class="action-button--secondary" type="submit">Append</button>
+        </form>
+      </div>` : ""}
+    </div>` : '<p class="small-copy">No notes are available yet.</p>'}
+  </div>`;
+}
+
+async function submitHouseContent(path, request, label, onSuccess = null) {
+  if (state.householdContent.mutationPending) return;
+  state.householdContent.mutationPending = true;
+  try {
+    const result = await postJson(path, request);
+    if (result.status === "verified_success") {
+      if (onSuccess) onSuccess(result);
+      await loadHouse();
+      showFeedback(`${label} verified.`, "success");
+    } else {
+      await loadHouse();
+      showFeedback(`${label} is ${String(result.status || "unverified").replaceAll("_", " ")}. Check current provider state before retrying.`, "error");
+    }
+  } catch (error) {
+    await loadHouse();
+    showFeedback(error instanceof Error ? error.message : `${label} could not be completed.`, "error");
+  } finally {
+    state.householdContent.mutationPending = false;
+  }
+}
+
+function submitHouseContentForm(form, path, request, label, onSuccess = null) {
+  if (form.dataset.submitting === "true") return;
+  form.dataset.submitting = "true";
+  for (const button of form.querySelectorAll("button")) button.disabled = true;
+  void submitHouseContent(path, request, label, onSuccess).finally(() => {
+    form.dataset.submitting = "false";
+    for (const button of form.querySelectorAll("button")) button.disabled = false;
+  });
+}
+
+function wireHouseContentControls() {
+  const root = elements.houseRoot;
+  root.querySelector("[data-house-list-select]")?.addEventListener("change", (event) => {
+    state.householdContent.selectedListId = event.target.value;
+    void loadHouse();
+  });
+  root.querySelector("[data-house-note-select]")?.addEventListener("change", (event) => {
+    state.householdContent.selectedNoteRef = event.target.value;
+    state.householdContent.noteLoaded = false;
+    state.householdContent.noteDraft = "";
+    void loadHouse();
+  });
+  root.querySelector("[data-house-note-draft]")?.addEventListener("input", (event) => {
+    state.householdContent.noteDraft = event.target.value;
+  });
+  root.querySelector("[data-house-create-list]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const title = String(new FormData(event.target).get("title") || "").trim();
+    if (title) submitHouseContentForm(event.target, "/api/ui/lists/operation", { operation: "create_list", title }, "List creation", (result) => {
+      state.householdContent.selectedListId = result.list?.id || "";
+    });
+  });
+  root.querySelector("[data-house-add-item]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const title = String(new FormData(event.target).get("title") || "").trim();
+    const listId = state.householdContent.selectedListId;
+    if (title && listId) submitHouseContentForm(event.target, "/api/ui/lists/operation", { operation: "add", list_id: listId, title }, "Item addition");
+  });
+  for (const button of root.querySelectorAll("[data-house-item-action]")) {
+    button.addEventListener("click", () => {
+      const operation = button.dataset.houseItemAction;
+      const itemRef = button.dataset.itemRef;
+      const listId = state.householdContent.selectedListId;
+      const title = button.closest(".list-row")?.querySelector("strong")?.textContent || "this item";
+      if (!listId || !itemRef) return;
+      if (operation === "delete" && !globalThis.confirm(`Delete ${title} from this list?`)) return;
+      const request = { operation, list_id: listId, item_ref: itemRef, confirmed: operation === "delete" };
+      if (operation === "edit") {
+        const revised = globalThis.prompt("New item title", title);
+        if (revised === null || !revised.trim()) return;
+        request.title = revised.trim();
+      }
+      button.disabled = true;
+      void submitHouseContent("/api/ui/lists/operation", request, `Item ${operation}`);
+    });
+  }
+  for (const button of root.querySelectorAll("[data-house-list-bulk]")) {
+    button.addEventListener("click", () => {
+      const operation = button.dataset.houseListBulk;
+      const listId = state.householdContent.selectedListId;
+      if (!listId) return;
+      if (operation === "delete_all" && !globalThis.confirm("Delete every item in this selected list? This cannot be undone by Oracle.")) return;
+      button.disabled = true;
+      void submitHouseContent("/api/ui/lists/operation", { operation, list_id: listId, confirmed: operation === "delete_all" }, `List ${operation.replaceAll("_", " ")}`);
+    });
+  }
+  root.querySelector("[data-house-create-note]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const title = String(form.get("title") || "").trim();
+    const content = String(form.get("content") || "");
+    if (title) submitHouseContentForm(event.target, "/api/ui/notes/operation", { operation: "create", title, content }, "Note creation", (result) => {
+      state.householdContent.selectedNoteRef = result.note?.ref || "";
+      state.householdContent.noteContent = result.note?.content || "";
+      state.householdContent.noteDraft = state.householdContent.noteContent;
+      state.householdContent.noteLoaded = Boolean(result.note?.ref);
+    });
+  });
+  for (const button of root.querySelectorAll("[data-house-note-action]")) {
+    button.addEventListener("click", () => {
+      const operation = button.dataset.houseNoteAction;
+      const noteRef = state.householdContent.selectedNoteRef;
+      if (!noteRef) return;
+      const request = { operation, note_ref: noteRef, confirmed: operation === "delete" };
+      if (operation === "delete" && !globalThis.confirm("Delete this selected note? Oracle cannot undo this.")) return;
+      if (operation === "rename") {
+        const title = globalThis.prompt("New note title", root.querySelector("[data-house-note-select]")?.selectedOptions?.[0]?.textContent || "");
+        if (title === null || !title.trim()) return;
+        request.title = title.trim();
+      }
+      if (operation === "replace") request.content = state.householdContent.noteDraft;
+      button.disabled = true;
+      void submitHouseContent("/api/ui/notes/operation", request, `Note ${operation}`, (result) => {
+        if (operation === "delete") {
+          state.householdContent.selectedNoteRef = "";
+          state.householdContent.noteLoaded = false;
+          state.householdContent.noteDraft = "";
+        } else if (result.note) {
+          state.householdContent.noteContent = result.note.content || "";
+          state.householdContent.noteDraft = state.householdContent.noteContent;
+          state.householdContent.noteLoaded = true;
+        }
+      });
+    });
+  }
+  root.querySelector("[data-house-append-note]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const content = String(new FormData(event.target).get("content") || "");
+    const noteRef = state.householdContent.selectedNoteRef;
+    if (content && noteRef) submitHouseContentForm(event.target, "/api/ui/notes/operation", { operation: "append", note_ref: noteRef, content }, "Note append", (result) => {
+      state.householdContent.noteContent = result.note?.content || "";
+      state.householdContent.noteDraft = state.householdContent.noteContent;
+      state.householdContent.noteLoaded = true;
+    });
+  });
+}
+
+function renderHouseRoutineRuns(items) {
+  const runs = Array.isArray(items) ? items.slice(0, 25) : [];
+  if (runs.length === 0) {
+    return '<p class="small-copy">No routine runs have been recorded.</p>';
+  }
+  return runs
+    .map((run) => {
+      const status = String(run.status || "unknown").replaceAll("_", " ");
+      const active = run.status === "running" || run.status === "waiting";
+      return `
+        <article class="list-row">
+          <div>
+            <strong>${escapeHtml(run.orchestration_id || "Routine")}</strong>
+            <p class="small-copy">${escapeHtml(run.summary || status)}</p>
+          </div>
+          <div class="row-actions">
+            <span class="status-pill${active ? " status-pill--warn" : ""}">${escapeHtml(status)}</span>
+            ${active ? `<button class="action-button--secondary" type="button" data-routine-cancel="${escapeHtml(run.run_id || "")}">Cancel</button>` : ""}
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function wireHouseRoutineControls() {
+  for (const button of elements.houseRoot.querySelectorAll("[data-routine-cancel]")) {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        const payload = await postJson(`/api/ui/orchestration-runs/${encodeURIComponent(button.dataset.routineCancel)}/cancel`, {
+          client_id: "browser-house",
+        });
+        showFeedback(payload.ok ? "Routine canceled." : "Routine could not be canceled.", payload.ok ? "success" : "error");
+        await loadHouse();
+      } catch (error) {
+        showFeedback(error instanceof Error ? error.message : "Routine cancellation failed.", "error");
+        button.disabled = false;
+      }
+    });
   }
 }
 

@@ -19,6 +19,7 @@ from .network_control_results import get_network_control_results_snapshot
 from .network_status import build_network_admin_payload
 from .schemas import UiOrchestrationApprovalRequest, UiOrchestrationPreviewRequest
 from .runbook_kernel import RunbookActivation, RunbookDefinitionRef, RunbookRepository
+from .network_standard_recovery import build_standard_steps, execute_standard_sequence
 
 
 _PREVIEW_TTL_SECONDS = 15 * 60
@@ -89,9 +90,12 @@ def create_recovery_preview(
     network = _network_payload_for(True, canonical_execution)
     categories = _build_categories(network)
     visible_categories = _health_only_categories(categories)
+    standard = orchestration_id == "restart_network_anyway"
     findings = _build_findings(categories)
-    steps = _build_preview_steps(categories)
+    steps = build_standard_steps(definition, canonical_execution) if standard else _build_preview_steps(categories)
     total_estimate_seconds = sum(int(step.get("estimated_duration_seconds") or 0) for step in steps)
+    if standard:
+        total_estimate_seconds += int(definition.get("final_timeout_seconds") or 0)
     generated_at = datetime.now().astimezone()
     preview_id = f"recovery-preview-{uuid.uuid4().hex}"
     preview = {
@@ -104,6 +108,9 @@ def create_recovery_preview(
         "expires_at": (generated_at + timedelta(seconds=_PREVIEW_TTL_SECONDS)).isoformat(),
         "diagnostic_profile": definition.get("diagnostic_profile"),
         "remediation_profile": definition.get("remediation_profile"),
+        "final_evidence_ids": list(definition.get("final_evidence_ids") or []) if standard else [],
+        "final_timeout_seconds": definition.get("final_timeout_seconds") if standard else None,
+        "final_poll_seconds": definition.get("final_poll_seconds") if standard else None,
         "network_status": _aggregate_status(
             [str(item.get("status") or "unknown") for item in visible_categories]
         ),
@@ -111,11 +118,18 @@ def create_recovery_preview(
         "steps": steps,
         "estimated_total_duration_seconds": total_estimate_seconds,
         "estimated_total_duration": _duration_label(total_estimate_seconds) if steps else "",
-        "approval_summary": _approval_summary(steps),
+        "approval_summary": (
+            f"Approve all {len(steps)} ordered network restarts. Household network services may be unavailable. "
+            f"Bounded estimate: {_duration_label(total_estimate_seconds)}."
+            if standard else _approval_summary(steps)
+        ),
         "approval_available": bool(steps),
         "execution_available": bool(steps),
         "config_revision": canonical_execution.inventory.config_revision,
         "notice": (
+            "Approval authorizes this exact ordered network restart, even if diagnostics are healthy. "
+            "Oracle will re-check all safety policy and wait for readiness at each boundary."
+            if standard else
             "Approval authorizes only these listed conditional actions. Oracle will "
             "re-check health and policy before every action and will not expand the plan."
         ),
@@ -153,6 +167,16 @@ def approve_recovery_preview(
     approved_steps = [item for item in preview.get("steps") or [] if isinstance(item, dict)]
     if not approved_steps:
         raise HTTPException(status_code=409, detail="Recovery preview contains no actions to approve.")
+    if orchestration_id == "restart_network_anyway":
+        current_definition = _find_recovery(orchestration_id, canonical_execution=canonical_execution)
+        if (
+            current_definition.get("enabled") is not True
+            or build_standard_steps(current_definition, canonical_execution) != approved_steps
+            or list(current_definition.get("final_evidence_ids") or []) != list(preview.get("final_evidence_ids") or [])
+            or current_definition.get("final_timeout_seconds") != preview.get("final_timeout_seconds")
+            or current_definition.get("final_poll_seconds") != preview.get("final_poll_seconds")
+        ):
+            raise HTTPException(status_code=409, detail="Restart-anyway policy changed; create a new preview.")
     _claim_preview(request.preview_id)
 
     run_id = f"recovery-run-{uuid.uuid4().hex}"
@@ -223,6 +247,21 @@ def approve_recovery_preview(
         client_id=request.client_id,
         status="running",
     )
+
+    if orchestration_id == "restart_network_anyway":
+        return execute_standard_sequence(
+            preview=preview,
+            approved_steps=approved_steps,
+            canonical_execution=canonical_execution,
+            client_id=request.client_id,
+            run_id=run_id,
+            started_at=started_at,
+            repository=repository,
+            finish=_finish_recovery,
+            persist_running=_persist_step_running,
+            persist_result=_persist_step_result,
+            control_confirm=admin_network_control_confirm_canonical,
+        )
 
     approved_identities = {_step_identity(step) for step in approved_steps}
     current_categories = _build_categories(_network_payload_for(True, canonical_execution))
@@ -339,8 +378,7 @@ def clear_recovery_previews() -> None:
 
 
 def _build_network_payload(*, force_refresh: bool, canonical_execution) -> dict[str, Any]:
-    del force_refresh
-    return dict(admin_network_status_canonical(canonical_execution)["network"])
+    return dict(admin_network_status_canonical(canonical_execution, force_refresh=force_refresh)["network"])
 
 
 def _network_payload_for(force_refresh: bool, canonical_execution) -> dict[str, Any]:
@@ -701,6 +739,10 @@ def _find_recovery(orchestration_id: str, *, canonical_execution) -> dict[str, A
         "approval_mode": definition.approval_mode,
         "diagnostic_profile": definition.diagnostic_profile,
         "remediation_profile": definition.remediation_profile,
+        "sequence": [step.model_dump(mode="json") for step in definition.sequence],
+        "final_evidence_ids": list(definition.final_evidence_ids),
+        "final_timeout_seconds": definition.final_timeout_seconds,
+        "final_poll_seconds": definition.final_poll_seconds,
         "triggers": {
             "ui": definition.triggers.ui,
             "voice": definition.triggers.voice,
@@ -888,6 +930,7 @@ def _finish_recovery(
     step_results: list[dict[str, Any]],
     repository: RunbookRepository,
     remaining_findings: list[dict[str, Any]] | None = None,
+    final_verification: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     result = {
         "run_id": run_id,
@@ -900,6 +943,7 @@ def _finish_recovery(
         "steps": step_results,
         "remaining_findings": list(remaining_findings or []),
         "approval_consumed": True,
+        **({"final_verification": final_verification} if final_verification is not None else {}),
     }
     completed_step_ids = {str(item.get("step_id") or "") for item in step_results}
     for ordinal, step in enumerate(preview.get("steps") or [], start=1):
@@ -932,6 +976,7 @@ def _finish_recovery(
             "preview_id": preview.get("preview_id"),
             "remaining_finding_count": len(result["remaining_findings"]),
             "completed_step_count": len(step_results),
+            **({"final_verification": final_verification} if final_verification is not None else {}),
         },
     )
     _record_recovery_event(
@@ -991,6 +1036,7 @@ def _persist_step_result(
         verification_status=str(result.get("verification_status") or ""),
         started_at=started_at,
         completed_at=datetime.now().astimezone().isoformat(),
+        payload={"readiness": result["readiness"]} if isinstance(result.get("readiness"), dict) else None,
     )
 
 
@@ -1013,6 +1059,13 @@ def _recovery_definition_version(preview: dict[str, Any]) -> str:
         "diagnostic_profile": preview.get("diagnostic_profile"),
         "remediation_profile": preview.get("remediation_profile"),
     }
+    if preview.get("orchestration_id") == "restart_network_anyway":
+        identity.update(
+            steps=preview.get("steps"),
+            final_evidence_ids=preview.get("final_evidence_ids"),
+            final_timeout_seconds=preview.get("final_timeout_seconds"),
+            final_poll_seconds=preview.get("final_poll_seconds"),
+        )
     encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 

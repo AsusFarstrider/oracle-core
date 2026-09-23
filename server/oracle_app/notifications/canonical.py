@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import sqlite3
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 from oracle_app.alerts import list_due_alerts
 from oracle_app.configuration.home_assistant_runtime_settings import HomeAssistantRuntimeSettings
@@ -29,6 +30,9 @@ from .errors import (
 from .policy import SuppressionStatus
 
 
+logger = logging.getLogger("oracle-brain.notifications")
+
+
 @dataclass(frozen=True)
 class CanonicalNotificationExecution:
     """Typed notification capability bound to one immutable effective revision."""
@@ -36,6 +40,7 @@ class CanonicalNotificationExecution:
     settings: NotificationRuntimeSettings | None
     home_assistant: HomeAssistantRuntimeSettings | None
     satellites: SatelliteFleetRuntimeSettings
+    trigger_sink: Callable[..., object] | None = None
 
     @property
     def config_revision(self) -> str:
@@ -89,6 +94,8 @@ class CanonicalNotificationExecution:
                 caller=clean_caller,
                 correlation_id=correlation_id,
             )
+            if status != "duplicate":
+                self._emit_trigger(clean_type, clean_occurrence_id)
             return _result(clean_type, clean_occurrence_id, status=status)
 
         definition = runtime.definition
@@ -151,6 +158,8 @@ class CanonicalNotificationExecution:
             target_count=int(satellite_result["target_count"]),
             correlation_id=correlation_id,
         )
+        if status != "duplicate":
+            self._emit_trigger(clean_type, clean_occurrence_id)
         return _result(
             clean_type,
             clean_occurrence_id,
@@ -158,6 +167,22 @@ class CanonicalNotificationExecution:
             queued_targets=list(satellite_result["queued_targets"]),
             channel_results=channel_results,
         )
+
+    def _emit_trigger(self, notification_type: str, occurrence_id: str) -> None:
+        if self.trigger_sink is not None:
+            try:
+                self.trigger_sink(
+                    kind="alert_event",
+                    evidence_id=notification_type,
+                    state="triggered",
+                    occurrence_id=occurrence_id,
+                )
+            except Exception:
+                logger.exception(
+                    "notification_orchestration_trigger_failed notification_type=%s occurrence_id=%s",
+                    notification_type,
+                    occurrence_id,
+                )
 
     def build_delivery_decisions(self, source: str | None) -> dict[str, str]:
         due = list_due_alerts(source, kind="notification")

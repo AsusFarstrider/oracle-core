@@ -160,6 +160,7 @@ commands, replies, alerts, or satellite appliance policy.
 - household summaries
 - explicit UI actions
 - refresh metadata
+- bounded configured-routine run status, exact lookup, and cancellation
 
 ### Does Not Belong Here
 
@@ -169,6 +170,7 @@ commands, replies, alerts, or satellite appliance policy.
 - config reports
 - operator health dashboards
 - client-driven orchestration workflows in Alpha
+- provider-native trigger evidence or automatic-trigger construction
 
 ## `/api/admin`
 

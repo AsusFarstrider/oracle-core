@@ -32,6 +32,7 @@ from oracle_app.conversation import (
     should_include_ollama_history,
 )
 from oracle_app.handlers.home_assistant import execute_home_assistant
+from oracle_app.configuration.domain_models import HomeAssistantObjectMapping
 from oracle_app.schemas import DispatchPlan
 
 
@@ -109,23 +110,11 @@ class ConversationTests(unittest.TestCase):
         self.assertIsNone(get_conversation(source, session_id))
         self.assertIsNone(get_home_assistant_conversation_id(source, session_id))
 
-    @patch("oracle_app.provider_bridges.home_assistant.request.urlopen")
-    def test_home_assistant_conversation_id_is_scoped_by_session(self, mock_urlopen) -> None:
+    @patch("oracle_app.home_assistant_actions.HomeAssistantBridge")
+    def test_home_assistant_mutation_uses_finite_mapping_not_conversation(self, bridge_type) -> None:
         set_home_assistant_conversation_id("source-a", "session-a", "ha-a")
         set_home_assistant_conversation_id("source-b", "session-b", "ha-b")
-        captured_bodies: list[dict[str, object]] = []
-
-        def fake_urlopen(req, timeout=0):
-            body = json.loads(req.data.decode("utf-8"))
-            captured_bodies.append(body)
-            return _FakeResponse(
-                {
-                    "conversation_id": "ha-b-next",
-                    "response": {"speech": {"plain": {"speech": "Done"}}},
-                }
-            )
-
-        mock_urlopen.side_effect = fake_urlopen
+        bridge_type.return_value.wait_for_entity_state.return_value = {"state": "on"}
         dispatch = DispatchPlan(
             target="home_assistant",
             hook="home_assistant.execute",
@@ -136,9 +125,11 @@ class ConversationTests(unittest.TestCase):
         result = execute_home_assistant(dispatch, home_assistant_settings=_home_assistant_settings())
 
         self.assertEqual(result.status, "executed")
-        self.assertEqual(captured_bodies[0]["conversation_id"], "ha-b")
+        bridge_type.return_value.set_power.assert_called_once_with(
+            entity_id="light.porch", enabled=True
+        )
         self.assertEqual(get_home_assistant_conversation_id("source-a", "session-a"), "ha-a")
-        self.assertEqual(get_home_assistant_conversation_id("source-b", "session-b"), "ha-b-next")
+        self.assertEqual(get_home_assistant_conversation_id("source-b", "session-b"), "ha-b")
         self.assertEqual(get_home_assistant_conversation_id(None, "session-b"), None)
 
     def test_home_assistant_conversation_id_is_isolated_by_source_plus_session(self) -> None:
@@ -148,74 +139,18 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(get_home_assistant_conversation_id("source-a", "shared"), "ha-a")
         self.assertEqual(get_home_assistant_conversation_id("source-b", "shared"), "ha-b")
 
-    @patch("oracle_app.provider_bridges.home_assistant.request.urlopen")
-    def test_home_assistant_without_session_does_not_persist_conversation_id(self, mock_urlopen) -> None:
-        captured_request: dict[str, object] = {}
-
-        def fake_urlopen(req, timeout=0):
-            captured_request["body"] = json.loads(req.data.decode("utf-8"))
-            return _FakeResponse(
-                {
-                    "conversation_id": "ha-ephemeral",
-                    "response": {"speech": {"plain": {"speech": "Done"}}},
-                }
-            )
-
-        mock_urlopen.side_effect = fake_urlopen
-        dispatch = DispatchPlan(
-            target="home_assistant",
-            hook="home_assistant.execute",
-            payload={"text": "turn on the kitchen lights"},
-            status="planned",
-        )
-
-        result = execute_home_assistant(dispatch, home_assistant_settings=_home_assistant_settings())
-
-        self.assertEqual(result.status, "executed")
-        self.assertNotIn("conversation_id", captured_request["body"])
-        self.assertIsNone(get_home_assistant_conversation_id(None, None))
-
-    @patch("oracle_app.provider_bridges.home_assistant.request.urlopen")
-    def test_home_assistant_reuses_and_updates_conversation_id(self, mock_urlopen) -> None:
-        source = "test_satellite_bravo"
-        session_id = "session-2"
-        set_home_assistant_conversation_id(source, session_id, "ha-prev")
-        captured_request: dict[str, object] = {}
-
-        def fake_urlopen(req, timeout=0):
-            captured_request["body"] = json.loads(req.data.decode("utf-8"))
-            return _FakeResponse(
-                {
-                    "conversation_id": "ha-next",
-                    "response": {
-                        "speech": {
-                            "plain": {"speech": "Done"}
-                        }
-                    },
-                }
-            )
-
-        mock_urlopen.side_effect = fake_urlopen
-        dispatch = DispatchPlan(
-            target="home_assistant",
-            hook="home_assistant.execute",
-            payload={"text": "turn on the kitchen lights", "source": source, "session_id": session_id},
-            status="planned",
-        )
-
-        result = execute_home_assistant(dispatch, home_assistant_settings=_home_assistant_settings())
-
-        self.assertEqual(result.status, "executed")
-        self.assertEqual(captured_request["body"]["conversation_id"], "ha-prev")
-        self.assertEqual(get_home_assistant_conversation_id(source, session_id), "ha-next")
-
-
 def _home_assistant_settings():
+    mapping = HomeAssistantObjectMapping(
+        kind="action", oracle_id="porch", entity_id="light.porch", allowed_operations=["turn_on"]
+    )
     return SimpleNamespace(
         enabled=True,
         base_url="http://ha.local",
         credential="token",
         timeout_seconds=5,
+        mappings={"porch_on": mapping},
+        callable_alias_collisions=frozenset(),
+        mapping=lambda mapping_id: mapping if mapping_id == "porch_on" else None,
     )
 
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "scope": "Stage 5 external-I/O ownership ledger; this is evidence, not a runtime provider selector",
+  "scope": "External-I/O ownership ledger through Stage 8; this is evidence, not a runtime provider selector",
   "roles": [
     {
       "role_id": "home_assistant_domain",
@@ -85,6 +85,30 @@
       "cache_owner": "calendar domain snapshot/cache",
       "configuration_authority": "canonical calendar provider role, account/calendar mapping, and credential handle",
       "tests": ["tests/test_calendar.py", "tests/test_calendar_write.py"]
+    },
+    {
+      "role_id": "lists_provider",
+      "kind": "domain_translation",
+      "owner": "lists domain",
+      "implementations": ["server/oracle_app/provider_bridges/nextcloud_tasks.py", "server/oracle_app/provider_bridges/microsoft_todo.py"],
+      "consumers": ["lists voice dispatch", "lists UI projection and operations", "lists health"],
+      "health_owner": "lists domain",
+      "errors": "TasksBridgeError codes normalized at the lists boundary",
+      "cache_owner": "lists domain; one independent cache key per canonical list",
+      "configuration_authority": "canonical lists provider role, selected Nextcloud or Microsoft To Do list identity mappings, policy, and canonical credential handle",
+      "tests": ["tests/test_lists_notes_runtime.py", "tests/test_lists_notes_intents.py", "tests/test_microsoft_todo_bridge.py"]
+    },
+    {
+      "role_id": "notes_provider",
+      "kind": "domain_translation",
+      "owner": "notes domain",
+      "implementations": ["server/oracle_app/provider_bridges/nextcloud_notes.py"],
+      "consumers": ["notes voice dispatch", "notes UI projection and operations", "notes health"],
+      "health_owner": "notes domain",
+      "errors": "NotesBridgeError codes normalized at the notes boundary",
+      "cache_owner": "notes domain title projection cache",
+      "configuration_authority": "canonical notes provider role, note identity mappings, policy, and credential handle",
+      "tests": ["tests/test_lists_notes_runtime.py", "tests/test_lists_notes_intents.py"]
     },
     {
       "role_id": "news_provider",

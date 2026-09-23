@@ -52,7 +52,7 @@ def inspect_candidate(
         bundle = load_bundle_snapshot_structure(snapshot)
         normalized = normalize_bundle(bundle)
         semantic_findings = validate_loaded_bundle(bundle)
-        if semantic_findings:
+        if any(item.blocks_activation for item in semantic_findings):
             return CandidateInspection(
                 report=ValidationReport(validation_findings=semantic_findings),
                 candidate_id=snapshot.candidate_id,
@@ -99,7 +99,10 @@ def inspect_candidate(
         )
     blockers, warnings = validate_secret_snapshot(bundle, secrets)
     return CandidateInspection(
-        report=ValidationReport(validation_findings=warnings, activation_blockers=blockers),
+        report=ValidationReport(
+            validation_findings=tuple((*semantic_findings, *warnings)),
+            activation_blockers=blockers,
+        ),
         candidate_id=snapshot.candidate_id,
         authored_revision=snapshot.authored_revision,
         normalized_candidate_revision=normalized.config_revision,

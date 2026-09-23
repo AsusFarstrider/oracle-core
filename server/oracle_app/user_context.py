@@ -176,6 +176,58 @@ def resolve_effective_user(
     }
 
 
+def describe_effective_user(
+    *,
+    source: str | None = None,
+    session_id: str | None = None,
+    requested_user_name: str | None = None,
+    household_settings: HouseholdRuntimeSettings,
+) -> dict[str, Any]:
+    """Describe resolution without changing user or interaction context."""
+
+    resolved = resolve_effective_user(
+        source=source,
+        session_id=session_id,
+        requested_user_name=requested_user_name,
+        household_settings=household_settings,
+    )
+    if not resolved.get("ok"):
+        return {
+            "ok": False,
+            "error": str(resolved.get("error") or "effective_user_unresolved"),
+            "resolution_source": "unresolved",
+            "authenticates_speaker": False,
+            "speech": (
+                "I couldn't resolve an effective user from this request, the active session, "
+                "a source association, or the household default. User context does not "
+                "authenticate the speaker."
+            ),
+        }
+
+    user_id = str(resolved.get("user_id") or "").strip()
+    entry = household_settings.user(user_id)
+    display_name = entry.display_name if entry is not None else user_id
+    resolution_source = str(resolved.get("resolution_source") or "")
+    reasons = {
+        "explicit_user": "the current request explicitly named that user",
+        "session_user": "the active interaction session is using that user",
+        "source_association": "this source is configured with that associated user",
+        "household_default": "that user is the configured household default",
+    }
+    reason = reasons.get(resolution_source, "that user is the current resolved context")
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "display_name": display_name,
+        "resolution_source": resolution_source,
+        "authenticates_speaker": False,
+        "speech": (
+            f"I resolved the effective user as {display_name} because {reason}. "
+            "That is context only and does not authenticate the speaker."
+        ),
+    }
+
+
 def get_user_entry(
     user_id: str | None,
     *,

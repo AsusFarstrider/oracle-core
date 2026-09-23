@@ -1184,6 +1184,21 @@
         "CalendarFeed": {
           "additionalProperties": false,
           "properties": {
+            "alert_enabled": {
+              "default": false,
+              "title": "Alert Enabled",
+              "type": "boolean"
+            },
+            "default_for_user_ids": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                "type": "string"
+              },
+              "title": "Default For User Ids",
+              "type": "array"
+            },
             "ics_url": {
               "anyOf": [
                 {
@@ -1393,6 +1408,21 @@
               ],
               "default": null,
               "title": "Write Credential Secret"
+            },
+            "write_feed_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Write Feed Id"
             },
             "write_user": {
               "anyOf": [
@@ -1849,6 +1879,15 @@
         "HomeAssistantObjectMapping": {
           "additionalProperties": false,
           "properties": {
+            "aliases": {
+              "items": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": "Aliases",
+              "type": "array"
+            },
             "allowed_operations": {
               "items": {
                 "maxLength": 128,
@@ -1871,10 +1910,35 @@
                 "entity",
                 "action",
                 "camera",
-                "mode"
+                "mode",
+                "person_presence"
               ],
               "title": "Kind",
               "type": "string"
+            },
+            "normal_temperature_max": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Normal Temperature Max"
+            },
+            "normal_temperature_min": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Normal Temperature Min"
             },
             "oracle_id": {
               "maxLength": 128,
@@ -1882,6 +1946,22 @@
               "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
               "title": "Oracle Id",
               "type": "string"
+            },
+            "temperature_unit": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "fahrenheit",
+                    "celsius"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Temperature Unit"
             }
           },
           "required": [
@@ -2078,6 +2158,7 @@
                   "entity": "#/$defs/HomeAssistantObjectMapping",
                   "event": "#/$defs/HomeAssistantEventMapping",
                   "mode": "#/$defs/HomeAssistantObjectMapping",
+                  "person_presence": "#/$defs/HomeAssistantObjectMapping",
                   "room": "#/$defs/HomeAssistantObjectMapping"
                 },
                 "propertyName": "kind"
@@ -2973,6 +3054,312 @@
       "type": "object",
       "x-oracle-file-role": "domains/information.yaml",
       "x-oracle-owner": "information",
+      "x-oracle-required-role": false,
+      "x-oracle-restart-impact": "restart_required",
+      "x-oracle-safety-classifications": []
+    },
+    "domains/lists.yaml": {
+      "$defs": {
+        "ListDefinition": {
+          "additionalProperties": false,
+          "properties": {
+            "aliases": {
+              "items": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": "Aliases",
+              "type": "array"
+            },
+            "calendar_uri": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Calendar Uri",
+              "type": "string"
+            },
+            "display_name": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Display Name",
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Id",
+              "type": "string"
+            },
+            "user_ids": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                "type": "string"
+              },
+              "title": "User Ids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "display_name",
+            "calendar_uri"
+          ],
+          "title": "ListDefinition",
+          "type": "object"
+        },
+        "ListsPolicy": {
+          "additionalProperties": false,
+          "properties": {
+            "confirmation_required": {
+              "const": true,
+              "default": true,
+              "title": "Confirmation Required",
+              "type": "boolean"
+            },
+            "fresh_seconds": {
+              "default": 30,
+              "maximum": 86400,
+              "minimum": 1,
+              "title": "Fresh Seconds",
+              "type": "integer"
+            },
+            "read_enabled": {
+              "default": true,
+              "title": "Read Enabled",
+              "type": "boolean"
+            },
+            "stale_if_error_seconds": {
+              "default": 120,
+              "maximum": 86400,
+              "minimum": 1,
+              "title": "Stale If Error Seconds",
+              "type": "integer"
+            },
+            "write_enabled": {
+              "default": false,
+              "title": "Write Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "ListsPolicy",
+          "type": "object"
+        },
+        "MicrosoftTodoListDefinition": {
+          "additionalProperties": false,
+          "properties": {
+            "aliases": {
+              "items": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": "Aliases",
+              "type": "array"
+            },
+            "display_name": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Display Name",
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Id",
+              "type": "string"
+            },
+            "provider_list_id": {
+              "maxLength": 512,
+              "minLength": 1,
+              "title": "Provider List Id",
+              "type": "string"
+            },
+            "user_ids": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                "type": "string"
+              },
+              "title": "User Ids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "display_name",
+            "provider_list_id"
+          ],
+          "title": "MicrosoftTodoListDefinition",
+          "type": "object"
+        },
+        "MicrosoftTodoListsProvider": {
+          "additionalProperties": false,
+          "properties": {
+            "client_id": {
+              "pattern": "^[0-9a-fA-F-]{36}$",
+              "title": "Client Id",
+              "type": "string"
+            },
+            "lists": {
+              "items": {
+                "$ref": "#/$defs/MicrosoftTodoListDefinition"
+              },
+              "title": "Lists",
+              "type": "array"
+            },
+            "refresh_token_secret": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "title": "Refresh Token Secret",
+              "type": "string",
+              "x-oracle-secret-reference": true
+            },
+            "tenant": {
+              "pattern": "^(?:consumers|organizations|[0-9a-fA-F-]{36})$",
+              "title": "Tenant",
+              "type": "string"
+            },
+            "timeout_seconds": {
+              "default": 8,
+              "maximum": 86400,
+              "minimum": 1,
+              "title": "Timeout Seconds",
+              "type": "integer"
+            },
+            "type": {
+              "const": "microsoft_todo",
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "tenant",
+            "client_id",
+            "refresh_token_secret"
+          ],
+          "title": "MicrosoftTodoListsProvider",
+          "type": "object"
+        },
+        "NextcloudListsProvider": {
+          "additionalProperties": false,
+          "properties": {
+            "base_url": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "title": "Base Url",
+              "type": "string"
+            },
+            "credential_secret": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "title": "Credential Secret",
+              "type": "string",
+              "x-oracle-secret-reference": true
+            },
+            "lists": {
+              "items": {
+                "$ref": "#/$defs/ListDefinition"
+              },
+              "title": "Lists",
+              "type": "array"
+            },
+            "timeout_seconds": {
+              "default": 8,
+              "maximum": 86400,
+              "minimum": 1,
+              "title": "Timeout Seconds",
+              "type": "integer"
+            },
+            "type": {
+              "const": "nextcloud_tasks",
+              "title": "Type",
+              "type": "string"
+            },
+            "user": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "User",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "base_url",
+            "user",
+            "credential_secret"
+          ],
+          "title": "NextcloudListsProvider",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "policy": {
+          "$ref": "#/$defs/ListsPolicy"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "providers": {
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$": {
+              "discriminator": {
+                "mapping": {
+                  "microsoft_todo": "#/$defs/MicrosoftTodoListsProvider",
+                  "nextcloud_tasks": "#/$defs/NextcloudListsProvider"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/NextcloudListsProvider"
+                },
+                {
+                  "$ref": "#/$defs/MicrosoftTodoListsProvider"
+                }
+              ]
+            }
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "minLength": 1
+          },
+          "title": "Providers",
+          "type": "object"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "ListsConfiguration",
+      "type": "object",
+      "x-oracle-file-role": "domains/lists.yaml",
+      "x-oracle-owner": "lists",
       "x-oracle-required-role": false,
       "x-oracle-restart-impact": "restart_required",
       "x-oracle-safety-classifications": []
@@ -4310,7 +4697,7 @@
             "cooldown_seconds": {
               "anyOf": [
                 {
-                  "maximum": 86400,
+                  "maximum": 3600,
                   "minimum": 0,
                   "type": "integer"
                 },
@@ -4468,6 +4855,30 @@
               "title": "Enabled",
               "type": "boolean"
             },
+            "final_evidence_ids": {
+              "items": {
+                "maxLength": 160,
+                "minLength": 1,
+                "pattern": "^(?:probe|librenms\\.monitor)\\.[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              "title": "Final Evidence Ids",
+              "type": "array"
+            },
+            "final_poll_seconds": {
+              "default": 5,
+              "maximum": 60,
+              "minimum": 1,
+              "title": "Final Poll Seconds",
+              "type": "integer"
+            },
+            "final_timeout_seconds": {
+              "default": 300,
+              "maximum": 3600,
+              "minimum": 1,
+              "title": "Final Timeout Seconds",
+              "type": "integer"
+            },
             "id": {
               "maxLength": 128,
               "minLength": 1,
@@ -4481,6 +4892,13 @@
               "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
               "title": "Remediation Profile",
               "type": "string"
+            },
+            "sequence": {
+              "items": {
+                "$ref": "#/$defs/NetworkRecoverySequenceStep"
+              },
+              "title": "Sequence",
+              "type": "array"
             },
             "triggers": {
               "$ref": "#/$defs/NetworkRecoveryTriggers"
@@ -4497,6 +4915,47 @@
             "triggers"
           ],
           "title": "NetworkRecovery",
+          "type": "object"
+        },
+        "NetworkRecoverySequenceStep": {
+          "additionalProperties": false,
+          "properties": {
+            "action_policy_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Action Policy Id",
+              "type": "string"
+            },
+            "readiness_evidence_ids": {
+              "items": {
+                "maxLength": 160,
+                "minLength": 1,
+                "pattern": "^(?:probe|librenms\\.monitor)\\.[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              "title": "Readiness Evidence Ids",
+              "type": "array"
+            },
+            "readiness_poll_seconds": {
+              "default": 5,
+              "maximum": 60,
+              "minimum": 1,
+              "title": "Readiness Poll Seconds",
+              "type": "integer"
+            },
+            "readiness_timeout_seconds": {
+              "default": 300,
+              "maximum": 3600,
+              "minimum": 1,
+              "title": "Readiness Timeout Seconds",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "action_policy_id"
+          ],
+          "title": "NetworkRecoverySequenceStep",
           "type": "object"
         },
         "NetworkRecoveryTriggers": {
@@ -4553,6 +5012,212 @@
       "type": "object",
       "x-oracle-file-role": "domains/network/policy.yaml",
       "x-oracle-owner": "network-policy",
+      "x-oracle-required-role": false,
+      "x-oracle-restart-impact": "restart_required",
+      "x-oracle-safety-classifications": []
+    },
+    "domains/notes.yaml": {
+      "$defs": {
+        "NextcloudNotesProvider": {
+          "additionalProperties": false,
+          "properties": {
+            "base_url": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "title": "Base Url",
+              "type": "string"
+            },
+            "credential_secret": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "title": "Credential Secret",
+              "type": "string",
+              "x-oracle-secret-reference": true
+            },
+            "notes": {
+              "items": {
+                "$ref": "#/$defs/NoteDefinition"
+              },
+              "title": "Notes",
+              "type": "array"
+            },
+            "timeout_seconds": {
+              "default": 8,
+              "maximum": 86400,
+              "minimum": 1,
+              "title": "Timeout Seconds",
+              "type": "integer"
+            },
+            "type": {
+              "const": "nextcloud_notes",
+              "title": "Type",
+              "type": "string"
+            },
+            "user": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "User",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "base_url",
+            "user",
+            "credential_secret"
+          ],
+          "title": "NextcloudNotesProvider",
+          "type": "object"
+        },
+        "NoteDefinition": {
+          "additionalProperties": false,
+          "properties": {
+            "aliases": {
+              "items": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": "Aliases",
+              "type": "array"
+            },
+            "display_name": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Display Name",
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Id",
+              "type": "string"
+            },
+            "provider_note_id": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Provider Note Id",
+              "type": "string"
+            },
+            "user_ids": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                "type": "string"
+              },
+              "title": "User Ids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "display_name",
+            "provider_note_id"
+          ],
+          "title": "NoteDefinition",
+          "type": "object"
+        },
+        "NotesPolicy": {
+          "additionalProperties": false,
+          "properties": {
+            "confirmation_required": {
+              "const": true,
+              "default": true,
+              "title": "Confirmation Required",
+              "type": "boolean"
+            },
+            "fresh_seconds": {
+              "default": 30,
+              "maximum": 86400,
+              "minimum": 1,
+              "title": "Fresh Seconds",
+              "type": "integer"
+            },
+            "max_content_characters": {
+              "default": 20000,
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Max Content Characters",
+              "type": "integer"
+            },
+            "max_search_results": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Max Search Results",
+              "type": "integer"
+            },
+            "read_enabled": {
+              "default": true,
+              "title": "Read Enabled",
+              "type": "boolean"
+            },
+            "stale_if_error_seconds": {
+              "default": 120,
+              "maximum": 86400,
+              "minimum": 1,
+              "title": "Stale If Error Seconds",
+              "type": "integer"
+            },
+            "write_enabled": {
+              "default": false,
+              "title": "Write Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "NotesPolicy",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "policy": {
+          "$ref": "#/$defs/NotesPolicy"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "providers": {
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$": {
+              "$ref": "#/$defs/NextcloudNotesProvider"
+            }
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "minLength": 1
+          },
+          "title": "Providers",
+          "type": "object"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "NotesConfiguration",
+      "type": "object",
+      "x-oracle-file-role": "domains/notes.yaml",
+      "x-oracle-owner": "notes",
       "x-oracle-required-role": false,
       "x-oracle-restart-impact": "restart_required",
       "x-oracle-safety-classifications": []
@@ -4990,6 +5655,745 @@
           "title": "AudiobookStartStep",
           "type": "object"
         },
+        "CapabilityOperation": {
+          "additionalProperties": false,
+          "properties": {
+            "arguments": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "$ref": "#/$defs/InputReference"
+                    }
+                  ]
+                }
+              },
+              "propertyNames": {
+                "maxLength": 128,
+                "minLength": 1
+              },
+              "title": "Arguments",
+              "type": "object"
+            },
+            "capability_id": {
+              "maxLength": 128,
+              "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$",
+              "title": "Capability Id",
+              "type": "string"
+            },
+            "condition": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/CompositeCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "critical": {
+              "default": true,
+              "title": "Critical",
+              "type": "boolean"
+            },
+            "depends_on": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                "type": "string"
+              },
+              "maxItems": 32,
+              "title": "Depends On",
+              "type": "array"
+            },
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Id",
+              "type": "string"
+            },
+            "label": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Label",
+              "type": "string"
+            },
+            "phase": {
+              "default": "main",
+              "enum": [
+                "main",
+                "fallback",
+                "on_failure",
+                "on_cancel"
+              ],
+              "title": "Phase",
+              "type": "string"
+            },
+            "repeat": {
+              "$ref": "#/$defs/CompositeRepeat"
+            },
+            "retry": {
+              "$ref": "#/$defs/CompositeRetry"
+            },
+            "type": {
+              "const": "capability",
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "type",
+            "capability_id",
+            "arguments"
+          ],
+          "title": "CapabilityOperation",
+          "type": "object"
+        },
+        "ChildOperation": {
+          "additionalProperties": false,
+          "properties": {
+            "condition": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/CompositeCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "critical": {
+              "default": true,
+              "title": "Critical",
+              "type": "boolean"
+            },
+            "definition_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Definition Id",
+              "type": "string"
+            },
+            "depends_on": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                "type": "string"
+              },
+              "maxItems": 32,
+              "title": "Depends On",
+              "type": "array"
+            },
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Id",
+              "type": "string"
+            },
+            "inputs": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "$ref": "#/$defs/InputReference"
+                    }
+                  ]
+                }
+              },
+              "propertyNames": {
+                "maxLength": 128,
+                "minLength": 1
+              },
+              "title": "Inputs",
+              "type": "object"
+            },
+            "label": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Label",
+              "type": "string"
+            },
+            "phase": {
+              "default": "main",
+              "enum": [
+                "main",
+                "fallback",
+                "on_failure",
+                "on_cancel"
+              ],
+              "title": "Phase",
+              "type": "string"
+            },
+            "repeat": {
+              "$ref": "#/$defs/CompositeRepeat"
+            },
+            "retry": {
+              "$ref": "#/$defs/CompositeRetry"
+            },
+            "type": {
+              "const": "child",
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "type",
+            "definition_id"
+          ],
+          "title": "ChildOperation",
+          "type": "object"
+        },
+        "CompositeCondition": {
+          "additionalProperties": false,
+          "properties": {
+            "fallback_operation_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Fallback Operation Id"
+            },
+            "field": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Field",
+              "type": "string"
+            },
+            "on_unknown": {
+              "default": "stop",
+              "enum": [
+                "stop",
+                "skip",
+                "proceed",
+                "fallback"
+              ],
+              "title": "On Unknown",
+              "type": "string"
+            },
+            "operator": {
+              "enum": [
+                "equals",
+                "not_equals",
+                "greater_than"
+              ],
+              "title": "Operator",
+              "type": "string"
+            },
+            "reference_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Reference Id",
+              "type": "string"
+            },
+            "source": {
+              "enum": [
+                "input",
+                "result",
+                "state"
+              ],
+              "title": "Source",
+              "type": "string"
+            },
+            "target_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Target Id"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "title": "Value"
+            }
+          },
+          "required": [
+            "source",
+            "reference_id",
+            "field",
+            "operator",
+            "value"
+          ],
+          "title": "CompositeCondition",
+          "type": "object"
+        },
+        "CompositeDefinition": {
+          "additionalProperties": false,
+          "properties": {
+            "automatic_triggers": {
+              "items": {
+                "discriminator": {
+                  "mapping": {
+                    "alert_event": "#/$defs/EvidenceCompositeTrigger",
+                    "home_event": "#/$defs/EvidenceCompositeTrigger",
+                    "network_event": "#/$defs/EvidenceCompositeTrigger",
+                    "presence": "#/$defs/EvidenceCompositeTrigger",
+                    "schedule": "#/$defs/ScheduleCompositeTrigger"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/ScheduleCompositeTrigger"
+                  },
+                  {
+                    "$ref": "#/$defs/EvidenceCompositeTrigger"
+                  }
+                ]
+              },
+              "maxItems": 16,
+              "title": "Automatic Triggers",
+              "type": "array"
+            },
+            "inputs": {
+              "additionalProperties": false,
+              "maxProperties": 16,
+              "patternProperties": {
+                "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$": {
+                  "$ref": "#/$defs/CompositeInput"
+                }
+              },
+              "propertyNames": {
+                "maxLength": 128,
+                "minLength": 1
+              },
+              "title": "Inputs",
+              "type": "object"
+            },
+            "on_cancel": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                "type": "string"
+              },
+              "maxItems": 16,
+              "title": "On Cancel",
+              "type": "array"
+            },
+            "on_failure": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                "type": "string"
+              },
+              "maxItems": 16,
+              "title": "On Failure",
+              "type": "array"
+            },
+            "operations": {
+              "items": {
+                "discriminator": {
+                  "mapping": {
+                    "capability": "#/$defs/CapabilityOperation",
+                    "child": "#/$defs/ChildOperation",
+                    "wait": "#/$defs/FixedWaitOperation",
+                    "wait_until": "#/$defs/WaitUntilOperation"
+                  },
+                  "propertyName": "type"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/CapabilityOperation"
+                  },
+                  {
+                    "$ref": "#/$defs/FixedWaitOperation"
+                  },
+                  {
+                    "$ref": "#/$defs/WaitUntilOperation"
+                  },
+                  {
+                    "$ref": "#/$defs/ChildOperation"
+                  }
+                ]
+              },
+              "maxItems": 32,
+              "minItems": 1,
+              "title": "Operations",
+              "type": "array"
+            },
+            "preauthorize_consequential": {
+              "default": false,
+              "title": "Preauthorize Consequential",
+              "type": "boolean"
+            },
+            "run_policy": {
+              "default": "fail_fast",
+              "enum": [
+                "fail_fast",
+                "best_effort"
+              ],
+              "title": "Run Policy",
+              "type": "string"
+            }
+          },
+          "required": [
+            "operations"
+          ],
+          "title": "CompositeDefinition",
+          "type": "object"
+        },
+        "CompositeInput": {
+          "additionalProperties": false,
+          "properties": {
+            "allowed_values": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": "Allowed Values",
+              "type": "array"
+            },
+            "default": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Default"
+            },
+            "maximum": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Maximum"
+            },
+            "minimum": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Minimum"
+            },
+            "prompt": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Prompt"
+            },
+            "required": {
+              "default": false,
+              "title": "Required",
+              "type": "boolean"
+            },
+            "type": {
+              "enum": [
+                "boolean",
+                "integer",
+                "string"
+              ],
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "CompositeInput",
+          "type": "object"
+        },
+        "CompositeRepeat": {
+          "additionalProperties": false,
+          "properties": {
+            "count": {
+              "default": 1,
+              "maximum": 10,
+              "minimum": 1,
+              "title": "Count",
+              "type": "integer"
+            }
+          },
+          "title": "CompositeRepeat",
+          "type": "object"
+        },
+        "CompositeRetry": {
+          "additionalProperties": false,
+          "properties": {
+            "delay_seconds": {
+              "default": 0,
+              "maximum": 3600,
+              "minimum": 0,
+              "title": "Delay Seconds",
+              "type": "integer"
+            },
+            "max_attempts": {
+              "default": 1,
+              "maximum": 3,
+              "minimum": 1,
+              "title": "Max Attempts",
+              "type": "integer"
+            }
+          },
+          "title": "CompositeRetry",
+          "type": "object"
+        },
+        "EvidenceCompositeTrigger": {
+          "additionalProperties": false,
+          "properties": {
+            "evidence_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Evidence Id",
+              "type": "string"
+            },
+            "expected_state": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Expected State",
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Id",
+              "type": "string"
+            },
+            "inputs": {
+              "additionalProperties": false,
+              "maxProperties": 16,
+              "patternProperties": {
+                "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "propertyNames": {
+                "maxLength": 128,
+                "minLength": 1
+              },
+              "title": "Inputs",
+              "type": "object"
+            },
+            "kind": {
+              "enum": [
+                "home_event",
+                "presence",
+                "network_event",
+                "alert_event"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "evidence_id",
+            "expected_state"
+          ],
+          "title": "EvidenceCompositeTrigger",
+          "type": "object"
+        },
+        "FixedWaitOperation": {
+          "additionalProperties": false,
+          "properties": {
+            "condition": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/CompositeCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "critical": {
+              "default": true,
+              "title": "Critical",
+              "type": "boolean"
+            },
+            "depends_on": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                "type": "string"
+              },
+              "maxItems": 32,
+              "title": "Depends On",
+              "type": "array"
+            },
+            "duration_seconds": {
+              "maximum": 86400,
+              "minimum": 1,
+              "title": "Duration Seconds",
+              "type": "integer"
+            },
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Id",
+              "type": "string"
+            },
+            "label": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Label",
+              "type": "string"
+            },
+            "max_lateness_seconds": {
+              "maximum": 86400,
+              "minimum": 0,
+              "title": "Max Lateness Seconds",
+              "type": "integer"
+            },
+            "phase": {
+              "default": "main",
+              "enum": [
+                "main",
+                "fallback",
+                "on_failure",
+                "on_cancel"
+              ],
+              "title": "Phase",
+              "type": "string"
+            },
+            "repeat": {
+              "$ref": "#/$defs/CompositeRepeat"
+            },
+            "retry": {
+              "$ref": "#/$defs/CompositeRetry"
+            },
+            "type": {
+              "const": "wait",
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "type",
+            "duration_seconds",
+            "max_lateness_seconds"
+          ],
+          "title": "FixedWaitOperation",
+          "type": "object"
+        },
+        "InputReference": {
+          "additionalProperties": false,
+          "properties": {
+            "input_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Input Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "input_id"
+          ],
+          "title": "InputReference",
+          "type": "object"
+        },
         "IntegerRoutineInput": {
           "additionalProperties": false,
           "properties": {
@@ -5220,6 +6624,17 @@
         "RoutineDefinition": {
           "additionalProperties": false,
           "properties": {
+            "composition": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/CompositeDefinition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
             "description": {
               "maxLength": 2048,
               "minLength": 1,
@@ -5352,8 +6767,7 @@
             "enabled",
             "source_ids",
             "triggers",
-            "inputs",
-            "steps"
+            "inputs"
           ],
           "title": "RoutineDefinition",
           "type": "object"
@@ -5432,6 +6846,80 @@
             "voice"
           ],
           "title": "RoutineTriggers",
+          "type": "object"
+        },
+        "ScheduleCompositeTrigger": {
+          "additionalProperties": false,
+          "properties": {
+            "household_local_hour": {
+              "maximum": 23,
+              "minimum": 0,
+              "title": "Household Local Hour",
+              "type": "integer"
+            },
+            "household_local_minute": {
+              "maximum": 59,
+              "minimum": 0,
+              "title": "Household Local Minute",
+              "type": "integer"
+            },
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Id",
+              "type": "string"
+            },
+            "inputs": {
+              "additionalProperties": false,
+              "maxProperties": 16,
+              "patternProperties": {
+                "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "propertyNames": {
+                "maxLength": 128,
+                "minLength": 1
+              },
+              "title": "Inputs",
+              "type": "object"
+            },
+            "kind": {
+              "const": "schedule",
+              "title": "Kind",
+              "type": "string"
+            },
+            "weekdays": {
+              "items": {
+                "maximum": 6,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxItems": 7,
+              "minItems": 1,
+              "title": "Weekdays",
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "household_local_hour",
+            "household_local_minute",
+            "weekdays"
+          ],
+          "title": "ScheduleCompositeTrigger",
           "type": "object"
         },
         "SleepTimerStep": {
@@ -5903,6 +7391,117 @@
           ],
           "title": "WaitStep",
           "type": "object"
+        },
+        "WaitUntilOperation": {
+          "additionalProperties": false,
+          "properties": {
+            "condition": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/CompositeCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "critical": {
+              "default": true,
+              "title": "Critical",
+              "type": "boolean"
+            },
+            "depends_on": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+                "type": "string"
+              },
+              "maxItems": 32,
+              "title": "Depends On",
+              "type": "array"
+            },
+            "expected_value": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Expected Value",
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Id",
+              "type": "string"
+            },
+            "label": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Label",
+              "type": "string"
+            },
+            "phase": {
+              "default": "main",
+              "enum": [
+                "main",
+                "fallback",
+                "on_failure",
+                "on_cancel"
+              ],
+              "title": "Phase",
+              "type": "string"
+            },
+            "poll_seconds": {
+              "maximum": 3600,
+              "minimum": 1,
+              "title": "Poll Seconds",
+              "type": "integer"
+            },
+            "predicate_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Predicate Id",
+              "type": "string"
+            },
+            "repeat": {
+              "$ref": "#/$defs/CompositeRepeat"
+            },
+            "retry": {
+              "$ref": "#/$defs/CompositeRetry"
+            },
+            "target_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$",
+              "title": "Target Id",
+              "type": "string"
+            },
+            "timeout_seconds": {
+              "maximum": 86400,
+              "minimum": 1,
+              "title": "Timeout Seconds",
+              "type": "integer"
+            },
+            "type": {
+              "const": "wait_until",
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "type",
+            "predicate_id",
+            "target_id",
+            "expected_value",
+            "timeout_seconds",
+            "poll_seconds"
+          ],
+          "title": "WaitUntilOperation",
+          "type": "object"
         }
       },
       "additionalProperties": false,
@@ -6325,6 +7924,34 @@
           "title": "AudiobookUserCapability",
           "type": "object"
         },
+        "DndModePolicy": {
+          "additionalProperties": false,
+          "properties": {
+            "allow_indefinite": {
+              "title": "Allow Indefinite",
+              "type": "boolean"
+            },
+            "maximum_duration_seconds": {
+              "maximum": 31622400,
+              "minimum": 1,
+              "title": "Maximum Duration Seconds",
+              "type": "integer"
+            },
+            "minimum_duration_seconds": {
+              "maximum": 31622400,
+              "minimum": 1,
+              "title": "Minimum Duration Seconds",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "allow_indefinite",
+            "minimum_duration_seconds",
+            "maximum_duration_seconds"
+          ],
+          "title": "DndModePolicy",
+          "type": "object"
+        },
         "HomeLocation": {
           "additionalProperties": false,
           "properties": {
@@ -6515,6 +8142,17 @@
               "minLength": 1,
               "title": "Display Name",
               "type": "string"
+            },
+            "do_not_disturb": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DndModePolicy"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             },
             "enabled": {
               "title": "Enabled",

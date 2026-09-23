@@ -38,6 +38,8 @@ def create_orchestration_run(
     controller_state: dict[str, Any] | None = None,
     cancellation_reason: str = "",
     cancellation_requester: str = "",
+    parent_run_id: str = "",
+    parent_operation_id: str = "",
     payload: dict[str, Any] | None = None,
     db_path: Path | None = None,
 ) -> dict[str, Any]:
@@ -54,8 +56,9 @@ def create_orchestration_run(
                 definition_version, correlation_key,
                 activation_idempotency_key, controller_version,
                 controller_state_json, cancellation_reason,
-                cancellation_requester, payload_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                cancellation_requester, parent_run_id, parent_operation_id,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -78,6 +81,8 @@ def create_orchestration_run(
                 json.dumps(controller_state or {}, sort_keys=True),
                 cancellation_reason,
                 cancellation_requester,
+                parent_run_id or None,
+                parent_operation_id or None,
                 json.dumps(payload or {}, sort_keys=True),
             ),
         )
@@ -343,9 +348,21 @@ def reconcile_interrupted_orchestration_runs(*, db_path: Path | None = None) -> 
     now = utc_now_iso()
     with transaction(path) as conn:
         rows = conn.execute(
-            "SELECT run_id FROM memory_orchestration_runs WHERE status = 'running'"
+            "SELECT run_id, controller_version FROM memory_orchestration_runs WHERE status = 'running'"
         ).fetchall()
-        run_ids = [str(row["run_id"]) for row in rows]
+        run_ids: list[str] = []
+        composite_run_ids: set[str] = set()
+        for row in rows:
+            run_id = str(row["run_id"])
+            if str(row["controller_version"] or "") == "2":
+                active = conn.execute(
+                    "SELECT 1 FROM memory_orchestration_steps WHERE run_id = ? AND status = 'running' LIMIT 1",
+                    (run_id,),
+                ).fetchone()
+                if active is None:
+                    continue
+                composite_run_ids.add(run_id)
+            run_ids.append(run_id)
         if run_ids:
             conn.executemany(
                 """
@@ -357,19 +374,34 @@ def reconcile_interrupted_orchestration_runs(*, db_path: Path | None = None) -> 
                 """,
                 [(now, now, run_id) for run_id in run_ids],
             )
-            conn.executemany(
-                """
-                UPDATE memory_orchestration_steps
-                SET updated_at = ?, status = 'interrupted',
-                    summary = CASE
-                        WHEN summary = '' THEN 'Oracle restarted before this step completed.'
-                        ELSE summary
-                    END,
-                    completed_at = COALESCE(completed_at, ?)
-                WHERE run_id = ? AND status IN ('pending', 'running')
-                """,
-                [(now, now, run_id) for run_id in run_ids],
-            )
+            for run_id in run_ids:
+                if run_id in composite_run_ids:
+                    conn.execute(
+                        """
+                        UPDATE memory_orchestration_steps
+                        SET updated_at = ?, status = CASE WHEN status = 'running' THEN 'uncertain' ELSE 'not_run' END,
+                            summary = CASE WHEN status = 'running'
+                                THEN 'Oracle restarted with an uncertain capability outcome.'
+                                ELSE 'Not run after an uncertain capability outcome.' END,
+                            completed_at = COALESCE(completed_at, ?)
+                        WHERE run_id = ? AND status IN ('pending', 'running')
+                        """,
+                        (now, now, run_id),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE memory_orchestration_steps
+                        SET updated_at = ?, status = 'interrupted',
+                            summary = CASE
+                                WHEN summary = '' THEN 'Oracle restarted before this step completed.'
+                                ELSE summary
+                            END,
+                            completed_at = COALESCE(completed_at, ?)
+                        WHERE run_id = ? AND status IN ('pending', 'running')
+                        """,
+                        (now, now, run_id),
+                    )
     for run_id in run_ids:
         try:
             run = get_orchestration_run(run_id, db_path=path) or {}
@@ -454,6 +486,8 @@ def _run_row(row: Any) -> dict[str, Any]:
         "controller_state": _payload(row["controller_state_json"]),
         "cancellation_reason": row["cancellation_reason"] or "",
         "cancellation_requester": row["cancellation_requester"] or "",
+        "parent_run_id": row["parent_run_id"] or "",
+        "parent_operation_id": row["parent_operation_id"] or "",
         "payload": _payload(row["payload_json"]),
     }
 

@@ -64,6 +64,34 @@ create a hardcoded holiday catalog or query fallback/geocoding. If the requested
 holiday is absent from the configured holiday feed, Oracle reports that it
 cannot establish it from the configured authority.
 
+## Proactive Alert Projection Target
+
+Stage 8 retains Calendar as provider-backed event truth while adding an opt-in
+projection into the existing alert/notification lifecycle. Calendar-level
+`alert_enabled` controls participation. Applicable immutable provider event
+reminder metadata controls timing. Oracle never invents a lead time and never
+consumes, deletes, replaces, or edits provider reminder metadata. An opted-in
+event with no applicable provider reminder creates no Oracle alert.
+
+Projection is idempotent by stable provider event occurrence plus provider
+reminder identity, bounded by existing recurrence/freshness law, and associated
+with the calendar's configured canonical users. Association, per-user default
+calendar, and alert opt-in are independent. One calendar may associate multiple
+users and may be the default for multiple users; neither fact implies opt-in.
+Creating or editing an event does not independently create an Oracle alert.
+
+The provider bridge owns reminder-format parsing, qualification, recurrence
+expansion, and trigger resolution. It returns a small Oracle-owned normalized
+reminder intent with stable reminder and occurrence IDs, concrete due time, and
+bounded event context. No iCalendar/VALARM representation crosses into Calendar
+or Alerts. Multiple qualifying provider reminders remain distinct; provider
+repeat/nag delivery semantics collapse to one Oracle alert per normalized
+reminder occurrence.
+
+Calendar alert work uses the shared alert occurrence/delivery owners and the
+general communication-mode presentation decision. DND may suppress audio but
+cannot delete or complete Calendar alert truth.
+
 ## Calendar Read
 
 ### Responsibilities
@@ -190,7 +218,7 @@ Nextcloud calendar only after explicit confirmation.
 
 ### First-Pass Write Scope
 
-The initial write surface should support only:
+The currently implemented create surface supports only:
 
 - title
 - day/date
@@ -198,7 +226,7 @@ The initial write surface should support only:
 - for timed events: start time
 - for timed events: either end time or duration
 
-The following are deferred:
+The following are absent from the current runtime:
 
 - recurring events
 - attendees
@@ -208,6 +236,30 @@ The following are deferred:
 - edits
 - deletes
 - multi-calendar selection
+
+This write deferral means Oracle does not author or edit provider reminder
+metadata in the current create flow. It does not prevent Stage 8's read-only
+projection of reminder metadata already owned by the provider.
+
+### Stage 8 Existing-Event Write Target
+
+Slice 8.5 extends the same Calendar domain, pending-state owners, confirmation
+authority, selected provider bridge, and cache invalidation path with bounded
+edit, reschedule, ordinary-field update, and delete/cancel. It does not create a
+CRUD store or separate execution route.
+
+Selection is deterministic over canonical Calendar evidence and clarifies zero/
+multiple-match uncertainty before mutation. The frozen candidate includes
+stable event/provider reference, selected calendar, canonical user/source
+context, operation, recurrence scope, and resulting fields. Delete/cancel is
+consequential. All confirmed mutations preserve commit integrity and invalidate
+relevant read/UI caches only after a provider-backed accepted result.
+
+Recurring-event wording must explicitly identify occurrence or whole series;
+otherwise Oracle asks. Provider limitations and concurrency conflicts fail
+honestly. No unsupported operation is emulated by delete/recreate, and the
+surface adds no invitation, attendee, RSVP, sharing, permission, or account
+administration behavior.
 
 ### Clarification Behavior
 
@@ -289,8 +341,10 @@ Current UI endpoints:
 - `POST /api/ui/calendar/draft`
 - `POST /api/ui/calendar/confirm`
 - `POST /api/ui/calendar/cancel`
+- `POST /api/ui/calendar/mutation/draft`
+- `POST /api/ui/calendar/mutation/confirm`
 
-The structured UI path and the voice path are separate interaction models, but both must honor the same domain rules for normalization, confirmation, and commit integrity.
+The structured UI path and the voice path are separate interaction models, but both must honor the same domain rules for normalization, confirmation, and commit integrity. Existing-event mutation uses an opaque Oracle `event_ref`, canonical `calendar_id`, authenticated stable household request `source_id`, and bounded `ui_session_id`; raw provider UIDs and the legacy `client_id` do not grant mutation authority.
 
 ### Cancellation And Timeout Behavior
 
@@ -342,7 +396,9 @@ That remains appropriate for reads.
 
 Calendar writes use a real Nextcloud-capable write path rather than trying to force mutation through an ICS-style read interface.
 
-The write backend is therefore built around actual create semantics, not around stretching the read feed past its shape.
+The write backend is therefore built around provider-native mutation semantics,
+not around stretching the read feed past its shape. Stage 8 update/delete must
+extend that bridge and may not use unsafe delete/recreate emulation.
 
 ## V2 Configuration Reconciliation
 

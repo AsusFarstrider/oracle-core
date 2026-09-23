@@ -154,6 +154,17 @@ It must not:
 
 Any configured user may explicitly execute in-scope audiobook requests as any other configured user.
 
+## Effective-User Diagnostic
+
+Stage 8 adds one deterministic read-only query for the effective canonical user
+and its resolution provenance: explicit current request, active session,
+authenticated stable-source association, household default, or unresolved. A
+reply may state that a source is associated with a configured person, but must
+also state plainly that association/context does not authenticate the speaker.
+
+The query does not change session state, grant permission, infer presence,
+perform speaker recognition, or expose credentials/provider account details.
+
 ## Unknown And Unconfigured User Rules
 
 Unknown users must fail cleanly.

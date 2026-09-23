@@ -2,7 +2,8 @@
 
 This document records the current Home Assistant integration shape in Oracle.
 
-The integration is divided between brain-side interpretation support and handler-based execution.
+The integration is divided between Brain-side interpretation support and finite
+semantic execution through configured provider mappings.
 
 Home Assistant is represented as the `home_assistant` dispatch target and is handled by a dedicated dispatch handler.
 
@@ -24,22 +25,42 @@ This support includes:
 - room-name and alias support
 - room-sensitive request resolution support
 
-Room and entity matching are built on the cached Home Assistant vocabulary together with room-context support.
+Canonical room interpretation may use the cached Home Assistant vocabulary
+together with room-context support. The cache is reconstructable discovery
+evidence only: it cannot create a callable target, operation, or alias. Mutation
+selection reads only the applied typed mappings and their Oracle-owned target
+terms.
 
 ## Handler Execution
 
 Execution lives in the dedicated Home Assistant handler.
 
-The handler is responsible for:
+The handler and shared action executor are responsible for:
 
 - executing the `home_assistant` dispatch target
-- loading and committing the source/session-scoped Home Assistant conversation id
-- calling the Home Assistant conversation API
-- handling returned results for Oracle's dispatch flow
+- resolving a closed Oracle capability, canonical target, bounded arguments,
+  risk, and expected result before provider dispatch
+- translating only the resolved configured mapping through exact typed bridge
+  methods
+- verifying readable provider state after mutation and preserving unknown or
+  rejected outcomes honestly
 
-The provider bridge accepts an optional provider conversation id and returns the
-provider's next id. It does not import or mutate Oracle conversation/session
-state.
+The bridge exposes no natural-language Conversation mutation method. Public
+voice, UI, and runbook paths share the semantic risk/execution machinery and
+cannot submit provider entity IDs or service names.
+
+Read-only presence queries use separately typed `person_presence` mappings.
+They resolve Oracle users before reading HA, normalize only `home`, `away`, or
+`unknown`, and never consult the entity cache or device trackers as a fallback.
+
+The authenticated HA event ingress may also feed reviewed automatic routine
+triggers. The HA boundary converts configured entry-state mappings to
+`home_event` evidence and configured person mappings to coarse `presence`
+evidence; only canonical Oracle IDs, normalized state, and stable event
+occurrence identity cross into orchestration. Accepted delivery is durably
+staged before activation so a Brain restart can retry it. This path cannot use
+discovery/cache entries as authority and cannot expose HA entity/service
+concepts to a routine definition.
 
 ## Integration Surfaces
 
@@ -69,19 +90,19 @@ Rules:
 - do not make browser clients fetch HA URLs directly
 - treat this as still-image support, not live camera streaming
 
-## Conversation Continuity
+## Interaction Continuity
 
-The integration uses Home Assistant conversation-id continuity through Oracle conversation state.
-
-The Brain handler/domain owns that linkage under the effective interaction
-session. The provider bridge only translates the supplied and returned Home
-Assistant identities.
+Oracle's bounded room/action clarification and semantic session context remain
+authoritative. Provider Conversation identity is not part of mutation
+execution.
 
 For bounded same-session follow-up recovery, brain-side routing may also consult recent Oracle conversation history when a Home Assistant-dependent follow-up phrase is plausible but the strong active context is unexpectedly absent.
 
 That recovery is still brain-owned interpretation support.
 
-It does not move Home Assistant execution into conversation storage, and it must still resolve back into canonical Home Assistant command text before dispatch.
+It does not move Home Assistant execution into conversation storage. The
+ratified target resolves to a finite typed Oracle semantic action before
+dispatch, never provider natural-language command text.
 
 ## Pending Clarification
 
@@ -89,9 +110,9 @@ Pending room clarification is stored in Oracle state and resumes through the sam
 
 ## Confirmation And Verification Flow
 
-Confirmations are part of the current Home Assistant integration flow for some requests before execution continues through the handler path.
-
-The handler also performs a post-request verification pass for some successful actuator responses.
+Confirmation follows the resolved semantic direction and configured climate
+bounds, identically across voice, UI, and runbooks. A provider-accepted action
+with readable but unchanged state is not success.
 
 ## Configuration Ownership
 

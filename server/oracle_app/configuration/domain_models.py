@@ -9,10 +9,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BeforeValidator, Field, field_validator, model_validator
 
 from .model_base import CanonicalId, ConfigurationModel, DisplayText, SecretReference
+from .composite_definition import CompositeDefinition
 
 
 PositiveSeconds = Annotated[int, Field(ge=1, le=86400)]
 BoundedText = Annotated[str, Field(min_length=1, max_length=2048)]
+NetworkEvidenceId = Annotated[str, Field(min_length=1, max_length=160, pattern=r"^(?:probe|librenms\.monitor)\.[a-z][a-z0-9_]*$")]
 MachinePath = Annotated[str, Field(min_length=1, max_length=1024)]
 _SYSTEMD_UNIT_PATTERN = re.compile(r"^[A-Za-z0-9@_.-]+$")
 _DOCKER_TARGET_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,255}$")
@@ -475,6 +477,8 @@ class CalendarFeed(ConfigurationModel):
     kind: Literal["events", "holidays"]
     label: DisplayText | None = None
     user_ids: list[CanonicalId] = Field(default_factory=list)
+    default_for_user_ids: list[CanonicalId] = Field(default_factory=list)
+    alert_enabled: bool = False
     ics_url: CredentialFreeUrl | None = None
     ics_url_secret: SecretReference | None = None
     read_user: Annotated[str, Field(min_length=1, max_length=256)] | None = None
@@ -487,6 +491,9 @@ class CalendarFeed(ConfigurationModel):
         if (self.read_user is None) != (self.read_credential_secret is None):
             raise ValueError("Calendar feed read authentication must provide both user and credential secret.")
         _reject_duplicates(self.user_ids, label="Calendar feed user IDs")
+        _reject_duplicates(self.default_for_user_ids, label="Calendar feed default user IDs")
+        if self.kind != "events" and (self.user_ids or self.default_for_user_ids or self.alert_enabled):
+            raise ValueError("Holiday feeds cannot declare users, defaults, or Calendar alert projection.")
         return self
 
 
@@ -498,13 +505,20 @@ class NextcloudCalendarProvider(ConfigurationModel):
     write_user: Annotated[str, Field(min_length=1, max_length=256)] | None = None
     write_credential_secret: SecretReference | None = None
     write_calendar_uri: Annotated[str, Field(min_length=1, max_length=256)] | None = None
+    write_feed_id: CanonicalId | None = None
 
     @model_validator(mode="after")
     def validate_write_tuple(self) -> NextcloudCalendarProvider:
-        fields = (self.write_base_url, self.write_user, self.write_credential_secret, self.write_calendar_uri)
+        fields = (self.write_base_url, self.write_user, self.write_credential_secret, self.write_calendar_uri, self.write_feed_id)
         if any(value is not None for value in fields) and not all(value is not None for value in fields):
             raise ValueError("Nextcloud write configuration must be complete or absent.")
         _reject_duplicates([feed.id for feed in self.feeds], label="Calendar feed IDs")
+        if self.write_feed_id is not None and not any(
+            feed.id == self.write_feed_id and feed.kind == "events" for feed in self.feeds
+        ):
+            raise ValueError("Nextcloud write feed ID must identify an event feed.")
+        default_owners = [user_id for feed in self.feeds for user_id in feed.default_for_user_ids]
+        _reject_duplicates(default_owners, label="Calendar default user IDs")
         return self
 
 
@@ -543,6 +557,152 @@ class CalendarConfiguration(ConfigurationModel):
         return self
 
 
+class ListDefinition(ConfigurationModel):
+    id: CanonicalId
+    display_name: DisplayText
+    aliases: list[DisplayText] = Field(default_factory=list)
+    user_ids: list[CanonicalId] = Field(default_factory=list)
+    calendar_uri: Annotated[str, Field(min_length=1, max_length=256)]
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ListDefinition:
+        _reject_duplicates(self.aliases, label="List aliases")
+        _reject_duplicates(self.user_ids, label="List user IDs")
+        return self
+
+
+class NextcloudListsProvider(ConfigurationModel):
+    type: Literal["nextcloud_tasks"]
+    base_url: CredentialFreeUrl
+    user: Annotated[str, Field(min_length=1, max_length=256)]
+    credential_secret: SecretReference
+    timeout_seconds: PositiveSeconds = 8
+    lists: list[ListDefinition] = Field(default_factory=list)
+
+    @field_validator("lists")
+    @classmethod
+    def unique_lists(cls, values: list[ListDefinition]) -> list[ListDefinition]:
+        _reject_duplicates([value.id for value in values], label="List IDs")
+        _reject_duplicates([value.calendar_uri for value in values], label="List provider mappings")
+        return values
+
+
+class MicrosoftTodoListDefinition(ConfigurationModel):
+    id: CanonicalId
+    display_name: DisplayText
+    aliases: list[DisplayText] = Field(default_factory=list)
+    user_ids: list[CanonicalId] = Field(default_factory=list)
+    provider_list_id: Annotated[str, Field(min_length=1, max_length=512)]
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> MicrosoftTodoListDefinition:
+        _reject_duplicates(self.aliases, label="List aliases")
+        _reject_duplicates(self.user_ids, label="List user IDs")
+        return self
+
+
+class MicrosoftTodoListsProvider(ConfigurationModel):
+    type: Literal["microsoft_todo"]
+    tenant: Annotated[str, Field(pattern=r"^(?:consumers|organizations|[0-9a-fA-F-]{36})$")]
+    client_id: Annotated[str, Field(pattern=r"^[0-9a-fA-F-]{36}$")]
+    refresh_token_secret: SecretReference
+    timeout_seconds: PositiveSeconds = 8
+    lists: list[MicrosoftTodoListDefinition] = Field(default_factory=list)
+
+    @field_validator("lists")
+    @classmethod
+    def unique_lists(cls, values: list[MicrosoftTodoListDefinition]) -> list[MicrosoftTodoListDefinition]:
+        _reject_duplicates([value.id for value in values], label="List IDs")
+        _reject_duplicates([value.provider_list_id for value in values], label="List provider mappings")
+        return values
+
+
+class ListsPolicy(ConfigurationModel):
+    read_enabled: bool = True
+    write_enabled: bool = False
+    confirmation_required: Literal[True] = True
+    fresh_seconds: PositiveSeconds = 30
+    stale_if_error_seconds: PositiveSeconds = 120
+
+
+class ListsConfiguration(ConfigurationModel):
+    enabled: bool
+    provider: CanonicalId | None = None
+    providers: dict[CanonicalId, Annotated[NextcloudListsProvider | MicrosoftTodoListsProvider, Field(discriminator="type")]] = Field(default_factory=dict)
+    policy: ListsPolicy = Field(default_factory=ListsPolicy)
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> ListsConfiguration:
+        _require_selected_provider(
+            enabled=self.enabled,
+            provider=self.provider,
+            providers=self.providers,
+            label="lists",
+        )
+        if self.enabled and not (self.policy.read_enabled or self.policy.write_enabled):
+            raise ValueError("Enabled lists require read or write policy.")
+        return self
+
+
+class NoteDefinition(ConfigurationModel):
+    id: CanonicalId
+    display_name: DisplayText
+    aliases: list[DisplayText] = Field(default_factory=list)
+    user_ids: list[CanonicalId] = Field(default_factory=list)
+    provider_note_id: Annotated[str, Field(min_length=1, max_length=256)]
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> NoteDefinition:
+        _reject_duplicates(self.aliases, label="Note aliases")
+        _reject_duplicates(self.user_ids, label="Note user IDs")
+        return self
+
+
+class NextcloudNotesProvider(ConfigurationModel):
+    type: Literal["nextcloud_notes"]
+    base_url: CredentialFreeUrl
+    user: Annotated[str, Field(min_length=1, max_length=256)]
+    credential_secret: SecretReference
+    timeout_seconds: PositiveSeconds = 8
+    notes: list[NoteDefinition] = Field(default_factory=list)
+
+    @field_validator("notes")
+    @classmethod
+    def unique_notes(cls, values: list[NoteDefinition]) -> list[NoteDefinition]:
+        _reject_duplicates([value.id for value in values], label="Note IDs")
+        _reject_duplicates([value.provider_note_id for value in values], label="Note provider mappings")
+        return values
+
+
+class NotesPolicy(ConfigurationModel):
+    read_enabled: bool = True
+    write_enabled: bool = False
+    confirmation_required: Literal[True] = True
+    fresh_seconds: PositiveSeconds = 30
+    stale_if_error_seconds: PositiveSeconds = 120
+    max_content_characters: Annotated[int, Field(ge=1, le=100_000)] = 20_000
+    max_search_results: Annotated[int, Field(ge=1, le=100)] = 20
+
+
+class NotesConfiguration(ConfigurationModel):
+    enabled: bool
+    provider: CanonicalId | None = None
+    providers: dict[CanonicalId, NextcloudNotesProvider] = Field(default_factory=dict)
+    policy: NotesPolicy = Field(default_factory=NotesPolicy)
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> NotesConfiguration:
+        _require_selected_provider(
+            enabled=self.enabled,
+            provider=self.provider,
+            providers=self.providers,
+            label="notes",
+        )
+        if self.enabled and not (self.policy.read_enabled or self.policy.write_enabled):
+            raise ValueError("Enabled notes require read or write policy.")
+        return self
+
+
 class HomeAssistantProvider(ConfigurationModel):
     type: Literal["home_assistant"]
     base_url: CredentialFreeUrl
@@ -565,10 +725,30 @@ class HomeAssistantProvider(ConfigurationModel):
 
 
 class HomeAssistantObjectMapping(ConfigurationModel):
-    kind: Literal["room", "entity", "action", "camera", "mode"]
+    kind: Literal["room", "entity", "action", "camera", "mode", "person_presence"]
     oracle_id: CanonicalId
     entity_id: Annotated[str, Field(min_length=1, max_length=256)]
     allowed_operations: list[CanonicalId] = Field(default_factory=list)
+    aliases: list[DisplayText] = Field(default_factory=list)
+    normal_temperature_min: float | None = None
+    normal_temperature_max: float | None = None
+    temperature_unit: Literal["fahrenheit", "celsius"] | None = None
+
+    @model_validator(mode="after")
+    def bounded_semantic_metadata(self) -> HomeAssistantObjectMapping:
+        if len({" ".join(item.casefold().split()) for item in self.aliases}) != len(self.aliases):
+            raise ValueError("Home Assistant mapping aliases must be unique.")
+        bounds = (self.normal_temperature_min, self.normal_temperature_max)
+        if any(value is not None for value in bounds):
+            if self.kind not in {"entity", "action"} or self.entity_id.split(".", 1)[0] != "climate":
+                raise ValueError("Temperature bounds are valid only for climate mappings.")
+            if None in bounds or self.temperature_unit is None:
+                raise ValueError("Climate normal bounds require minimum, maximum, and unit.")
+            if self.normal_temperature_min >= self.normal_temperature_max:  # type: ignore[operator]
+                raise ValueError("Climate normal minimum must be below its maximum.")
+        elif self.temperature_unit is not None:
+            raise ValueError("A temperature unit requires configured climate normal bounds.")
+        return self
 
 
 class HomeAssistantEventMapping(ConfigurationModel):
@@ -978,10 +1158,15 @@ class RoutineDefinition(ConfigurationModel):
     source_ids: list[CanonicalId]
     triggers: RoutineTriggers
     inputs: dict[CanonicalId, RoutineInput]
-    steps: list[RoutineStep]
+    steps: list[RoutineStep] = Field(default_factory=list)
+    composition: CompositeDefinition | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def validate_definition(self) -> RoutineDefinition:
+        if self.composition is not None and (self.steps or self.inputs):
+            raise ValueError("Bounded composite definitions cannot mix compatibility steps or inputs.")
+        if self.composition is None and not self.steps and self.enabled:
+            raise ValueError("Enabled routine requires at least one compatibility step or a composite definition.")
         _reject_duplicates([step.id for step in self.steps], label="Routine step IDs")
         for step in self.steps:
             if step.when is not None and step.when.input_id not in self.inputs:
@@ -1000,14 +1185,13 @@ class RoutineDefinition(ConfigurationModel):
             remediation_action_id = getattr(step, "remediation_action_id", None)
             if remediation_action_id is not None and step.on_failure != "continue":
                 raise ValueError(f"Routine step {step.id!r} remediation requires continue-on-failure policy.")
-        if self.enabled and not self.steps:
-            raise ValueError("Enabled routine requires at least one step.")
         if self.enabled and self.user_id is None:
             raise ValueError("Enabled routine requires an owning user.")
         if self.enabled and not self.source_ids:
             raise ValueError("Enabled routine requires at least one source.")
-        if self.enabled and not (self.triggers.ui or self.triggers.voice):
-            raise ValueError("Enabled routine requires at least one trigger surface.")
+        automatic = self.composition is not None and bool(self.composition.automatic_triggers)
+        if self.enabled and not (self.triggers.ui or self.triggers.voice or automatic):
+            raise ValueError("Enabled routine requires at least one manual or automatic trigger surface.")
         phrases = self.triggers.source_phrases + self.triggers.global_phrases
         normalized_phrases = [" ".join(value.casefold().split()) for value in phrases]
         _reject_duplicates(normalized_phrases, label="Routine trigger phrases")
@@ -1027,6 +1211,9 @@ class RoutinesConfiguration(ConfigurationModel):
     @model_validator(mode="after")
     def validate_definitions(self) -> RoutinesConfiguration:
         _reject_duplicates([item.id for item in self.definitions], label="Routine definition IDs")
+        from .composite_semantics import validate_composite_collection
+
+        validate_composite_collection(self.definitions)
         if not self.enabled and any(item.enabled for item in self.definitions):
             raise ValueError("Disabled routines role cannot contain enabled definitions.")
         if self.enabled and not any(item.enabled for item in self.definitions):
@@ -1151,7 +1338,7 @@ class NetworkExecutionPolicy(ConfigurationModel):
     recovery_timeout_seconds: PositiveSeconds | None = None
     recovery_poll_seconds: PositiveSeconds | None = None
     readiness_timeout_seconds: PositiveSeconds | None = None
-    cooldown_seconds: Annotated[int, Field(ge=0, le=86400)] | None = None
+    cooldown_seconds: Annotated[int, Field(ge=0, le=3600)] | None = None
 
 
 class NetworkAction(ConfigurationModel):
@@ -1205,6 +1392,18 @@ class NetworkRecoveryTriggers(ConfigurationModel):
         return self
 
 
+class NetworkRecoverySequenceStep(ConfigurationModel):
+    action_policy_id: CanonicalId
+    readiness_evidence_ids: list[NetworkEvidenceId] = Field(default_factory=list)
+    readiness_timeout_seconds: Annotated[int, Field(ge=1, le=3600)] = 300
+    readiness_poll_seconds: Annotated[int, Field(ge=1, le=60)] = 5
+
+    @model_validator(mode="after")
+    def validate_evidence(self) -> NetworkRecoverySequenceStep:
+        _reject_duplicates(self.readiness_evidence_ids, label="Network recovery readiness evidence IDs")
+        return self
+
+
 class NetworkRecovery(ConfigurationModel):
     id: CanonicalId
     enabled: bool
@@ -1214,6 +1413,24 @@ class NetworkRecovery(ConfigurationModel):
     diagnostic_profile: CanonicalId
     remediation_profile: CanonicalId
     triggers: NetworkRecoveryTriggers
+    sequence: list[NetworkRecoverySequenceStep] = Field(default_factory=list)
+    final_evidence_ids: list[NetworkEvidenceId] = Field(default_factory=list)
+    final_timeout_seconds: Annotated[int, Field(ge=1, le=3600)] = 300
+    final_poll_seconds: Annotated[int, Field(ge=1, le=60)] = 5
+
+    @model_validator(mode="after")
+    def validate_sequence(self) -> NetworkRecovery:
+        if self.id == "restart_network_anyway":
+            if len(self.sequence) != 4 or not self.final_evidence_ids:
+                raise ValueError("Restart-anyway requires exactly four actions and final evidence.")
+            if not self.triggers.ui or self.triggers.voice:
+                raise ValueError("Restart-anyway is explicit UI approval only.")
+            _reject_duplicates([step.action_policy_id for step in self.sequence], label="Restart-anyway action IDs")
+            _reject_duplicates(self.final_evidence_ids, label="Restart-anyway final evidence IDs")
+        elif self.sequence or self.final_evidence_ids:
+            raise ValueError("Only restart_network_anyway may declare a fixed Network sequence.")
+        return self
+
 
 
 class NetworkPolicyConfiguration(ConfigurationModel):
@@ -1231,6 +1448,21 @@ class NetworkPolicyConfiguration(ConfigurationModel):
             label="Network target operations",
         )
         _reject_duplicates([item.id for item in self.recoveries], label="Network recovery IDs")
+        actions = {item.id: item for item in self.actions}
+        expected = ("power_cycle", "restart_router", "restart_service", "restart_host")
+        for recovery in self.recoveries:
+            if recovery.id != "restart_network_anyway":
+                continue
+            for step, operation in zip(recovery.sequence, expected):
+                action = actions.get(step.action_policy_id)
+                if action is None or not action.enabled or action.operation != operation:
+                    raise ValueError("Restart-anyway actions must be enabled and ordered modem, router, DNS service, edge host.")
+                if operation == "restart_service" and "pihole_restart_continuity" not in action.required_preconditions:
+                    raise ValueError("Restart-anyway DNS service requires Pi-hole continuity protection.")
+                if operation == "restart_host" and not action.requires_graceful_lifecycle:
+                    raise ValueError("Restart-anyway edge host requires its graceful lifecycle.")
+            if any(not step.readiness_evidence_ids for step in recovery.sequence):
+                raise ValueError("Restart-anyway dependent actions require readiness evidence.")
         phrases: dict[str, str] = {}
         for recovery in self.recoveries:
             for phrase in recovery.triggers.global_phrases:

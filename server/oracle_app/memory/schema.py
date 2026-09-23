@@ -6,7 +6,7 @@ from pathlib import Path
 from .store import DB_PATH, transaction
 
 
-SCHEMA_VERSION = "0011_suggestions_advisory_review"
+SCHEMA_VERSION = "0013_composite_runbook_execution"
 SCHEMA_VERSIONS = (
     "0001_core",
     "0002_sessions_transcripts",
@@ -18,6 +18,7 @@ SCHEMA_VERSIONS = (
     "0008_current_state_and_retention",
     "0009_durable_alerts",
     "0010_alert_lifecycle",
+    "0011_suggestions_advisory_review",
     SCHEMA_VERSION,
 )
 
@@ -79,6 +80,17 @@ CREATE TABLE IF NOT EXISTS memory_current_projections (
     correlation_id TEXT,
     payload_json TEXT NOT NULL DEFAULT '{}',
     FOREIGN KEY(source_id) REFERENCES memory_sources(source_id)
+);
+
+CREATE TABLE IF NOT EXISTS memory_communication_modes (
+    mode_id TEXT PRIMARY KEY,
+    active INTEGER NOT NULL,
+    activated_at TEXT,
+    expires_at TEXT,
+    updated_at TEXT NOT NULL,
+    actor_source_id TEXT,
+    CHECK (active IN (0, 1)),
+    CHECK (active = 1 OR expires_at IS NULL)
 );
 
 CREATE TABLE IF NOT EXISTS memory_sessions (
@@ -151,6 +163,8 @@ CREATE TABLE IF NOT EXISTS memory_orchestration_runs (
     controller_state_json TEXT NOT NULL DEFAULT '{}',
     cancellation_reason TEXT NOT NULL DEFAULT '',
     cancellation_requester TEXT NOT NULL DEFAULT '',
+    parent_run_id TEXT,
+    parent_operation_id TEXT,
     payload_json TEXT NOT NULL DEFAULT '{}',
     CHECK (kind IN ('recovery', 'routine')),
     CHECK (approval_consumed IN (0, 1))
@@ -484,6 +498,8 @@ _RUNBOOK_KERNEL_RUN_COLUMNS = {
     "controller_state_json": "TEXT NOT NULL DEFAULT '{}'",
     "cancellation_reason": "TEXT NOT NULL DEFAULT ''",
     "cancellation_requester": "TEXT NOT NULL DEFAULT ''",
+    "parent_run_id": "TEXT",
+    "parent_operation_id": "TEXT",
 }
 
 _NOTIFICATION_DELIVERY_COLUMNS = {
@@ -545,6 +561,12 @@ def _ensure_alert_lifecycle_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
         """CREATE INDEX IF NOT EXISTS idx_memory_alerts_occurrence
            ON memory_alerts(occurrence_id, source_id, status)"""
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_memory_orchestration_runs_parent
+        ON memory_orchestration_runs(parent_run_id, parent_operation_id)
+        """
     )
     occurrence_columns = {
         str(row[1])

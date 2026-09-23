@@ -113,12 +113,15 @@ _NON_ANCHORING_SYSTEM_ACTIONS = {
     "repeat",
     "help",
     "courtesy",
+    "effective_user",
     "unsupported_utility",
+    "presence",
 }
 
 _NON_REPEATABLE_TARGETS = {"facts", "fallback_router", "home_assistant", "news"}
 _NON_REPEATABLE_ACTIONS = {
-    "ignore", "repeat", "refresh_cache", "routine_start", "commit_event",
+    "ignore", "repeat", "refresh_cache", "routine_start", "routine_status", "routine_cancel", "commit_event",
+    "effective_user", "presence",
     "play", "pause", "resume", "stop", "next", "previous", "restart",
     "set_volume", "volume_up", "volume_down",
 }
@@ -393,12 +396,75 @@ def _build_routine_voice_response(
     )
 
 
+def _build_routine_control_voice_response(
+    *,
+    result: dict[str, Any],
+    payload: CommandRequest,
+    effective_payload: CommandRequest,
+    session_info: dict[str, Any],
+    normalized_text: str,
+) -> CommandResponse:
+    action = str(result.get("action") or "routine_status")
+    route = RouteResponse(
+        target="system",
+        confidence=1.0,
+        reason="Matched bounded orchestration run control",
+        normalized_text=normalized_text,
+    )
+    status = "pending_clarification" if result.get("clarify") is True else "executed" if result.get("ok") is True else "failed"
+    dispatch = DispatchPlan(
+        target="system",
+        hook="orchestration.routine",
+        payload={"action": action, "source": effective_payload.source},
+        status=status,
+        result={key: value for key, value in result.items() if key != "reply_text"},
+    )
+    reply_text = str(result.get("reply_text") or "Routine status is unavailable.")
+    _log_command_event("route_chosen", payload=effective_payload, route=route)
+    _log_command_event(
+        "dispatch_planned",
+        payload=effective_payload,
+        route=route,
+        dispatch_hook=dispatch.hook,
+        dispatch_status=dispatch.status,
+        action=action,
+    )
+    _log_command_event(
+        "dispatch_executed",
+        payload=effective_payload,
+        route=route,
+        dispatch_hook=dispatch.hook,
+        dispatch_status=dispatch.status,
+        action=action,
+        reply_text=reply_text,
+    )
+    _log_command_event(
+        "reply_built",
+        payload=effective_payload,
+        route=route,
+        dispatch_hook=dispatch.hook,
+        dispatch_status=dispatch.status,
+        action=action,
+        reply_text=reply_text,
+    )
+    return CommandResponse(
+        route=route,
+        dispatch=dispatch,
+        reply_text=reply_text,
+        session_id=payload.session_id,
+        effective_session_id=str(session_info["effective_session_id"]),
+    )
+
+
 def _should_refresh_session(*, route: RouteResponse, dispatch, result: dict[str, object]) -> bool:
     route_target = str(route.target or dispatch.target or "")
     if route_target == "fallback_router" and dispatch.target != "fallback_router":
         route_target = str(dispatch.target or route_target)
     status = str(dispatch.status or "")
     action = str(result.get("action") or "")
+
+    if route_target == "system" and action == "effective_user":
+        return False
 
     if status in {"executed", "pending_confirmation", "pending_clarification"}:
         return action != "ignore"
@@ -1111,6 +1177,61 @@ def command_request(
         household_settings is not None
         and household_settings.source(effective_payload.source) is not None
     )
+    if source_is_configured and routine_execution is not None:
+        routine_control = routine_execution.voice_run_command(
+            normalized,
+            source_id=effective_payload.source,
+        )
+        if routine_control is not None:
+            append_turn(effective_payload.source, effective_payload.session_id, "user", payload.text)
+            response = _build_routine_control_voice_response(
+                result=routine_control,
+                payload=payload,
+                effective_payload=effective_payload,
+                session_info=session_info,
+                normalized_text=normalized,
+            )
+            append_turn(effective_payload.source, effective_payload.session_id, "assistant", response.reply_text)
+            _memory_observe_command_outcome(
+                original_payload=payload,
+                effective_payload=effective_payload,
+                session_info=session_info,
+                response=response,
+                initial_route=response.route,
+                normalized_text=normalized,
+            )
+            return response
+    home_settings = composition.runtime.home_assistant
+    if (
+        home_settings is not None
+        and normalized in home_settings.callable_alias_collisions
+    ):
+        route = RouteResponse(
+            target="home_assistant",
+            confidence=1.0,
+            reason="configured callable alias collision",
+            normalized_text=normalized,
+        )
+        dispatch = DispatchPlan(
+            target="home_assistant",
+            hook="home_assistant.execute",
+            payload=effective_payload.model_dump(),
+            status="pending_clarification",
+            result={
+                "error": "home_callable_alias_ambiguous",
+                "prompt": "That phrase names both an Oracle routine and a configured provider action. Which one did you mean?",
+            },
+        )
+        response = CommandResponse(
+            route=route,
+            dispatch=dispatch,
+            reply_text=str(dispatch.result["prompt"]),
+            session_id=payload.session_id,
+            effective_session_id=str(session_info["effective_session_id"]),
+        )
+        append_turn(effective_payload.source, effective_payload.session_id, "user", payload.text)
+        append_turn(effective_payload.source, effective_payload.session_id, "assistant", response.reply_text)
+        return response
     if source_is_configured:
         routine_definition = (
             routine_execution.resolve_voice_trigger(
@@ -1343,12 +1464,13 @@ def command_request(
         owning_component=str(result.get("owning_component") or ""),
         room_context=result.get("room_context") or dispatch.payload.get("room_context") or {},
     )
-    set_dispatch_context(
-        effective_payload.source,
-        effective_payload.session_id,
-        target=dispatch.target,
-        action=str(result.get("action")) if result.get("action") is not None else None,
-    )
+    if not (dispatch.target == "system" and str(result.get("action") or "") == "effective_user"):
+        set_dispatch_context(
+            effective_payload.source,
+            effective_payload.session_id,
+            target=dispatch.target,
+            action=str(result.get("action")) if result.get("action") is not None else None,
+        )
     append_turn(effective_payload.source, effective_payload.session_id, "assistant", reply_text)
     _log_command_event(
         "reply_built",

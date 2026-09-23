@@ -50,6 +50,8 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.read.fresh_seconds, 45)
         self.assertEqual(settings.read.stale_if_error_seconds, 300)
         self.assertEqual(settings.read.feeds["household"].resolved_url, "https://secret.invalid/events.ics")
+        self.assertFalse(settings.read.feeds["household"].alert_enabled)
+        self.assertEqual(settings.read.feeds["household"].default_for_user_ids, ())
         self.assertEqual(settings.read.feeds["holidays"].credential_free_url, "https://calendar.invalid/holidays.ics")
         self.assertEqual(tuple(feed.id for feed in settings.read.feeds_for_kind("holidays")), ("holidays",))
         self.assertFalse(settings.write.enabled)
@@ -77,6 +79,7 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.write.base_url, "https://nextcloud.invalid")
         self.assertEqual(settings.write.user, "oracle")
         self.assertEqual(settings.write.calendar_uri, "joint")
+        self.assertEqual(settings.write.feed_id, "household")
         self.assertEqual(settings.write.credential, "calendar-write-password")
         self.assertNotIn("calendar-write-password", repr(settings))
 
@@ -223,6 +226,58 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
             for finding in inspection.report.validation_findings
         ))
 
+    def test_calendar_feed_rejects_unknown_default_user_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary) / "bundle"
+            shutil.copytree(EXAMPLE_ROOT, bundle)
+            self._write_enabled_calendar(bundle, mode="read")
+            calendar = json.loads((bundle / "domains" / "calendar.yaml").read_text(encoding="utf-8"))
+            calendar["providers"]["primary"]["feeds"][0]["default_for_user_ids"] = ["unknown_person"]
+            (bundle / "domains" / "calendar.yaml").write_text(json.dumps(calendar), encoding="utf-8")
+
+            inspection = inspect_candidate(bundle)
+
+        self.assertFalse(inspection.report.activation_eligible)
+        self.assertTrue(any(
+            finding.path.endswith("default_for_user_ids[0]")
+            for finding in inspection.report.validation_findings
+        ))
+
+    def test_default_association_and_alert_opt_in_are_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary) / "bundle"
+            shutil.copytree(EXAMPLE_ROOT, bundle)
+            self._write_enabled_calendar(bundle, mode="read")
+            calendar = json.loads((bundle / "domains" / "calendar.yaml").read_text(encoding="utf-8"))
+            feed = calendar["providers"]["primary"]["feeds"][0]
+            feed["user_ids"] = []
+            feed["default_for_user_ids"] = ["resident_one"]
+            feed["alert_enabled"] = True
+            (bundle / "domains" / "calendar.yaml").write_text(json.dumps(calendar), encoding="utf-8")
+            (bundle / "secrets.env").write_text("CALENDAR_FEED_URL=https://secret.invalid/events.ics\n", encoding="utf-8")
+            inspection = inspect_candidate(bundle)
+            self.assertTrue(inspection.report.activation_eligible, inspection.report)
+            effective = EffectiveConfig(
+                activation_generation_id="activation_11111111111111111111111111111111",
+                config_generation_id="config_11111111111111111111111111111111",
+                secret_generation_id="secrets_11111111111111111111111111111111",
+                selection_operation_id="selection_op_11111111111111111111111111111111",
+                selection_revision=1,
+                satellite_projection_activation_ids=MappingProxyType({}),
+                config_revision=inspection.normalized_candidate_revision or "",
+                bundle_id="example-home",
+                schema_version=2,
+                roles=inspection.bundle.roles,  # type: ignore[union-attr]
+                secrets=inspection.secrets,  # type: ignore[arg-type]
+            )
+
+        runtime_settings = CalendarRuntimeSettings.from_effective_config(effective)
+        feed_settings = runtime_settings.read.feeds["household"]
+        self.assertEqual(feed_settings.user_ids, ())
+        self.assertEqual(feed_settings.default_for_user_ids, ("resident_one",))
+        self.assertTrue(feed_settings.alert_enabled)
+        self.assertEqual(runtime_settings.default_calendar_id("resident_one"), "household")
+
     def _effective_config(
         self,
         *,
@@ -297,6 +352,7 @@ class CalendarRuntimeSettingsTests(unittest.TestCase):
                     "write_user": "oracle",
                     "write_credential_secret": "CALENDAR_WRITE_CREDENTIAL",
                     "write_calendar_uri": "joint",
+                    "write_feed_id": "household",
                 }
             },
             "policy": {

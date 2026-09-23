@@ -9,6 +9,11 @@ from oracle_app.configuration.household_runtime_settings import HouseholdRuntime
 from oracle_app.configuration.satellite_fleet_runtime_settings import SatelliteFleetRuntimeSettings
 from oracle_app.calendar_runtime import CanonicalCalendarExecution
 from oracle_app.home_assistant_cache import refresh_home_assistant_cache
+from oracle_app.home_assistant_presence import read_home_assistant_presence
+from oracle_app.presence_intents import parse_presence_query
+from oracle_app.communication_modes import execute_dnd_request
+from oracle_app import alerts as alerts_module
+from datetime import datetime, timezone
 from oracle_app.session_state import (
     clear_pending_state,
     clear_session_state,
@@ -22,7 +27,7 @@ from oracle_app.session_state import (
 from oracle_app.temporal import TemporalQuery, build_temporal_response, parse_temporal_query
 from oracle_app.system_help import classify_help_request, failure_recovery_guidance, find_capability, render_help
 from oracle_app.schemas import DispatchPlan
-from oracle_app.user_context import get_user_entry, resolve_effective_user
+from oracle_app.user_context import describe_effective_user, get_user_entry, resolve_effective_user
 from .home_assistant import HomeAssistantHandler
 
 
@@ -96,6 +101,63 @@ class SystemHandler:
             }
             return dispatch
 
+        if action == "effective_user":
+            diagnostic = describe_effective_user(
+                source=dispatch.payload.get("source"),
+                session_id=dispatch.payload.get("session_id"),
+                requested_user_name=dispatch.payload.get("requested_user_name"),
+                household_settings=self.household_settings,
+            )
+            dispatch.status = "executed" if diagnostic.get("ok") else "failed"
+            dispatch.result = {"action": "effective_user", **diagnostic}
+            return dispatch
+
+        if action == "presence":
+            query = parse_presence_query(str(dispatch.payload.get("text") or ""))
+            if query is None:
+                dispatch.status = "failed"
+                dispatch.result = {
+                    "action": "presence",
+                    "error": "presence_query_unsupported",
+                    "speech": "I couldn't understand that presence question.",
+                }
+                return dispatch
+            if self.home_assistant_settings is None:
+                presence = {
+                    "ok": False,
+                    "error": "presence_unavailable",
+                    "speech": "Presence is unavailable because Home Assistant is not configured.",
+                }
+            else:
+                presence = read_home_assistant_presence(
+                    query,
+                    household_settings=self.household_settings,
+                    home_assistant_settings=self.home_assistant_settings,
+                )
+            dispatch.status = "executed" if presence.get("ok") else "failed"
+            dispatch.result = {"action": "presence", **presence}
+            return dispatch
+
+        if action == "communication_mode":
+            result = execute_dnd_request(
+                str(dispatch.payload.get("text") or ""),
+                household=self.household_settings,
+                source_id=str(dispatch.payload.get("source") or "") or None,
+                now=datetime.now(timezone.utc),
+                db_path=alerts_module.ALERT_DB_PATH,
+            )
+            if result.get("error") == "dnd_alert_conflict":
+                set_pending_state(
+                    dispatch.payload.get("source"), dispatch.payload.get("session_id"),
+                    pending_type="clarification", domain="dnd",
+                    payload={"original_text": str(dispatch.payload.get("text") or ""), "prompt": str(result.get("speech") or ""), "subject_id": "dnd_alert_conflict"},
+                )
+            dispatch.status = "executed" if result.get("ok") else (
+                "pending_clarification" if result.get("clarification_required") else "failed"
+            )
+            dispatch.result = {"action": "communication_mode", **result}
+            return dispatch
+
         if action == "unsupported_utility":
             text = str(dispatch.payload.get("text") or "")
             capability = next(
@@ -114,6 +176,20 @@ class SystemHandler:
             return dispatch
 
         if action == "confirm_pending":
+            dnd_pending = get_pending_state(
+                dispatch.payload.get("source"), dispatch.payload.get("session_id"), domain="dnd"
+            )
+            if dnd_pending is not None:
+                clear_pending_state(dispatch.payload.get("source"), dispatch.payload.get("session_id"), domain="dnd", reason="dnd_conflict_override_confirmed")
+                result = execute_dnd_request(
+                    str(dnd_pending.get("original_text") or ""), household=self.household_settings,
+                    source_id=str(dispatch.payload.get("source") or "") or None,
+                    now=datetime.now(timezone.utc), db_path=alerts_module.ALERT_DB_PATH,
+                    conflict_policy="allow",
+                )
+                dispatch.status = "executed" if result.get("ok") else "failed"
+                dispatch.result = {"action": "communication_mode", **result}
+                return dispatch
             pending = state.load_pending_confirmation(
                 dispatch.payload.get("source"),
                 dispatch.payload.get("session_id"),
@@ -165,6 +241,17 @@ class SystemHandler:
         if action == "cancel_pending":
             source = dispatch.payload.get("source")
             session_id = dispatch.payload.get("session_id")
+            dnd_pending = get_pending_state(source, session_id, domain="dnd")
+            if dnd_pending is not None:
+                clear_pending_state(source, session_id, domain="dnd", reason="dnd_conflict_silent_confirmed")
+                result = execute_dnd_request(
+                    str(dnd_pending.get("original_text") or ""), household=self.household_settings,
+                    source_id=str(source or "") or None, now=datetime.now(timezone.utc),
+                    db_path=alerts_module.ALERT_DB_PATH, conflict_policy="silence",
+                )
+                dispatch.status = "executed" if result.get("ok") else "failed"
+                dispatch.result = {"action": "communication_mode", **result}
+                return dispatch
             reset_result = clear_session_state(source, session_id, reason="explicit_cancel")
             dispatch.status = "executed"
             dispatch.result = {
@@ -275,6 +362,11 @@ class SystemHandler:
             if pending is not None and str(pending.get("context_kind") or "") in {"timer", "alarm", "reminder"}:
                 options = [str(item) for item in pending.get("options") or []]
                 clarification_kind = str(pending.get("clarification_kind") or "")
+                if clarification_kind == "dnd_new_alert" and text.casefold() in {"sound anyway", "keep it silent"}:
+                    original = str(pending.get("original_text") or "")
+                    text = f"{original} {'even during dnd' if text.casefold() == 'sound anyway' else 'silently during dnd'}"
+                    clear_pending_state(source, session_id, domain="utilities", reason="dnd_new_alert_resolved")
+                    pending = None
                 if clarification_kind == "reminder_time" and text.strip():
                     original = str(pending.get("original_text") or "")
                     subject = str(pending.get("subject_text") or "__TIME__")

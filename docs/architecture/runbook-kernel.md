@@ -264,6 +264,68 @@ Provider-specific details resolve behind the owning domain. Composite
 definitions must not include Home Assistant entity ids, satellite URLs,
 Audiobookshelf credentials, shell commands, or provider service names.
 
+The Stage 8 target extends the existing composite controller, not the kernel's
+authority: an acyclic dependency graph, explicit three-state conditions,
+bounded wait/retry/repetition, statically named child runs, deterministic
+triggers, typed bounded inputs/results, cancellation propagation, and explicit
+compensation. The repository remains the sole durable lifecycle store and
+controllers remain the only interpreters of domain semantics.
+
+The code-owned registration is keyed by runbook kind and definition format.
+`routine/compatibility_sequence_v1` retains the existing interpreter;
+`routine/bounded_composite_v2` selects the Slice 8.7 durable controller. The
+new form is parsed, graph-validated, bound to registered semantic capabilities
+and configured Oracle targets, rendered for safety review, then frozen with its
+resolved inputs and applied revision when a run begins. It cannot become an
+empty compatibility run.
+
+The bounded controller plans every operation before dispatch and uses the
+existing orchestration run/step tables. Stable authored order selects ready
+work without adding parallel execution. Operation payload metadata records
+attempt, repetition, wait/poll deadline, sanitized results, and child linkage;
+run rows carry indexed parent run/operation identity. Waiting and safe-retry
+resumption uses the existing scheduler. Restart reconciliation resumes only a
+proven pre-dispatch boundary and marks a persisted running capability
+`uncertain`/the run `interrupted` rather than replaying it.
+
+The definition schema limits a composite to 32 operations, 16 typed inputs,
+16 automatic triggers, three retry attempts, ten authored repetitions per
+operation, four child levels, and 64 expanded child operations. Operations
+have static dependencies and separate main, fallback, failure-compensation,
+and cancellation-compensation phases. Input, registered result, and registered
+state predicates have distinct `true`/`false`/`unknown` outcomes; absent or
+malformed evidence is unknown, whose default policy is stop. Human missing
+inputs clarify; unattended missing inputs fail without a human session.
+
+Slice 8.8 connects the definition trigger envelope to finite adapters rather
+than adding a scheduler or event bus. The existing routine scheduler evaluates
+household-local schedule occurrences; HA ingress, notification/alert lifecycle,
+and canonical network observation translate their own evidence to a small
+Oracle-owned trigger tuple. A Memory current-projection record is the durable
+handoff for normalized transitions, while `RunbookRepository` remains the sole
+run lifecycle store. Stable hashes of routine, trigger, and occurrence identity
+provide activation idempotency. No adapter can construct capabilities, select
+provider operations, or start a recovery controller.
+
+Run lookup and cancellation remain controller-scoped. Public status strips
+kernel-private controller, correlation, activation, and frozen-definition
+fields; House and voice controls resolve only configured composite routines and
+delegate cancellation to the canonical controller.
+
+Safety review uses the existing semantic capability registry and deterministic
+manifest machinery. Exact semantic selectors, input argument scopes,
+invocation bounds, and automatic-trigger bindings are part of the manifest;
+execution-relevant definition shape is separately digested. Domain-owned
+configuration supplies provider bindings and notification content. The
+composite language cannot submit arbitrary notification text, name raw
+provider services, or add a second execution path.
+
+The capability registry is closed and code-owned. It records semantic risk,
+result, idempotency/reconciliation, retry, cancellation, and owning-domain
+traits shared across voice/UI/runbooks. Configuration may select only registered
+capabilities and bind a reviewed deterministic preauthorization manifest; it
+cannot register executable behavior or arbitrary adapters.
+
 ## Current Compatibility Architecture
 
 - `orchestration_routines.py` owns routine interpretation and typed adapter

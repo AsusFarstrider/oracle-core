@@ -17,7 +17,7 @@ class ConfigurationBundleLoaderTests(unittest.TestCase):
     def test_loads_and_snapshots_complete_example_bundle(self) -> None:
         loaded = load_bundle(EXAMPLE_ROOT)
 
-        self.assertEqual(len(loaded.roles), 16)
+        self.assertEqual(len(loaded.roles), 18)
         self.assertEqual(loaded.household.household.id, "example_home")
         self.assertEqual(loaded.authored_bytes["bundle.yaml"], (EXAMPLE_ROOT / "bundle.yaml").read_bytes())
         self.assertEqual(loaded.non_authoritative_paths, ("secrets.env.example",))

@@ -33,6 +33,7 @@ _LATE_GRACE = {
     "timer": timedelta(minutes=10),
     "alarm": timedelta(minutes=20),
     "reminder": timedelta(minutes=20),
+    "calendar": timedelta(minutes=20),
 }
 
 
@@ -207,7 +208,7 @@ def reconcile_alert_lifecycle(
         late_by = clock - occurrence.due_at
         grace = _LATE_GRACE[schedule.kind]
         if late_by > grace:
-            terminal = "overdue" if schedule.kind == "reminder" else "missed"
+            terminal = "overdue" if schedule.kind in {"reminder", "calendar"} else "missed"
             if occurrence.status != terminal:
                 transition_alert_occurrence(
                     occurrence.occurrence_id,
@@ -251,7 +252,7 @@ def reconcile_alert_lifecycle(
                 else tuple(item for item in target.destinations if item.role != "common")
             )
             config_revision = target.config_revision
-        desired_status = "outstanding" if schedule.kind == "reminder" else "due"
+        desired_status = "outstanding" if schedule.kind in {"reminder", "calendar"} else "due"
         # Runtime delivery acceptance advances timers and alarms from due to
         # ringing. Reconciliation may refresh their frozen projection, but it
         # must never move that logical occurrence backward to due.
@@ -469,12 +470,13 @@ def _project_delivery(
     ):
         return False
     alert, created = create_alert_record(
-        kind=schedule.kind,
+        kind="calendar" if schedule.metadata.get("calendar_alert") else schedule.kind,
         due_at=occurrence.due_at,
         message=schedule.message,
         source_id=destination.source_id,
         session_id=schedule.session_id,
         metadata={
+            **schedule.metadata,
             "schedule_id": schedule.schedule_id,
             "occurrence_id": occurrence.occurrence_id,
             "intended_local": occurrence.intended_local,

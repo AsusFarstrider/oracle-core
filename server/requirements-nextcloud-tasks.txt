@@ -1,0 +1,3 @@
+# Nextcloud Tasks provider bridge only.
+-r requirements.txt
+icalendar==7.3.0

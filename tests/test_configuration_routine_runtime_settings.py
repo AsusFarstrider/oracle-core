@@ -169,10 +169,10 @@ class RoutineRuntimeSettingsTests(unittest.TestCase):
 
         with (
             patch(
-                "oracle_app.orchestration_routine_canonical.HomeAssistantBridge.call_service"
-            ) as call_service,
+                "oracle_app.home_assistant_actions.HomeAssistantBridge.set_power"
+            ) as set_power,
             patch(
-                "oracle_app.orchestration_routine_canonical.HomeAssistantBridge.wait_for_entity_state",
+                "oracle_app.home_assistant_actions.HomeAssistantBridge.wait_for_entity_state",
                 return_value={"state": "off"},
             ) as wait_for_state,
             patch(
@@ -192,12 +192,8 @@ class RoutineRuntimeSettingsTests(unittest.TestCase):
 
         self.assertTrue(action["ok"])
         self.assertTrue(check["ok"])
-        call_service.assert_called_once_with(
-            service_domain="light",
-            service_name="turn_off",
-            entity_id="light.living_room",
-        )
-        wait_for_state.assert_called_once_with("light.living_room", "off")
+        set_power.assert_called_once_with(entity_id="light.living_room", enabled=False)
+        wait_for_state.assert_called_once_with("light.living_room", "off", timeout_seconds=3.0)
         fetch_state.assert_called_once_with("light.living_room")
 
     def test_canonical_audiobook_adapters_use_typed_execution_without_retired_authority_flag(self) -> None:

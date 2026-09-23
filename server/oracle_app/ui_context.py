@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+import re
 
 from fastapi import HTTPException
 
@@ -12,6 +13,34 @@ from .schemas import CommandResponse, DispatchPlan, RouteResponse, UiAlarmCancel
 
 def _build_ui_generated_at() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _routine_input_value(text: str, spec: dict[str, object]) -> bool | int | str | None:
+    if spec.get("spoken_duration") is True or (not spec.get("type") and "no_timer_value" in spec):
+        value = spec.get("no_timer_value") if text.casefold() == "no timer" else parse_duration(text)
+        minimum = int(spec.get("minimum") or 0)
+        maximum = int(spec.get("maximum") or 0)
+        return int(value) if value is not None and minimum <= int(value) <= maximum else None
+    kind = str(spec.get("type") or "")
+    normalized = " ".join(text.casefold().split())
+    if kind == "boolean":
+        if normalized in {"yes", "true", "on", "do it"}:
+            return True
+        if normalized in {"no", "false", "off", "skip it"}:
+            return False
+        return None
+    if kind == "integer":
+        if re.fullmatch(r"-?\d+", normalized) is None:
+            return None
+        value = int(normalized)
+        minimum = int(spec.get("minimum"))
+        maximum = int(spec.get("maximum"))
+        return value if minimum <= value <= maximum else None
+    if kind == "string":
+        allowed = [str(item) for item in (spec.get("allowed_values") or [])]
+        matches = [item for item in allowed if " ".join(item.casefold().split()) == normalized]
+        return matches[0] if len(matches) == 1 else None
+    return None
 
 
 def ui_context_start_impl(
@@ -175,22 +204,28 @@ def handle_pending_ui_context(
 
     if action == "routine_input":
         spec = pending.get("input_spec") if isinstance(pending.get("input_spec"), dict) else {}
-        no_timer = normalized.casefold() == "no timer"
-        value = spec.get("no_timer_value") if no_timer else parse_duration(normalized)
-        minimum = int(spec.get("minimum") or 0)
-        maximum = int(spec.get("maximum") or 0)
-        if value is None or not minimum <= int(value) <= maximum:
+        compatibility_duration = spec.get("spoken_duration") is True or (not spec.get("type") and "no_timer_value" in spec)
+        no_timer = compatibility_duration and normalized.casefold() == "no timer"
+        value = _routine_input_value(normalized, spec)
+        if value is None:
             dispatch = DispatchPlan(
                 target="system",
                 hook="ui_context.handle_pending",
                 payload={"action": action, "source": source, "session_id": session_id},
                 status="pending_clarification",
-                result={"action": action, "error": "routine_duration_required"},
+                result={
+                    "action": action,
+                    "error": "routine_duration_required" if compatibility_duration else "routine_input_required",
+                },
             )
             return CommandResponse(
                 route=route,
                 dispatch=dispatch,
-                reply_text=f"Please say a duration up to {maximum // 60} minutes, or say no timer.",
+                reply_text=(
+                    f"Please say a duration up to {int(spec.get('maximum') or 0) // 60} minutes, or say no timer."
+                    if compatibility_duration
+                    else str(pending.get("prompt") or spec.get("prompt") or "Please provide one of the allowed values.")
+                ),
                 session_id=session_id,
                 effective_session_id=session_id,
             )
@@ -200,7 +235,7 @@ def handle_pending_ui_context(
             run = routine_start(
                 routine_id=str(pending.get("routine_id") or ""),
                 client_id=str(pending.get("client_id") or "ui-routine"),
-                inputs={str(pending.get("input_id") or ""): int(value)},
+                inputs={str(pending.get("input_id") or ""): value},
             )
         except Exception as exc:
             dispatch = DispatchPlan(

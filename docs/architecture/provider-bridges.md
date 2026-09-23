@@ -149,15 +149,33 @@ Home Assistant now has an explicit provider bridge without pretending Oracle has
 Current seams:
 
 - [server/oracle_app/handlers/home_assistant.py](../../server/oracle_app/handlers/home_assistant.py)
-- [server/oracle_app/home_assistant_policy.py](../../server/oracle_app/home_assistant_policy.py)
+- [server/oracle_app/home_assistant_actions.py](../../server/oracle_app/home_assistant_actions.py)
 - [server/oracle_app/provider_bridges/home_assistant.py](../../server/oracle_app/provider_bridges/home_assistant.py)
 
 Current shape:
 
-- the domain owns room-context, confirmation behavior, expected outcomes, bounded post-action verification, and failure shaping
-- the domain handler owns source/session-scoped conversation-id reuse/update
-- the bridge owns Home Assistant conversation requests, direct service requests, supplied/returned provider conversation identities, provider payload parsing, success-target extraction, and entity-state reads
+- the domain owns finite grammar/target resolution, room context, shared semantic
+  risk, expected outcomes, bounded post-action verification, and failure shaping
+- configured mappings are the exclusive adapter edge from canonical Oracle
+  targets/actions to provider entity IDs and operations
+- the bridge owns exact typed power, access, climate, and opaque-unit requests,
+  provider authentication/payload mechanics, and entity-state reads; presence
+  reads normalize only explicitly mapped `person` entities above this bridge and
+  it exposes no natural-language mutation method
 - final dispatch status and user-facing reply behavior remain in the domain/brain path
+
+Implemented Stage 8 boundary:
+
+- the Conversation mutation seam is removed and is not an allowed fallback;
+- all public mutations resolve finite Oracle semantic actions and typed
+  arguments before bridge translation;
+- read-only discovery may inform configuration but never creates callable
+  authority; and
+- explicitly mapped provider automations/scripts/scenes are opaque unit actions:
+  Oracle governs invocation risk while Home Assistant owns their internal steps.
+- explicitly mapped provider person states become only `home`, `away`, or
+  `unknown`; named zones and all other provider location detail stay behind the
+  bridge and no device-tracker fallback exists.
 
 ### Apprise
 
@@ -227,6 +245,14 @@ The reason is simple:
 - one bridge reduces accidental abstraction growth
 
 ## Provider Roles
+
+Lists and Notes are independent applications of the one-active-bridge default,
+not new multi-provider exceptions. Their optional fixed roles may describe
+several code-known adapter families, but each enabled deployment selects one.
+Native object identity, content translation, pagination, ETags/concurrency, and
+OAuth mechanics stay behind the bridge. Oracle retains only canonical
+identity/association metadata and an opaque mapping; provider content remains
+provider truth.
 
 Some domains legitimately require more than one provider role.
 

@@ -31,6 +31,9 @@ The current API surface is grouped into a small set of endpoint families.
 - `GET /api/admin/health/ollama`
 - `GET /api/admin/health/tts`
 - `GET /api/admin/health/stt`
+- `GET /api/admin/health/lists`
+- `GET /api/admin/health/notes`
+- `GET /api/admin/household-status`
 - `GET /api/admin/hooks`
 
 ### Canonical Conversation
@@ -52,6 +55,9 @@ old `/api/voice/*` and root compatibility routes are not registered.
 - `GET /api/admin/home-automation/runbooks/{runbook_id}`
 - `GET /api/admin/notifications`
 - `GET /api/admin/notifications/deliveries`
+- `GET /api/ui/household-status`
+- `GET /api/ui/lists`
+- `GET /api/ui/notes`
 
 The home-automation admin endpoints are read-only operator diagnostics for
 door-runbook soak and rollback verification. They report sanitized definition
@@ -61,6 +67,31 @@ history. They do not submit notifications or query live Home Assistant state.
 The notification admin endpoints expose sanitized Apprise health, external
 policy/group summaries, exact receipt status counts, and bounded delivery
 history. They cannot submit, retry, cancel, or configure notifications.
+
+The Stage 8 household-status routes read the canonical DND owner and the
+existing coarse Home Assistant presence reader; they project display-name and
+`home/away/unknown` state only. Callable collision warnings are configured
+Oracle aliases, not provider entity/service identifiers. Lists/Notes health
+remains with the provider-backed domain owner; the household-status route
+delegates to its sanitized health projection, never content snapshots. The
+shared House page separately requests the existing bounded Lists/Notes
+snapshots and typed operations for household-visible content. Provider-account
+identity and canonical-user association confer no privacy or authorization.
+These status routes do not gain execution or configuration authority.
+
+### Household Routine Status
+
+- `GET /api/ui/orchestration-runs`
+- `GET /api/ui/orchestration-runs/{run_id}`
+- `POST /api/ui/orchestration-runs/{run_id}/cancel`
+
+These browser-facing endpoints expose bounded public status for current
+configured composite routines. Optional source filtering is exact. Detail and
+cancellation require one durable run identity, and cancellation cannot target a
+recovery or obsolete/unconfigured definition. Kernel-private activation,
+controller, correlation, frozen-definition, provider/step payload, and native
+target fields are omitted. Their public progress fields are a bounded
+projection of durable run records, not an independent run state.
 
 ### Satellite Media and Speech
 

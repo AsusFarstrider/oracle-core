@@ -65,7 +65,7 @@ def parse_calendar_query(
         for phrase in ("refresh", "check again", "calendar again", "up to date", "updated")
     )
 
-    if re.search(r"\b(?:delete|remove|edit|update|reschedule|move)\b", normalized) and any(
+    if re.search(r"\b(?:delete|remove|cancel|edit|update|reschedule|move|rename|change)\b", normalized) and any(
         token in normalized for token in ("calendar", "event", "appointment")
     ):
         return CalendarQuery(

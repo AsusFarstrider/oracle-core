@@ -38,6 +38,8 @@ from .application_ui import (
     _ui_audio_search_impl,
     _ui_audio_sleep_timer_impl,
     _ui_calendar_confirm_impl_cached,
+    _ui_calendar_mutation_draft_impl_cached,
+    _ui_calendar_mutation_confirm_impl_cached,
     _ui_context_start_impl,
     _ui_house_camera_snapshot_impl,
     _ui_timer_action_impl,
@@ -71,6 +73,8 @@ from .ui_snapshot_routes import configure_ui_snapshot_routes, register_ui_snapsh
 from .wake_arbitration_routes import register_wake_arbitration_routes
 from .wake_capture_upload_routes import register_wake_capture_upload_routes
 from .health_routes import register_health_routes
+from .household_status_routes import register_household_status_routes
+from .lists_notes_routes import register_lists_notes_routes
 
 
 @app.middleware("http")
@@ -88,6 +92,7 @@ async def attach_correlation_id(request: Request, call_next):
 register_browser_routes(app)
 
 register_health_routes(app)
+register_household_status_routes(app)
 app.get("/api/admin/caches")(admin_cache_diagnostics)
 register_admin_diagnostics_routes(app)
 register_admin_facts_routes(app)
@@ -104,6 +109,7 @@ register_wake_capture_upload_routes(app)
 register_wake_arbitration_routes(app)
 register_home_automation_routes(app)
 register_media_routes(app)
+register_lists_notes_routes(app)
 
 configure_ui_snapshot_routes(
     build_ui_home_snapshot=_build_ui_home_snapshot,
@@ -120,6 +126,8 @@ configure_ui_routes(
     ui_calendar_draft=_ui_calendar_draft_impl,
     ui_calendar_confirm=_ui_calendar_confirm_impl_cached,
     ui_calendar_cancel=_ui_calendar_cancel_impl,
+    ui_calendar_mutation_draft=_ui_calendar_mutation_draft_impl_cached,
+    ui_calendar_mutation_confirm=_ui_calendar_mutation_confirm_impl_cached,
     ui_audio_search=_ui_audio_search_impl,
     ui_audio_play=_ui_audio_play_impl,
     ui_audio_control=_ui_audio_control_impl,

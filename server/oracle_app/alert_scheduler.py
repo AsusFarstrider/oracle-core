@@ -12,6 +12,9 @@ from .audiobook_runtime.playback import sync_then_control
 from .configuration.satellite_fleet_runtime_settings import SatelliteFleetRuntimeSettings
 from .configuration.household_runtime_settings import HouseholdRuntimeSettings
 from .memory.alerts import acknowledge_alert, claim_due_alerts
+from .calendar_runtime import CanonicalCalendarExecution
+from .calendar_alerts import reconcile_calendar_alerts
+from .communication_modes import reconcile_communication_modes
 
 
 logger = logging.getLogger("oracle-brain.alerts")
@@ -75,10 +78,25 @@ async def alert_scheduler_loop(
     household: HouseholdRuntimeSettings,
     satellites: SatelliteFleetRuntimeSettings,
     audiobook_execution: CanonicalAudiobookExecution | None = None,
+    calendar_execution: CanonicalCalendarExecution | None = None,
     interval_seconds: float = 1.0,
 ) -> None:
     while True:
         try:
+            reconcile_communication_modes(
+                household=household,
+                now=datetime.now(timezone.utc),
+                db_path=alerts_module.ALERT_DB_PATH,
+            )
+            if calendar_execution is not None:
+                try:
+                    reconcile_calendar_alerts(
+                        calendar_execution,
+                        now=datetime.now(timezone.utc),
+                        db_path=alerts_module.ALERT_DB_PATH,
+                    )
+                except Exception:
+                    logger.exception("calendar_alert_reconciliation_failed")
             reconcile_alert_lifecycle(
                 household=household,
                 satellites=satellites,
