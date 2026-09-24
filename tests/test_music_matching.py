@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, sentinel
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 
@@ -28,6 +28,7 @@ from oracle_app.music_runtime.playback import build_music_play_media_args, music
 from oracle_app.music_runtime.policy import audiobook_is_clearly_stronger_than_music
 from oracle_app.music_runtime.selection import music_pending_option, music_selection_with_provider_fields
 from oracle_app.inference import InferenceClient, InferenceExecutionSettings
+from oracle_app.handlers import music as music_handler
 
 
 def _inference() -> InferenceClient:
@@ -46,6 +47,22 @@ def _inference() -> InferenceClient:
 
 
 class MusicMatchingTests(unittest.TestCase):
+    def test_alternate_music_intent_uses_selected_inference_client(self) -> None:
+        inference = _inference()
+        with (
+            patch(
+                "oracle_app.handlers.music.resolve_alternate_music_intent_runtime",
+                side_effect=lambda _normalized, _intent, _parsed, resolve: resolve("fallback query"),
+            ),
+            patch("oracle_app.handlers.music.resolve_with_ollama", return_value=sentinel.intent) as resolve,
+        ):
+            result = music_handler._resolve_alternate_music_intent(
+                "play music", None, None, inference
+            )
+
+        self.assertIs(result, sentinel.intent)
+        resolve.assert_called_once_with("fallback query", inference=inference)
+
     @patch("oracle_app.inference.call_generate", side_effect=TimeoutError("timed out"))
     def test_music_ollama_timeout_fails_as_no_intent(self, _mock_generate) -> None:
         self.assertIsNone(resolve_with_ollama("the first one", inference=_inference()))

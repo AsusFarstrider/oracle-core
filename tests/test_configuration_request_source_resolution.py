@@ -139,7 +139,7 @@ class CanonicalRequestSourceResolverTests(unittest.TestCase):
                         kind="ephemeral",
                         authentication="none",
                     ),
-                ),
+                ) as request_source,
                 patch(
                     "oracle_app.application_ui._resolve_ui_audio_source",
                     return_value=("living_room_satellite", ["living_room_satellite"]),
@@ -147,6 +147,7 @@ class CanonicalRequestSourceResolverTests(unittest.TestCase):
             ):
                 response = application_ui._ui_context_start_impl(payload, request)
 
+            request_source.assert_called_once_with("living_room_satellite", request)
             pending = state.load_pending_ui_context(EPHEMERAL_HTTP_SOURCE_ID, session_id)
             self.assertIsNotNone(pending)
             assert pending is not None
@@ -168,6 +169,80 @@ class CanonicalRequestSourceResolverTests(unittest.TestCase):
                 command_response = handle_pending_ui_context(
                     "black magic",
                     EPHEMERAL_HTTP_SOURCE_ID,
+                    session_id,
+                    audio_search=application_ui._ui_audio_search_impl,
+                )
+
+            self.assertIsNotNone(command_response)
+            assert command_response is not None
+            self.assertEqual(command_response.dispatch.hook, "ui_context.handle_pending")
+            self.assertEqual(command_response.dispatch.result["action"], "music_search")
+            search_request = search.call_args.args[0]
+            self.assertEqual(search_request.source, "living_room_satellite")
+            self.assertEqual(search_request.query, "black magic")
+        finally:
+            state.clear_pending_ui_context(EPHEMERAL_HTTP_SOURCE_ID, session_id)
+            state.clear_pending_ui_context("living_room_satellite", session_id)
+
+    def test_satellite_ui_context_uses_stable_peer_source_for_voice_continuation(self) -> None:
+        session_id = "ui-search-satellite-peer"
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/ui/context/start",
+                "query_string": b"",
+                "headers": [],
+                "client": ("192.0.2.20", 54321),
+                "app": api.app,
+            }
+        )
+        payload = UiContextStartRequest(
+            action="music_search",
+            client_id="living-room-browser",
+            ui_session_id=session_id,
+            target_source_id="living_room_satellite",
+        )
+
+        try:
+            with (
+                patch(
+                    "oracle_app.application_ui._canonical_http_request_source",
+                    return_value=ResolvedRequestSource(
+                        request_source_id="living_room_satellite",
+                        kind="stable",
+                        authentication="satellite_ui_peer",
+                    ),
+                ) as request_source,
+                patch(
+                    "oracle_app.application_ui._resolve_ui_audio_source",
+                    return_value=("living_room_satellite", ["living_room_satellite"]),
+                ),
+            ):
+                response = application_ui._ui_context_start_impl(payload, request)
+
+            request_source.assert_called_once_with("living_room_satellite", request)
+            pending = state.load_pending_ui_context("living_room_satellite", session_id)
+            self.assertIsNotNone(pending)
+            assert pending is not None
+            self.assertEqual(pending["target_source_id"], "living_room_satellite")
+            self.assertIsNone(state.load_pending_ui_context(EPHEMERAL_HTTP_SOURCE_ID, session_id))
+            self.assertEqual(response["source_id"], "living_room_satellite")
+            self.assertEqual(response["target_source_id"], "living_room_satellite")
+
+            with patch(
+                "oracle_app.application_ui._ui_audio_search_impl",
+                return_value={
+                    "ok": True,
+                    "kind": "music",
+                    "query": "black magic",
+                    "results": [],
+                    "result_count": 0,
+                },
+            ) as search:
+                command_response = handle_pending_ui_context(
+                    "black magic",
+                    "living_room_satellite",
                     session_id,
                     audio_search=application_ui._ui_audio_search_impl,
                 )

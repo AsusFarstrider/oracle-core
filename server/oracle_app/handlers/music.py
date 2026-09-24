@@ -308,7 +308,7 @@ def execute_music(
         return audiobook_fallback
 
     if decision == "not_found":
-        fallback_intent = _resolve_alternate_music_intent(normalized, intent, parsed_intent)
+        fallback_intent = _resolve_alternate_music_intent(normalized, intent, parsed_intent, inference)
         if fallback_intent is not None:
             try:
                 candidates = search(fallback_intent)
@@ -798,8 +798,14 @@ def _resolve_alternate_music_intent(
     normalized: str,
     intent,
     parsed_intent,
+    inference: InferenceClient | None,
 ):
-    return resolve_alternate_music_intent_runtime(normalized, intent, parsed_intent, resolve_with_ollama)
+    return resolve_alternate_music_intent_runtime(
+        normalized,
+        intent,
+        parsed_intent,
+        lambda text: resolve_with_ollama(text, inference=inference),
+    )
 
 
 def _music_intents_equivalent(left, right) -> bool:

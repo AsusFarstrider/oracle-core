@@ -591,7 +591,7 @@ def _ui_context_start_impl(payload: UiContextStartRequest, request: Request | No
 
     request_source_id = ""
     if request is not None:
-        resolved_source = _canonical_http_request_source(None, request)
+        resolved_source = _canonical_http_request_source(target_source_id or None, request)
         if resolved_source is not None:
             request_source_id = resolved_source.request_source_id
         if payload.action == "set_alarm":
