@@ -24,6 +24,22 @@ def test_registry_preserves_shared_pending_reply_exactly() -> None:
     assert build_reply_text(dispatch) == "Which version of Heroes did you mean?"
 
 
+def test_pending_clarification_uses_owned_speech_when_prompt_is_absent() -> None:
+    dispatch = DispatchPlan(
+        target="system",
+        hook="system.alerts",
+        payload={"text": "set a timer for one minute"},
+        status="pending_clarification",
+        result={
+            "action": "alerts",
+            "speech": "Do Not Disturb is active then. Should this timer sound anyway?",
+        },
+    )
+    assert build_reply_text(dispatch) == (
+        "Do Not Disturb is active then. Should this timer sound anyway?"
+    )
+
+
 def test_pc_push_to_talk_has_no_domain_reply_interpreter() -> None:
     source = (Path(__file__).resolve().parents[1] / "satellite" / "pc_push_to_talk.py").read_text()
     method = source.split("    def _extract_spoken_reply", 1)[1].split("    def _request_tts", 1)[0]

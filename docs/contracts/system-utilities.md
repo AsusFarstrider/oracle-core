@@ -232,9 +232,11 @@ arbitrarily. An adjustment that would produce a zero or past deadline fails
 without creating immediate surprise audio.
 
 If a target is unavailable at expiry, the timer has a fixed 10-minute
-late-delivery grace period. A late delivery must identify that it is late. After
-10 minutes Oracle marks/surfaces the timer as expired or missed and cannot emit
-surprise audio.
+late-delivery grace period. A delivery more than 10 seconds after the due time
+must identify the elapsed delay without asserting a cause that has not been
+observed. Up to 10 seconds is ordinary claim/poll latency and needs no delay
+narration. After 10 minutes Oracle marks/surfaces the timer as expired or
+missed and cannot emit surprise audio.
 
 Timer runtime acceptance begins or maintains logical ringing but is not user
 dismissal. A participating destination's authenticated dismissal completes the
@@ -282,6 +284,15 @@ delivery, and actor-typed acknowledgement authorities. Semantic recipient IDs
 are stored independently of source IDs. Source-bound satellite and browser
 state/actions are projections of that owner, never reminder schedulers or
 identity registries.
+
+For spoken Timer, Alarm, and Reminder delivery, the Brain measures elapsed
+lateness from the due instant when the satellite claims the alert. A claim at
+most 10 seconds late has no delay narration; a later claim states the elapsed
+delay neutrally in seconds or minutes. Due-reconciliation lateness is not a
+substitute for claim-time lateness, and satellite unavailability is not named
+as the cause without evidence. This presentation rule does not extend the
+family's bounded late-delivery grace, alter the durable occurrence state, or
+change DND and acknowledgement behavior.
 
 ## Math And Conversions
 

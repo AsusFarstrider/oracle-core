@@ -14,7 +14,7 @@ class SystemCommandCapability:
         if intent is None or intent.action not in {
             "confirm_pending", "cancel_pending", "refresh_cache", "switch_user",
             "repeat", "help", "courtesy", "unsupported_utility",
-            "effective_user", "presence",
+            "effective_user", "presence", "communication_mode",
         }:
             return None
         return CapabilityDecision("system", intent.confidence, intent.reason, normalized_text)

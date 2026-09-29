@@ -11,7 +11,7 @@ from oracle_app.brain_application_composition import CanonicalBrainApplicationCo
 from oracle_app.configuration.request_source_resolution import ResolvedRequestSource
 from oracle_app.memory.alerts import AlertRecord
 from oracle_app.schemas import CommandRequest, SatelliteAlertClaimRequest
-from oracle_app.satellite_alert_routes import satellite_alert_claim
+from oracle_app.satellite_alert_routes import _delivery_late_announcement, satellite_alert_claim
 
 
 UTC = timezone.utc
@@ -163,6 +163,51 @@ class Stage5Slice7AlertDeliveryTests(unittest.TestCase):
         ensure_receipts.assert_not_called()
         claim_due.assert_not_called()
         reconcile.assert_not_called()
+
+    def test_claim_reports_elapsed_delivery_delay_separate_from_reconciliation_delay(self) -> None:
+        alert = AlertRecord(
+            alert_id="reminder-one",
+            kind="reminder",
+            source_id="satellite-source",
+            session_id="session",
+            due_at=NOW - timedelta(seconds=11),
+            created_at=NOW - timedelta(minutes=1),
+            message="Reminder: stretch.",
+            metadata={"late_seconds": 1},
+            lease_id="lease-one",
+            lease_expires_at=NOW + timedelta(seconds=30),
+            status="leased",
+        )
+        with patch("oracle_app.satellite_alert_routes._authenticated_alert_source", return_value=(
+            SimpleNamespace(notification_execution=SimpleNamespace(build_delivery_decisions=lambda _source: {})),
+            "satellite-source",
+        )), patch("oracle_app.satellite_alert_routes.satellite_alert_claim_needs_work", return_value=True), patch(
+            "oracle_app.satellite_alert_routes.ensure_active_satellite_receipts"
+        ), patch("oracle_app.satellite_alert_routes.claim_due_alerts", return_value=[alert]), patch(
+            "oracle_app.satellite_alert_routes.reconcile_satellite_receipts"
+        ), patch("oracle_app.satellite_alert_routes._presentation_metadata", return_value={}), patch(
+            "oracle_app.satellite_alert_routes.datetime"
+        ) as mock_datetime:
+            mock_datetime.now.return_value = NOW
+            response = satellite_alert_claim(
+                SatelliteAlertClaimRequest(source_id="satellite-source"), SimpleNamespace()
+            )
+
+        self.assertEqual(response.alerts[0].metadata["delivery_late_seconds"], 11)
+        self.assertEqual(alert.metadata["late_seconds"], 1)
+        self.assertEqual(response.alerts[0].metadata["late_seconds"], 1)
+        self.assertEqual(
+            response.alerts[0].metadata["delivery_late_announcement"],
+            "This alert arrived 11 seconds late.",
+        )
+
+    def test_brain_lateness_announcement_boundary_and_neutral_language(self) -> None:
+        self.assertEqual(_delivery_late_announcement(1), "")
+        self.assertEqual(_delivery_late_announcement(10), "")
+        self.assertEqual(_delivery_late_announcement(11), "This alert arrived 11 seconds late.")
+        self.assertEqual(_delivery_late_announcement(60), "This alert arrived about 1 minute late.")
+        self.assertEqual(_delivery_late_announcement(120), "This alert arrived about 2 minutes late.")
+        self.assertEqual(_delivery_late_announcement(150), "This alert arrived about 3 minutes late.")
 
     @patch("oracle_app.alert_scheduler.acknowledge_alert")
     @patch("oracle_app.alert_scheduler.sync_then_control", return_value=("executed", {}))

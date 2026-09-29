@@ -83,7 +83,9 @@ _SEVERITY_FIELDS = {
     "error": "error_event_days",
     "critical": "critical_event_days",
 }
-_TERMINAL_ORCHESTRATION = {"completed", "failed", "canceled", "interrupted"}
+_TERMINAL_ORCHESTRATION = {
+    "completed", "completed_with_issues", "stopped", "failed", "canceled", "interrupted",
+}
 _ACTIVE_ORCHESTRATION = {"running", "waiting"}
 _TERMINAL_NOTIFICATIONS = {"accepted", "suppressed", "failed", "expired"}
 _ACTIVE_NOTIFICATIONS = {"pending", "retry_wait"}

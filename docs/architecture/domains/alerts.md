@@ -105,6 +105,12 @@ logical Calendar alert occurrence. Destination dismissal completes that same
 occurrence and converges its remaining household deliveries; it does not create
 per-satellite acknowledgement truth.
 
+Before any destination accepts a Calendar occurrence, the Calendar projection
+owner may ask this lifecycle to revise its pending presentation/time or cancel
+it from a complete fresh provider snapshot. The first durable
+`delivery_accepted` acknowledgement ends that mutability: later provider edits
+or deletion cannot rewrite or retract the delivered occurrence.
+
 The pending-alerts surface only returns due deliveries for the authenticated
 requesting source. The semantic target resolver determines whether the logical
 occurrence is local, room, household-wide, or recipient-directed.
@@ -123,6 +129,11 @@ Each newly delivered Reminder briefly borrows the same foreground authority,
 requests display attention for its chime-and-speech presentation, then restores
 suitable interrupted media; the obligation remains in Brain state until a
 typed person or common-copy action resolves it.
+The Brain's claim response includes transient claim-time delivery lateness and
+the canonical spoken late-context phrase for Timer, Alarm, and Reminder. The
+Brain omits that phrase within 10 seconds and otherwise reports elapsed time
+without inferring why delivery was late; the satellite only speaks the supplied
+phrase. Reconciliation timing remains distinct from delivery timing.
 The browser's always-present Alerts surface uses one compact source-bound state
 projection composed from the three canonical family owners and their existing
 typed actions. One sequence-guarded refresh loop drives the Home summary and

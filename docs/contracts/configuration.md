@@ -286,10 +286,13 @@ Calendar feed association, per-user default selection, and proactive-alert
 opt-in are independent configuration facts. A feed may be associated with
 multiple canonical users and the same feed may be the default for multiple
 users. Default status or association never implies alert opt-in. An
-alert-enabled feed projects only applicable immutable provider event-reminder
-timing into the existing alert lifecycle; absent provider reminder intent
-creates no Oracle alert. Configuration and event creation never invent a lead
-time.
+alert-enabled feed projects only applicable confirmed provider event-reminder
+state into the existing alert lifecycle; absent provider reminder intent
+creates no Oracle alert. Pending projections track later confirmed provider
+title, timing, removal, and supersession. A projection already accepted by a
+destination remains durable under the alert lifecycle and is not rewritten or
+retracted by a later provider change. Configuration and event creation never
+invent a lead time.
 
 Optional ICS read authentication belongs to the feed as the complete
 `read_user` plus `read_credential_secret` pair. It is independent of the

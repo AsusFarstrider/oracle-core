@@ -85,6 +85,39 @@ class UiBrowserSurfaceTests(unittest.TestCase):
         self.assertTrue((ROOT / "ui" / "system.js").exists())
         self.assertTrue((ROOT / "ui" / "system.css").exists())
 
+    def test_system_operator_tools_hide_duplicate_chrome_only_when_embedded(self) -> None:
+        content = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('src="./trace.html"', content)
+        self.assertIn('src="./logs.html"', content)
+        script = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("globalThis.self !== globalThis.top", script)
+        self.assertIn('classList.add("is-embedded-tool")', script)
+        styles = (ROOT / "ui" / "app.css").read_text(encoding="utf-8")
+        self.assertIn("body.is-embedded-tool .system-rail-tools", styles)
+        self.assertIn("body.is-embedded-tool .system-topbar", styles)
+        self.assertIn("body.is-embedded-tool .oracle-launcher", styles)
+        for page in ("trace.html", "logs.html"):
+            tool = (ROOT / "ui" / page).read_text(encoding="utf-8")
+            self.assertIn("./app.css?v=9", tool)
+            self.assertIn("./app.js?v=11", tool)
+
+    def test_overview_grids_can_shrink_and_wrap_provider_labels(self) -> None:
+        system = (ROOT / "ui" / "system.css").read_text(encoding="utf-8")
+        root_rule = system.split(".system-root {", 1)[1].split("}", 1)[0]
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", root_rule)
+        self.assertIn("overflow-wrap: anywhere", root_rule)
+        root_child_rule = system.split(".system-root > * {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-width: 0", root_child_rule)
+        responsive = system.split("@media (max-width: 1160px)", 1)[1].split("@media", 1)[0]
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", responsive)
+
+        house = (ROOT / "house_ui" / "app.css").read_text(encoding="utf-8")
+        tile_rule = house.split(".house-overview-tile {", 1)[1].split("}", 1)[0]
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", tile_rule)
+        label_rule = house.split(".house-overview-tile__top h4 {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-width: 0", label_rule)
+        self.assertIn("overflow-wrap: anywhere", label_rule)
+
     def test_suggestions_ui_discloses_advisory_collection_and_review_truth(self) -> None:
         content = (ROOT / "ui" / "system.js").read_text(encoding="utf-8")
 

@@ -127,6 +127,17 @@ class RoutingCapabilitiesTests(unittest.TestCase):
         self.assertEqual(route.target, "system")
         self.assertEqual(route.reason, "Matched internal confirmation command")
 
+    def test_dnd_requests_route_to_system_before_home_mutation(self) -> None:
+        for utterance in (
+            "turn on do not disturb for two minutes",
+            "quiet mode until tomorrow",
+            "turn off do not disturb",
+        ):
+            with self.subTest(utterance=utterance):
+                route = choose_route(utterance)
+                self.assertEqual(route.target, "system")
+                self.assertEqual(route.reason, "Matched canonical Do Not Disturb request")
+
     def test_fallback_reentry_requires_the_proposed_deterministic_owner_to_accept(self) -> None:
         accepted = validate_fallback_reentry(
             proposed_target="system",

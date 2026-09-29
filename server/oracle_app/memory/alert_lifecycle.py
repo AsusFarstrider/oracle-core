@@ -282,6 +282,200 @@ def update_alert_schedule(
     return _schedule_row(row)
 
 
+def reconcile_pending_one_time_alert_schedule(
+    schedule_id: str,
+    *,
+    start_at: datetime,
+    local_time: str,
+    message: str,
+    metadata: dict[str, Any],
+    delivery_expires_at: datetime,
+    now: datetime,
+    db_path: Path | None = None,
+) -> str:
+    """Update one pending projection without rewriting delivered alert truth."""
+
+    path = db_path or DB_PATH
+    ensure_schema(path)
+    clean_id = _required(schedule_id, "schedule_id")
+    clean_start = _timestamp(start_at, "start_at")
+    clean_local = _required(local_time, "local_time")
+    clean_message = _required(message, "message")
+    clean_expires = _timestamp(delivery_expires_at, "delivery_expires_at")
+    clock = _timestamp(now, "now")
+    clean_metadata = dict(metadata)
+    with transaction(path) as conn:
+        schedule = conn.execute(
+            "SELECT * FROM memory_alert_schedules WHERE schedule_id=?", (clean_id,)
+        ).fetchone()
+        if schedule is None:
+            raise KeyError(f"Unknown alert schedule {clean_id}")
+        if str(schedule["schedule_type"]) != "one_time" or str(schedule["status"]) != "active":
+            raise ValueError("Only an active one-time alert schedule may be reconciled")
+        delivered = conn.execute(
+            """SELECT 1
+               FROM memory_alert_acknowledgements AS acknowledgement
+               JOIN memory_alert_occurrences AS occurrence
+                 ON occurrence.occurrence_id=acknowledgement.occurrence_id
+               WHERE occurrence.schedule_id=?
+                 AND acknowledgement.action='delivery_accepted'
+               LIMIT 1""",
+            (clean_id,),
+        ).fetchone()
+        if delivered is not None:
+            return "delivered"
+        changed = (
+            str(schedule["start_at"]) != clean_start.isoformat()
+            or str(schedule["local_time"] or "") != clean_local
+            or str(schedule["message"]) != clean_message
+            or _object(schedule["metadata_json"]) != clean_metadata
+        )
+        if not changed:
+            return "unchanged"
+        conn.execute(
+            """UPDATE memory_alert_schedules
+               SET updated_at=?, start_at=?, local_time=?, message=?, metadata_json=?
+               WHERE schedule_id=?""",
+            (
+                clock.isoformat(), clean_start.isoformat(), clean_local,
+                clean_message, _json(clean_metadata), clean_id,
+            ),
+        )
+        occurrences = conn.execute(
+            """SELECT * FROM memory_alert_occurrences
+               WHERE schedule_id=? AND status NOT IN ('completed','missed','canceled','skipped')""",
+            (clean_id,),
+        ).fetchall()
+        for occurrence in occurrences:
+            occurrence_id = str(occurrence["occurrence_id"])
+            prior_status = str(occurrence["status"])
+            occurrence_metadata = _object(occurrence["metadata_json"])
+            occurrence_metadata.pop("destinations", None)
+            conn.execute(
+                """UPDATE memory_alert_occurrences
+                   SET updated_at=?, due_at=?, intended_local=?, status='scheduled',
+                       config_revision=NULL, completed_at=NULL, metadata_json=?
+                   WHERE occurrence_id=?""",
+                (
+                    clock.isoformat(), clean_start.isoformat(), clean_local,
+                    _json(occurrence_metadata), occurrence_id,
+                ),
+            )
+            _occurrence_transition_row(
+                conn, occurrence_id, prior_status, "scheduled", "system", None,
+                "provider_projection_reconciled", clock,
+            )
+            deliveries = conn.execute(
+                """SELECT alert_id, source_id, status FROM memory_alerts
+                   WHERE occurrence_id=? AND status IN ('pending','leased')""",
+                (occurrence_id,),
+            ).fetchall()
+            delivery_metadata = {
+                **clean_metadata,
+                "schedule_id": clean_id,
+                "occurrence_id": occurrence_id,
+                "intended_local": clean_local,
+                "late_seconds": 0,
+            }
+            for delivery in deliveries:
+                alert_id = str(delivery["alert_id"])
+                prior_delivery_status = str(delivery["status"])
+                conn.execute(
+                    """UPDATE memory_alerts
+                       SET updated_at=?, due_at=?, expires_at=?, message=?, metadata_json=?,
+                           status='pending', lease_id=NULL, leased_at=NULL,
+                           lease_expires_at=NULL
+                       WHERE alert_id=?""",
+                    (
+                        clock.isoformat(), clean_start.isoformat(), clean_expires.isoformat(),
+                        clean_message, _json(delivery_metadata), alert_id,
+                    ),
+                )
+                _alert_transition_row(
+                    conn, alert_id=alert_id, source_id=str(delivery["source_id"]),
+                    from_status=prior_delivery_status, to_status="pending",
+                    reason="provider_projection_reconciled", at=clock,
+                )
+    return "updated"
+
+
+def cancel_pending_one_time_alert_schedule(
+    schedule_id: str,
+    *,
+    now: datetime,
+    db_path: Path | None = None,
+) -> str:
+    """Cancel a removed projection unless a destination already accepted it."""
+
+    path = db_path or DB_PATH
+    ensure_schema(path)
+    clean_id = _required(schedule_id, "schedule_id")
+    clock = _timestamp(now, "now")
+    with transaction(path) as conn:
+        schedule = conn.execute(
+            "SELECT * FROM memory_alert_schedules WHERE schedule_id=?", (clean_id,)
+        ).fetchone()
+        if schedule is None:
+            raise KeyError(f"Unknown alert schedule {clean_id}")
+        if str(schedule["schedule_type"]) != "one_time" or str(schedule["status"]) != "active":
+            return "unchanged"
+        delivered = conn.execute(
+            """SELECT 1
+               FROM memory_alert_acknowledgements AS acknowledgement
+               JOIN memory_alert_occurrences AS occurrence
+                 ON occurrence.occurrence_id=acknowledgement.occurrence_id
+               WHERE occurrence.schedule_id=?
+                 AND acknowledgement.action='delivery_accepted'
+               LIMIT 1""",
+            (clean_id,),
+        ).fetchone()
+        if delivered is not None:
+            return "delivered"
+        conn.execute(
+            "UPDATE memory_alert_schedules SET status='canceled', updated_at=? WHERE schedule_id=?",
+            (clock.isoformat(), clean_id),
+        )
+        occurrences = conn.execute(
+            """SELECT occurrence_id, status FROM memory_alert_occurrences
+               WHERE schedule_id=? AND status NOT IN ('completed','missed','canceled','skipped')""",
+            (clean_id,),
+        ).fetchall()
+        for occurrence in occurrences:
+            occurrence_id = str(occurrence["occurrence_id"])
+            prior_status = str(occurrence["status"])
+            conn.execute(
+                """UPDATE memory_alert_occurrences
+                   SET status='canceled', updated_at=?, completed_at=?
+                   WHERE occurrence_id=?""",
+                (clock.isoformat(), clock.isoformat(), occurrence_id),
+            )
+            _occurrence_transition_row(
+                conn, occurrence_id, prior_status, "canceled", "system", None,
+                "provider_projection_removed", clock,
+            )
+            deliveries = conn.execute(
+                """SELECT alert_id, source_id, status FROM memory_alerts
+                   WHERE occurrence_id=? AND status IN ('pending','leased')""",
+                (occurrence_id,),
+            ).fetchall()
+            for delivery in deliveries:
+                alert_id = str(delivery["alert_id"])
+                prior_delivery_status = str(delivery["status"])
+                conn.execute(
+                    """UPDATE memory_alerts
+                       SET status='canceled', updated_at=?, canceled_at=?,
+                           lease_id=NULL, leased_at=NULL, lease_expires_at=NULL
+                       WHERE alert_id=?""",
+                    (clock.isoformat(), clock.isoformat(), alert_id),
+                )
+                _alert_transition_row(
+                    conn, alert_id=alert_id, source_id=str(delivery["source_id"]),
+                    from_status=prior_delivery_status, to_status="canceled",
+                    reason="provider_projection_removed", at=clock,
+                )
+    return "canceled"
+
+
 def create_alert_occurrence(
     *,
     schedule_id: str,
@@ -799,6 +993,28 @@ def _occurrence_transition_row(
             f"alert-occurrence-transition-{uuid.uuid4().hex}", occurrence_id,
             at.isoformat(), from_status, to_status, actor_type, actor_id,
             str(reason or "").strip()[:160],
+        ),
+    )
+
+
+def _alert_transition_row(
+    conn: Any,
+    *,
+    alert_id: str,
+    source_id: str,
+    from_status: str | None,
+    to_status: str,
+    reason: str,
+    at: datetime,
+) -> None:
+    conn.execute(
+        """INSERT INTO memory_alert_transitions (
+               transition_id, alert_id, created_at, from_status, to_status,
+               source_id, lease_id, reason
+           ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)""",
+        (
+            f"alert-transition-{uuid.uuid4().hex}", alert_id, at.isoformat(),
+            from_status, to_status, source_id, str(reason or "").strip()[:160],
         ),
     )
 

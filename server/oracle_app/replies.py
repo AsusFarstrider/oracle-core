@@ -23,7 +23,11 @@ def build_reply_text(dispatch: DispatchPlan) -> str:
     if dispatch.status == "pending_confirmation":
         return str(result.get("prompt", "Please confirm before I proceed.")).strip()
     if dispatch.status == "pending_clarification":
-        return str(result.get("prompt", "I found multiple matches. Which one did you want?")).strip()
+        return str(
+            result.get("prompt")
+            or result.get("speech")
+            or "I found multiple matches. Which one did you want?"
+        ).strip()
     return REPLY_SHAPERS[dispatch.target](dispatch)
 
 

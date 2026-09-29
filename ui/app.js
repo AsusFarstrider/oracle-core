@@ -40,6 +40,7 @@ const LAUNCHER_SESSION_KEY = "oracle-admin-tools-launcher-session";
 initialize();
 
 function initialize() {
+  initializeEmbeddedToolMode();
   initializeTheme();
   initializeLauncher();
   if (state.page === "oracle") {
@@ -52,6 +53,12 @@ function initialize() {
   }
   if (state.page === "logs") {
     initLogsPage();
+  }
+}
+
+function initializeEmbeddedToolMode() {
+  if (globalThis.self !== globalThis.top) {
+    document.body.classList.add("is-embedded-tool");
   }
 }
 

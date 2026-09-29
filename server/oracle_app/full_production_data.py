@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
@@ -97,7 +98,7 @@ def migrate_copy(
         applied = run_retention(policy, db_path=destination_database, now=clock, dry_run=False)
         if applied.changed_count != dry_run.changed_count:
             raise FullProductionDataError("retention apply differs from the approved dry-run")
-    with sqlite3.connect(destination_database) as connection:
+    with closing(sqlite3.connect(destination_database)) as connection:
         integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
         foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
         schema_versions = [str(row[0]) for row in connection.execute(

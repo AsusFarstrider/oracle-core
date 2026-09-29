@@ -9,6 +9,7 @@ from . import alerts as alerts_module
 from .application_command import _canonical_http_request_source, command_request
 from .application_runtime import app, brain_application_composition
 from .calendar_runtime import CalendarReadUnavailableError
+from .calendar_alerts import build_calendar_alert_state, dismiss_calendar_alert
 from .configuration.request_source_resolution import ResolvedRequestSource
 from .home_assistant_actions import (
     execute_home_assistant_ui_action,
@@ -412,11 +413,9 @@ def _build_application_satellite_ui_home_snapshot(satellite_id: str | None) -> d
         db_path=alerts_module.ALERT_DB_PATH,
     )
     payload["alarms"] = alarm_state
-    reminder_state = build_reminder_state(
+    reminder_state = _build_combined_reminder_state(
         source_id=str(config.get("source_id") or ""),
-        household=composition.runtime.household,
-        satellites=composition.runtime.satellites,
-        db_path=alerts_module.ALERT_DB_PATH,
+        composition=composition,
     )
     payload["reminders"] = reminder_state
     next_alarm = alarm_state.get("next")
@@ -504,10 +503,7 @@ def _ui_reminder_state_impl(source_id: str, request: Request) -> dict[str, objec
     if resolved.request_source_id != source_id:
         raise HTTPException(status_code=403, detail="Reminder state source does not match the authenticated UI source.")
     composition = brain_application_composition(request.app)
-    return build_reminder_state(
-        source_id=source_id, household=composition.runtime.household,
-        satellites=composition.runtime.satellites, db_path=alerts_module.ALERT_DB_PATH,
-    )
+    return _build_combined_reminder_state(source_id=source_id, composition=composition)
 
 
 def _ui_reminder_action_impl(payload: UiReminderActionRequest, request: Request) -> dict[str, object]:
@@ -517,18 +513,70 @@ def _ui_reminder_action_impl(payload: UiReminderActionRequest, request: Request)
         raise HTTPException(status_code=403, detail="Reminder action source does not match the authenticated UI source.")
     composition = brain_application_composition(request.app)
     try:
-        result = manage_reminder(
-            source_id=payload.source_id, action=payload.action,
-            occurrence_id=payload.occurrence_id, snooze_minutes=payload.snooze_minutes,
-            household=composition.runtime.household, satellites=composition.runtime.satellites,
-            idempotency_key=f"ui:{payload.client_id}:{payload.action}:{payload.occurrence_id}",
-            db_path=alerts_module.ALERT_DB_PATH,
+        calendar_state = build_calendar_alert_state(
+            source_id=payload.source_id, db_path=alerts_module.ALERT_DB_PATH,
         )
+        is_calendar = any(
+            item["occurrence_id"] == payload.occurrence_id
+            for item in calendar_state["calendar_alerts"]
+        )
+        if is_calendar:
+            if payload.action != "dismiss":
+                raise ValueError("Calendar alerts support dismissal, not snoozing.")
+            result = dismiss_calendar_alert(
+                payload.occurrence_id,
+                source_id=payload.source_id,
+                idempotency_key=f"ui:{payload.client_id}:dismiss:{payload.occurrence_id}",
+                now=datetime.now(UTC),
+                db_path=alerts_module.ALERT_DB_PATH,
+            )
+        else:
+            result = manage_reminder(
+                source_id=payload.source_id, action=payload.action,
+                occurrence_id=payload.occurrence_id, snooze_minutes=payload.snooze_minutes,
+                household=composition.runtime.household, satellites=composition.runtime.satellites,
+                idempotency_key=f"ui:{payload.client_id}:{payload.action}:{payload.occurrence_id}",
+                db_path=alerts_module.ALERT_DB_PATH,
+            )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Reminder occurrence not found.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {**result, "refresh": {"refresh_pages": ["home", "alerts"], "refresh_after_ms": 0}}
+
+
+def _build_combined_reminder_state(*, source_id: str, composition) -> dict[str, object]:
+    reminder_state = build_reminder_state(
+        source_id=source_id,
+        household=composition.runtime.household,
+        satellites=composition.runtime.satellites,
+        db_path=alerts_module.ALERT_DB_PATH,
+    )
+    calendar_state = build_calendar_alert_state(
+        source_id=source_id, db_path=alerts_module.ALERT_DB_PATH,
+    )
+    calendar_alerts = [
+        {
+            **item,
+            "outstanding": True,
+            "overdue": item.get("status") == "overdue",
+            # Calendar's Stage 8 UI action is dismissal; no snooze semantics
+            # are introduced by presenting it through the reminder card shell.
+            "common_copy": True,
+        }
+        for item in calendar_state["calendar_alerts"]
+    ]
+    outstanding = [
+        *list(reminder_state.get("outstanding") or []),
+        *calendar_alerts,
+    ]
+    return {
+        **reminder_state,
+        "calendar_alerts": calendar_alerts,
+        "outstanding": outstanding,
+        "count": int(reminder_state.get("count") or 0) + len(calendar_alerts),
+        "display_attention_required": bool(outstanding),
+    }
 
 
 def _build_compact_alert_state(source_id: str, composition) -> dict[str, object]:
@@ -541,9 +589,8 @@ def _build_compact_alert_state(source_id: str, composition) -> dict[str, object]
         source_id=source_id, household=composition.runtime.household,
         satellites=composition.runtime.satellites, now=clock, db_path=alerts_module.ALERT_DB_PATH,
     )
-    reminder_state = build_reminder_state(
-        source_id=source_id, household=composition.runtime.household,
-        satellites=composition.runtime.satellites, now=clock, db_path=alerts_module.ALERT_DB_PATH,
+    reminder_state = _build_combined_reminder_state(
+        source_id=source_id, composition=composition,
     )
     return {
         "source_id": source_id,

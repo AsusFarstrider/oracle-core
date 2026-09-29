@@ -257,7 +257,8 @@ defaults are:
 - provider status events: 180 days
 - lifecycle events: 365 days
 - session metadata: 90 days, with active sessions protected
-- orchestration terminal runs and steps: 365 days, atomically
+- orchestration terminal runs and steps: 365 days, atomically, including recovery
+  outcomes `stopped` and `completed_with_issues`
 - terminal alert deliveries, occurrences, and completed one-time schedules: 90
   days; active deliveries, occurrences, and recurring schedules protected
 - notification receipts: accepted/suppressed 90 days; failed/expired 365 days

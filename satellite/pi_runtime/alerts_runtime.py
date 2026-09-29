@@ -36,24 +36,27 @@ def _play_tts_alert(*, args, message: str, reply_audio_kind: str) -> None:
 
 def _build_alert_foreground_request(*, alert: dict) -> ForegroundAudioRequest:
     kind = str(alert.get("kind", "")).strip() or "alert"
+    # Calendar remains the durable Oracle alert kind, while its audible
+    # presentation uses the existing finite reminder foreground class.
+    foreground_kind = "reminder" if kind == "calendar" else kind
     if kind == "notification":
         return ForegroundAudioRequest(
-            kind=kind,
+            kind=foreground_kind,
             handoff_mode="borrow",
             interrupt_policy="pause_or_stronger",
             resume_policy="resume_previous",
             correlation_id=str(alert.get("alert_id", "")).strip(),
         )
-    if kind in {"timer", "alarm", "reminder"}:
+    if kind in {"timer", "alarm", "reminder", "calendar"}:
         return ForegroundAudioRequest(
-            kind=kind,
+            kind=foreground_kind,
             handoff_mode="borrow",
             interrupt_policy="pause_or_stronger",
             resume_policy="resume_previous",
             correlation_id=str(alert.get("occurrence_id") or alert.get("alert_id", "")).strip(),
         )
     return ForegroundAudioRequest(
-        kind=kind,
+        kind=foreground_kind,
         handoff_mode="replace",
         interrupt_policy="pause_or_stronger",
         resume_policy="no_resume",
@@ -92,17 +95,13 @@ def _build_alarm_followup_text(alert: dict) -> str:
 def _play_alert_audio(*, args, logger, alert: dict) -> None:
     kind = str(alert.get("kind", "")).strip()
     message = str(alert.get("message", "")).strip()
-    if kind == "reminder":
+    if kind in {"reminder", "calendar"}:
         play_ack_tone(
             resolve_output_device(args),
             min(1.0, max(0.0, float(getattr(args, "playback_gain", 1.0)))),
             playback_handoff_active=True,
         )
-        late_seconds = int(alert.get("late_seconds") or (alert.get("metadata") or {}).get("late_seconds") or 0)
-        spoken = message or "You have a reminder."
-        if late_seconds > 0:
-            late_minutes = max(1, round(late_seconds / 60))
-            spoken = f"{spoken} It was delayed about {late_minutes} {_plural_word('minute', late_minutes)} because this satellite was unavailable."
+        spoken = _with_late_delivery_context(message or "You have a reminder.", alert)
         _play_tts_alert(args=args, message=spoken, reply_audio_kind="reminder")
         return
     if kind == "timer":
@@ -119,19 +118,7 @@ def _play_alert_audio(*, args, logger, alert: dict) -> None:
                     reply_audio_stop_path=args.reply_audio_stop_path,
                     reply_audio_kind="timer",
                 )
-                late_seconds = int(
-                    alert.get("late_seconds")
-                    or (alert.get("metadata") or {}).get("late_seconds")
-                    or 0
-                )
-                spoken = message or "Your timer is finished."
-                if late_seconds > 0:
-                    late_label = (
-                        f"{late_seconds} seconds"
-                        if late_seconds < 60
-                        else f"{max(1, round(late_seconds / 60))} minutes"
-                    )
-                    spoken = f"{spoken} It expired {late_label} ago while this satellite was unavailable."
+                spoken = _with_late_delivery_context(message or "Your timer is finished.", alert)
                 _play_tts_alert(args=args, message=spoken, reply_audio_kind="timer")
                 return
             except Exception as exc:
@@ -154,10 +141,7 @@ def _play_alert_audio(*, args, logger, alert: dict) -> None:
                     reply_audio_kind="alarm",
                 )
                 followup = _build_alarm_followup_text(alert)
-                late_seconds = int(alert.get("late_seconds") or (alert.get("metadata") or {}).get("late_seconds") or 0)
-                if late_seconds > 0:
-                    late_minutes = max(1, round(late_seconds / 60))
-                    followup = f"{followup} It was delayed about {late_minutes} {_plural_word('minute', late_minutes)} because this satellite was unavailable."
+                followup = _with_late_delivery_context(followup, alert)
                 logger.info("Alarm due: speaking follow-up %s", followup)
                 _play_tts_alert(args=args, message=followup, reply_audio_kind="alarm")
                 return
@@ -169,11 +153,14 @@ def _play_alert_audio(*, args, logger, alert: dict) -> None:
     if not message:
         return
     logger.info("Alert due: %s", message)
-    _play_tts_alert(args=args, message=message, reply_audio_kind="alert")
+    spoken = _with_late_delivery_context(message, alert) if kind in {"timer", "alarm"} else message
+    _play_tts_alert(args=args, message=spoken, reply_audio_kind="alert")
 
 
-def _plural_word(word: str, count: int) -> str:
-    return word if count == 1 else f"{word}s"
+def _with_late_delivery_context(message: str, alert: dict) -> str:
+    metadata = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+    announcement = str(metadata.get("delivery_late_announcement") or "").strip()
+    return f"{message} {announcement}" if announcement else message
 
 
 def poll_due_alerts_if_needed(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from math import ceil
 
 from fastapi import FastAPI, HTTPException, Request
 
@@ -59,30 +60,57 @@ def satellite_alert_claim(
         db_path=alerts_module.ALERT_DB_PATH,
     )
     reconcile_satellite_receipts(source_id)
+    claimed_at = datetime.now(timezone.utc)
     return SatelliteAlertClaimResponse(
         alerts=[
-            SatelliteAlertLease(
-                alert_id=alert.alert_id,
-                lease_id=str(alert.lease_id),
-                lease_expires_at=str(alert.lease_expires_at.isoformat()),
-                kind=alert.kind,
-                message=alert.message,
-                due_at=alert.due_at.isoformat(),
-                source_id=alert.source_id,
-                session_id=alert.session_id,
-                metadata={
-                    **dict(alert.metadata),
-                    **_presentation_metadata(
-                        alert.kind,
-                        dict(alert.metadata),
-                        composition=composition,
-                        now=now,
-                    ),
-                },
+            _claimed_satellite_alert_lease(
+                alert=alert,
+                claimed_at=claimed_at,
+                composition=composition,
+                now=now,
             )
             for alert in alerts
         ]
     )
+
+
+def _claimed_satellite_alert_lease(*, alert, claimed_at, composition, now) -> SatelliteAlertLease:
+    delivery_late_seconds = max(0, ceil((claimed_at - alert.due_at).total_seconds()))
+    return SatelliteAlertLease(
+        alert_id=alert.alert_id,
+        lease_id=str(alert.lease_id),
+        lease_expires_at=str(alert.lease_expires_at.isoformat()),
+        kind=alert.kind,
+        message=alert.message,
+        due_at=alert.due_at.isoformat(),
+        source_id=alert.source_id,
+        session_id=alert.session_id,
+        metadata={
+            **dict(alert.metadata),
+            **_presentation_metadata(
+                alert.kind,
+                dict(alert.metadata),
+                composition=composition,
+                now=now,
+            ),
+            "delivery_late_seconds": delivery_late_seconds,
+            "delivery_late_announcement": (
+                _delivery_late_announcement(delivery_late_seconds)
+                if alert.kind in {"timer", "alarm", "reminder"} else ""
+            ),
+        },
+    )
+
+
+def _delivery_late_announcement(late_seconds: int) -> str:
+    if late_seconds <= 10:
+        return ""
+    if late_seconds < 60:
+        unit = "second" if late_seconds == 1 else "seconds"
+        return f"This alert arrived {late_seconds} {unit} late."
+    late_minutes = max(1, (late_seconds + 30) // 60)
+    unit = "minute" if late_minutes == 1 else "minutes"
+    return f"This alert arrived about {late_minutes} {unit} late."
 
 
 def satellite_alert_acknowledge(

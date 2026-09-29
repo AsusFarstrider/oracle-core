@@ -78,6 +78,25 @@ textarea {
   max-width: none;
 }
 
+body.is-embedded-tool {
+  min-height: 0;
+  background: transparent;
+}
+
+body.is-embedded-tool .system-shell-tools {
+  min-height: 0;
+}
+
+body.is-embedded-tool .system-rail-tools,
+body.is-embedded-tool .system-topbar,
+body.is-embedded-tool .oracle-launcher {
+  display: none;
+}
+
+body.is-embedded-tool .system-shell-tools .system-canvas {
+  padding: 0;
+}
+
 .hero {
   margin-bottom: 20px;
   padding: 28px;

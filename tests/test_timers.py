@@ -235,6 +235,7 @@ def test_due_timer_is_late_bounded_and_destination_dismissal_converges_house(tim
     state = build_timer_state(
         source_id="bedroom-source", household=household, satellites=fleet, now=due, db_path=db_path
     )
+    assert state["ringing"][0]["kind"] == "timer"
     assert state["ringing"][0]["late_seconds"] == 1
     dismissed = dismiss_timer(
         details["occurrence_id"], source_id="bedroom-source", household=household,

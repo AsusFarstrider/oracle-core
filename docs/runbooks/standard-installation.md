@@ -282,9 +282,10 @@ The gate occurs in this order:
 4. Record the current complete production activation and the exact candidate
    core, tree, household, environment, configuration, secret-generation, and
    migration/recovery identities. Review a managed rollback plan before live
-   mutation. If candidate writes or schema changes make restoration of the
-   previous complete activation uncertain, stop and return the architecture or
-   migration decision to the operator.
+   mutation when the candidate is configuration-compatible. If a configuration
+   boundary makes that plan invalid, record the exact rejection and obtain an
+   explicit stage-specific recovery decision before continuing. Never bypass
+   the canonical rollback guard or imply that downgrade was proven.
 5. Stage and assemble the exact candidate through the managed lifecycle. Use
    the managed `update` transaction to quiesce the current Brain and run the
    candidate on the normal production port. Do not start `uvicorn`, a repository
@@ -299,22 +300,29 @@ The gate occurs in this order:
    or integration representatives needed by the stage's actual changes.
    Leave a working candidate runtime on that disposable lab mule after testing
    unless rollback itself is under test, the candidate obstructs further work,
-   or an older known baseline is required. This exception does not apply to the
-   managed Brain rollback or to normal household satellites.
+   or an older known baseline is required. This lab-host exception does not
+   alter the managed Brain lifecycle or normal household satellites.
 7. Verify cleanup, idempotency, projection/configuration health, reconnect
    behavior, no duplicate delivery, restored media/device state, and absence of
    test calendar or alert residue. Record exact request, occurrence, audit, and
    activation identities without exposing private payloads or secrets.
-8. Roll back through the managed lifecycle to the previously recorded complete
-   production activation. Verify installed status, configuration identity,
-   Brain health, representative satellite health, and the rollback-compatible
-   durable state before promotion. A failed acceptance or failed restoration
-   returns the candidate to development.
+8. When the candidate is configuration-compatible, roll back through the
+   managed lifecycle to the previously recorded complete production activation.
+   Verify installed status, configuration identity, Brain health, representative
+   satellite health, and rollback-compatible durable state before promotion.
+   For an explicitly approved V2 development-period cross-configuration
+   exception, do not attempt that forbidden rollback. Record the unproven
+   downgrade as a deferred lifecycle capability and retain the verified
+   candidate; failures require a reviewed forward repair/redeployment of the
+   current stage, not manual selector changes, a fake rollback, or an automatic
+   reverse transition. Stage 8 has this explicit operator-approved exception. A failed
+   acceptance still returns the candidate to development and blocks promotion.
 9. Only after the gate passes may protected clean-core history, the immutable
    tag, and the GitHub Release be promoted. The final managed production
-   activation of the exact released artifact is the re-upgrade/return leg and
-   must still pass independent status, health, fleet, integration, and soak
-   checks.
+   activation of the exact released artifact is the re-upgrade/return leg when
+   step 8 rolled back. Under the approved cross-configuration exception it is
+   an independently verified final managed activation, not a claimed return
+   from Stage 7. Status, health, fleet, integration, and soak checks still apply.
 10. Before declaring the stage closed, determine whether the released core
     changed satellite-distributed runtime content. If it did, audit every
     enabled satellite against an exact manifest derived from the released
@@ -366,17 +374,20 @@ This gate reconciles existing evidence rather than duplicating or weakening it:
 
 - the copied-production migration/recovery/rollback rehearsal remains a
   prerequisite and is not replaced by live success;
-- the temporary live candidate activation and rollback satisfy the existing
-  pre-promotion managed update/rollback exercise;
-- the final released activation supplies the existing return/re-upgrade proof;
+- the temporary live candidate activation and compatible rollback satisfy the
+  pre-promotion managed update/rollback exercise when rollback is available;
+  Stage 8's cross-configuration exception records rollback as unavailable,
+  not passed;
+- the final released activation supplies return/re-upgrade proof only after an
+  actual rollback; otherwise it supplies independent final-activation proof;
 - clean-core CI, artifact verification, failed/interrupted recovery coverage,
   final post-activation health, fleet checks, and soak remain mandatory;
 - ordinary fleet health cannot prove satellite runtime version parity, so an
   exact released-artifact manifest/provenance audit and any required satellite
   rollout are separate closure evidence; and
-- architectural changes that make live rollback, data restoration, exact
-  provenance, or bounded external cleanup questionable require fresh operator
-  approval rather than silent modification of this sequence.
+- an unavailable cross-configuration rollback requires an explicit recorded
+  stage decision; data restoration, exact provenance, bounded external cleanup,
+  and every other safety gate remain in force.
 
 ## Update From New Local Artifacts
 

@@ -94,7 +94,7 @@ def test_release_requires_managed_live_candidate_acceptance_before_promotion() -
         "copied-production upgrade/migration",
         "managed `update` transaction",
         "bounded real-household acceptance matrix",
-        "Roll back through the managed lifecycle",
+        "When the candidate is configuration-compatible, roll back through the managed lifecycle",
         "Only after the gate passes may protected clean-core history",
         "The final managed production",
     )
@@ -104,11 +104,13 @@ def test_release_requires_managed_live_candidate_acceptance_before_promotion() -
     for required in (
         "Do not start `uvicorn`",
         "previously recorded complete production activation",
-        "failed acceptance or failed restoration",
+        "A failed acceptance still returns the candidate to development",
         "copied-production migration/recovery/rollback rehearsal remains",
         "post-activation health, fleet checks, and soak remain mandatory",
         "activation of the exact released artifact",
-        "fresh operator approval",
+        "explicit recorded stage decision",
+        "Never bypass the canonical rollback guard",
+        "Stage 8's cross-configuration exception records rollback as unavailable",
     ):
         assert required in normalized
 

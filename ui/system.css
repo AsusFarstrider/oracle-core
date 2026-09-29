@@ -333,7 +333,13 @@ a {
 
 .system-root {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
+  overflow-wrap: anywhere;
+}
+
+.system-root > * {
+  min-width: 0;
 }
 
 .hero-card,
@@ -1242,7 +1248,7 @@ a {
   .suggestions-grid,
   .suggestion-detail-grid,
   .metric-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

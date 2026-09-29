@@ -637,6 +637,7 @@ def _subject_label(subject: TimerSubject) -> str:
 def _serialize(subject: TimerSubject, now: datetime) -> dict[str, Any]:
     remaining = max(0, int((subject.occurrence.due_at - now).total_seconds()))
     return {
+        "kind": "timer",
         "schedule_id": subject.schedule.schedule_id,
         "occurrence_id": subject.occurrence.occurrence_id,
         "alert_id": subject.delivery.alert_id if subject.delivery else None,

@@ -138,6 +138,16 @@ the provider metadata unchanged and is idempotent by event occurrence and
 provider reminder identity. An event without applicable provider reminder
 metadata creates no Oracle alert.
 
+Before delivery, the projected Calendar alert follows the latest complete,
+fresh provider snapshot: title changes update its presentation, reminder moves
+update its due time, and removed or superseded reminder occurrences cancel the
+pending work. Reconciliation never leaves an earlier pending occurrence active.
+After a destination has durably accepted the alert, that delivered occurrence
+remains unchanged in the canonical alert lifecycle until acknowledgement or
+dismissal even if the provider event is later edited or deleted. This boundary
+does not modify provider metadata or relax the general schedule idempotency
+guard.
+
 Provider-native reminder interpretation belongs exclusively to the Calendar
 provider bridge. Oracle runtime code never branches on iCalendar alarm action,
 trigger, relativity, or repeat/nag representation. The bridge qualifies an

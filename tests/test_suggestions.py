@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import sqlite3
 import sys
@@ -521,12 +522,12 @@ class SuggestionDomainTests(unittest.TestCase):
 
     def test_memory_owned_schema_adds_slice_9_run_truth_to_existing_store(self) -> None:
         ensure_storage(self.db_path)
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             conn.execute("ALTER TABLE suggestion_runs DROP COLUMN suppressed_count")
             conn.execute("ALTER TABLE suggestion_runs DROP COLUMN collection_status")
             conn.execute("ALTER TABLE suggestion_runs DROP COLUMN failure_class")
         ensure_storage(self.db_path)
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             columns = {
                 str(row[1]) for row in conn.execute("PRAGMA table_info(suggestion_runs)")
             }

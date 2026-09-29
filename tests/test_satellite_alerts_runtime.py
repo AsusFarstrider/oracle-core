@@ -207,11 +207,55 @@ class SatelliteAlertsRuntimeTests(unittest.TestCase):
         ) as mock_tts:
             alerts_runtime._play_alert_audio(
                 args=args, logger=self._build_logger(),
-                alert={"kind": "reminder", "message": "Reminder: take medicine.", "metadata": {"late_seconds": 120}},
+                alert={
+                    "kind": "reminder",
+                    "message": "Reminder: take medicine.",
+                    "metadata": {"delivery_late_announcement": "This alert arrived about 2 minutes late."},
+                },
             )
         mock_chime.assert_called_once()
-        self.assertIn("delayed about 2 minutes", mock_tts.call_args.kwargs["message"])
+        self.assertEqual(
+            mock_tts.call_args.kwargs["message"],
+            "Reminder: take medicine. This alert arrived about 2 minutes late.",
+        )
         self.assertEqual(mock_tts.call_args.kwargs["reply_audio_kind"], "reminder")
+
+    def test_lateness_uses_claim_time_and_ignores_reconciliation_delay(self) -> None:
+        message = "Reminder: take medicine."
+        for delivery_late_seconds in (0, 1, 10):
+            with self.subTest(delivery_late_seconds=delivery_late_seconds):
+                alert = {
+                    "late_seconds": 120,
+                    "metadata": {"late_seconds": 120, "delivery_late_seconds": delivery_late_seconds},
+                }
+                self.assertEqual(alerts_runtime._with_late_delivery_context(message, alert), message)
+        self.assertEqual(
+            alerts_runtime._with_late_delivery_context(message, {"metadata": {"late_seconds": 120}}),
+            message,
+        )
+
+    def test_late_context_is_neutral_for_each_alert_family(self) -> None:
+        args = self._build_args()
+        logger = self._build_logger()
+        for kind in ("reminder", "timer", "alarm"):
+            with self.subTest(kind=kind), patch("pathlib.Path.read_bytes", return_value=b"wav-data"), patch.object(
+                alerts_runtime, "play_wav_bytes"
+            ), patch.object(alerts_runtime, "play_ack_tone"), patch.object(
+                alerts_runtime, "_play_tts_alert"
+            ) as mock_tts:
+                alerts_runtime._play_alert_audio(
+                    args=args,
+                    logger=logger,
+                    alert={
+                        "kind": kind,
+                        "message": f"{kind} due.",
+                        "metadata": {"delivery_late_announcement": "This alert arrived 11 seconds late."},
+                    },
+                )
+                self.assertEqual(
+                    mock_tts.call_args.kwargs["message"],
+                    f"{kind} due. This alert arrived 11 seconds late.",
+                )
 
     def test_reminder_borrows_media_and_releases_display_attention_after_speech(self) -> None:
         args = self._build_args()
@@ -238,6 +282,36 @@ class SatelliteAlertsRuntimeTests(unittest.TestCase):
         mock_ack.assert_called_once_with(
             args.oracle_url, args.source, "r-1", "l-1", credential="brain-token",
             status="completed", session_id=runtime_state.active_session_id,
+        )
+
+    def test_calendar_alert_uses_existing_reminder_audio_and_foreground_class(self) -> None:
+        args = self._build_args()
+        alert = {
+            "kind": "calendar",
+            "message": "Calendar: dentist appointment.",
+            "alert_id": "calendar-1",
+            "occurrence_id": "calendar-occurrence-1",
+            "metadata": {"occurrence_id": "calendar-occurrence-1"},
+        }
+
+        request = alerts_runtime._build_alert_foreground_request(alert=alert)
+        self.assertEqual(
+            (request.kind, request.handoff_mode, request.resume_policy, request.correlation_id),
+            ("reminder", "borrow", "resume_previous", "calendar-occurrence-1"),
+        )
+
+        with patch.object(alerts_runtime, "play_ack_tone") as mock_chime, patch.object(
+            alerts_runtime, "_play_tts_alert"
+        ) as mock_tts:
+            alerts_runtime._play_alert_audio(
+                args=args, logger=self._build_logger(), alert=alert,
+            )
+
+        mock_chime.assert_called_once()
+        mock_tts.assert_called_once_with(
+            args=args,
+            message="Calendar: dentist appointment.",
+            reply_audio_kind="reminder",
         )
 
     def test_build_timer_foreground_request_borrows_and_resumes_suitable_media(self) -> None:

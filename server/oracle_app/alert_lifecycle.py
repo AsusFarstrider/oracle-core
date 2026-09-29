@@ -102,7 +102,7 @@ def materialize_schedule_occurrences(
         limit=limit,
     ):
         subjects: tuple[tuple[str | None, bool], ...] = ((None, False),)
-        if schedule.target_scope == "recipient":
+        if schedule.target_scope == "recipient" and not schedule.metadata.get("calendar_alert"):
             subjects = tuple((user_id, False) for user_id in schedule.recipient_user_ids)
             if bool(schedule.metadata.get("include_common_copy")):
                 if len(schedule.recipient_user_ids) < 2:

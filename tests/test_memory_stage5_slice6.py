@@ -268,6 +268,50 @@ class Stage5Slice6MemoryTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM memory_events WHERE event_type='retention_pruned'"
             ).fetchone()[0], 0)
 
+    def test_recovery_terminal_retention_preserves_recent_and_active_runs(self) -> None:
+        ensure_schema(self.db_path)
+        old = (NOW - timedelta(days=366)).isoformat()
+        recent = (NOW - timedelta(days=1)).isoformat()
+        with transaction(self.db_path) as conn:
+            for run_id, status, timestamp in (
+                ("old-stopped", "stopped", old),
+                ("old-with-issues", "completed_with_issues", old),
+                ("recent-stopped", "stopped", recent),
+                ("recent-with-issues", "completed_with_issues", recent),
+                ("active-running", "running", old),
+                ("active-waiting", "waiting", old),
+                ("unknown-status", "unrecognized", old),
+            ):
+                conn.execute(
+                    """INSERT INTO memory_orchestration_runs (
+                       run_id,created_at,updated_at,orchestration_id,kind,status,started_at,completed_at
+                       ) VALUES (?,?,?,?,?,?,?,?)""",
+                    (run_id, timestamp, timestamp, "network-recovery", "recovery", status,
+                     timestamp, None if status in {"running", "waiting"} else timestamp),
+                )
+                conn.execute(
+                    """INSERT INTO memory_orchestration_steps (
+                       run_id,step_id,created_at,updated_at,ordinal,status
+                       ) VALUES (?,?,?,?,?,?)""",
+                    (run_id, "step-one", timestamp, timestamp, 1, "failed"),
+                )
+        report = run_retention(POLICY, db_path=self.db_path, now=NOW, dry_run=True)
+        history = next(item for item in report.classes if item.class_name == "orchestration_history")
+        self.assertEqual(history.candidate_ids, ("old-stopped", "old-with-issues"))
+        self.assertEqual(history.protected_ids, ("active-running", "active-waiting"))
+        self.assertEqual(history.blocked_ids, ("unknown-status",))
+        with self.assertRaisesRegex(RuntimeError, "blocked"):
+            run_retention(POLICY, db_path=self.db_path, now=NOW, dry_run=False)
+        with transaction(self.db_path) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM memory_orchestration_runs").fetchone()[0], 7)
+            conn.execute("DELETE FROM memory_orchestration_runs WHERE run_id='unknown-status'")
+        report = run_retention(POLICY, db_path=self.db_path, now=NOW, dry_run=False)
+        self.assertFalse(report.blocked)
+        with transaction(self.db_path) as conn:
+            expected = {"recent-stopped", "recent-with-issues", "active-running", "active-waiting"}
+            self.assertEqual({row[0] for row in conn.execute("SELECT run_id FROM memory_orchestration_runs")}, expected)
+            self.assertEqual({row[0] for row in conn.execute("SELECT run_id FROM memory_orchestration_steps")}, expected)
+
     def test_retention_apply_deletes_candidate_and_emits_one_aggregate_event(self) -> None:
         ensure_schema(self.db_path)
         old = (NOW - timedelta(days=91)).isoformat()

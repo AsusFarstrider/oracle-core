@@ -68,9 +68,10 @@ cannot establish it from the configured authority.
 
 Stage 8 retains Calendar as provider-backed event truth while adding an opt-in
 projection into the existing alert/notification lifecycle. Calendar-level
-`alert_enabled` controls participation. Applicable immutable provider event
-reminder metadata controls timing. Oracle never invents a lead time and never
-consumes, deletes, replaces, or edits provider reminder metadata. An opted-in
+`alert_enabled` controls participation. Applicable confirmed provider event
+reminder state controls pending timing and presentation. Oracle never invents a
+lead time and never consumes, deletes, replaces, or edits provider reminder
+metadata. An opted-in
 event with no applicable provider reminder creates no Oracle alert.
 
 Projection is idempotent by stable provider event occurrence plus provider
@@ -87,6 +88,15 @@ bounded event context. No iCalendar/VALARM representation crosses into Calendar
 or Alerts. Multiple qualifying provider reminders remain distinct; provider
 repeat/nag delivery semantics collapse to one Oracle alert per normalized
 reminder occurrence.
+
+Each complete, fresh provider snapshot reconciles pending projections. Matching
+pending work is updated in place for presentation or timing changes; removed or
+superseded work is canceled, and newly applicable reminder occurrences are
+created idempotently. Freshness or provider failure never becomes evidence of
+removal. A durable destination `delivery_accepted` acknowledgement freezes that
+logical occurrence against later provider edits or deletion; it continues
+through ordinary acknowledgement/dismissal. The shared alert lifecycle owns
+these transitions and audit records. Calendar owns no parallel alert store.
 
 Calendar alert work uses the shared alert occurrence/delivery owners and the
 general communication-mode presentation decision. DND may suppress audio but
