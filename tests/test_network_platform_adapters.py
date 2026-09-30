@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -50,10 +51,17 @@ class NetworkPlatformAdapterTests(unittest.TestCase):
         self.assertTrue(platform.restart("restart_ui").ok)
         self.assertTrue(platform.available().ok)
 
-        restart_command = platform.transport.run.call_args_list[0].args[0][0]
-        status_command = platform.transport.run.call_args_list[1].args[0][0]
+        restart_argv = platform.transport.run.call_args_list[0].args[0]
+        status_argv = platform.transport.run.call_args_list[1].args[0]
+        self.assertEqual(restart_argv[:4], ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand"])
+        self.assertEqual(status_argv[:4], restart_argv[:4])
+        restart_command = base64.b64decode(restart_argv[4]).decode("utf-16-le")
+        status_command = base64.b64decode(status_argv[4]).decode("utf-16-le")
         self.assertIn("schtasks.exe /Run", restart_command)
         self.assertIn("Get-Process msedge", restart_command)
+        self.assertIn(".State -ne 'Ready'", restart_command)
+        self.assertIn("AddSeconds(10)", restart_command)
+        self.assertLess(restart_command.index(".State -ne 'Ready'"), restart_command.index("schtasks.exe /Run"))
         self.assertIn("Get-Process msedge", status_command)
 
     def test_runtime_restart_uses_configured_service_and_other_operations_are_rejected(self) -> None:

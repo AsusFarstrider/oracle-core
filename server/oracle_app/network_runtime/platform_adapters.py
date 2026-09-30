@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import base64
 import json
 import re
 import subprocess
@@ -172,20 +173,25 @@ class ServicePlatformAdapter:
         if adapter == "docker" and _DOCKER_TARGET_PATTERN.fullmatch(target):
             return ["docker", "restart", target]
         if adapter == "windows_scheduled_task" and _WINDOWS_TASK_PATTERN.fullmatch(target):
+            stop_task = (
+                f"$task=Get-ScheduledTask -TaskName '{target}' -ErrorAction Stop; "
+                f"if ($task.State -eq 'Running') {{ Stop-ScheduledTask -TaskName '{target}' -ErrorAction Stop; "
+                "$deadline=(Get-Date).AddSeconds(10); "
+                f"while ((Get-ScheduledTask -TaskName '{target}' -ErrorAction Stop).State -ne 'Ready') {{ "
+                "if ((Get-Date) -ge $deadline) { exit 1 }; Start-Sleep -Milliseconds 200 } }; "
+            )
             if self.definition.restart_mode == "restart_edge_kiosk":
                 script = (
-                    f"$task=Get-ScheduledTask -TaskName '{target}' -ErrorAction Stop; "
-                    f"if ($task.State -eq 'Running') {{ Stop-ScheduledTask -TaskName '{target}' -ErrorAction Stop; Start-Sleep -Seconds 2 }}; "
+                    stop_task +
                     "Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force; "
                     f"schtasks.exe /Run /TN '{target}' /I | Out-Null; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}"
                 )
             else:
                 script = (
-                    f"$task=Get-ScheduledTask -TaskName '{target}' -ErrorAction Stop; "
-                    f"if ($task.State -eq 'Running') {{ Stop-ScheduledTask -TaskName '{target}' -ErrorAction Stop; Start-Sleep -Seconds 2 }}; "
+                    stop_task +
                     f"Start-ScheduledTask -TaskName '{target}' -ErrorAction Stop"
                 )
-            return [_powershell(script)]
+            return _powershell(script)
         return []
 
     def _service_state_command(self, target: str, state: str) -> list[str]:
@@ -207,7 +213,7 @@ class ServicePlatformAdapter:
                 script = "if (-not (Get-Process msedge -ErrorAction SilentlyContinue)) { exit 1 }"
             else:
                 script = f"$state=(Get-ScheduledTask -TaskName '{target}' -ErrorAction Stop).State; if ($state -ne 'Running') {{ exit 1 }}"
-            return [_powershell(script)]
+            return _powershell(script)
         return []
 
     def _observe(self, command: Sequence[str], timeout_seconds: int) -> PlatformObservation:
@@ -296,8 +302,9 @@ def _sudo(*command: str) -> list[str]:
     return ["sudo", "-S", "-p", "oracle-sudo-prompt:", "--", *command]
 
 
-def _powershell(script: str) -> str:
-    return f'powershell.exe -NoProfile -NonInteractive -Command "{script.replace(chr(34), chr(92) + chr(34))}"'
+def _powershell(script: str) -> list[str]:
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    return ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
 
 
 def _spawn(argv: Sequence[str]) -> bool:
