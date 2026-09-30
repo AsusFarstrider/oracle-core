@@ -47,7 +47,7 @@ class NetworkPlatformAdapterTests(unittest.TestCase):
         platform.transport = Mock()
         platform.transport.run.side_effect = [CommandOutcome(True, 0), CommandOutcome(True, 0)]
 
-        self.assertTrue(platform.restart("restart_service").ok)
+        self.assertTrue(platform.restart("restart_ui").ok)
         self.assertTrue(platform.available().ok)
 
         restart_command = platform.transport.run.call_args_list[0].args[0][0]
@@ -55,6 +55,25 @@ class NetworkPlatformAdapterTests(unittest.TestCase):
         self.assertIn("schtasks.exe /Run", restart_command)
         self.assertIn("Get-Process msedge", restart_command)
         self.assertIn("Get-Process msedge", status_command)
+
+    def test_runtime_restart_uses_configured_service_and_other_operations_are_rejected(self) -> None:
+        platform = ServicePlatformAdapter(
+            self._service(service_adapter="systemd", service_target="oracle-satellite.service"),
+            None,
+        )
+        platform.transport = Mock()
+        platform.transport.run.return_value = CommandOutcome(True, 0)
+
+        self.assertTrue(platform.restart("restart_runtime").ok)
+        self.assertEqual(
+            platform.transport.run.call_args.args[0][-3:],
+            ["systemctl", "restart", "oracle-satellite.service"],
+        )
+        platform.transport.reset_mock()
+        for operation in ("restart_host", "restart_router", "power_cycle", "unknown"):
+            with self.subTest(operation=operation):
+                self.assertEqual(platform.restart(operation).error, "service_control_command_not_implemented")
+        platform.transport.run.assert_not_called()
 
     def test_remote_linux_host_restart_accepts_ssh_disconnect_code(self) -> None:
         definition = ServiceControlAdapter(

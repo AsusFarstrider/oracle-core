@@ -47,7 +47,7 @@ class ServicePlatformAdapter:
     def restart(self, operation: str, *, timeout_seconds: int = 15) -> PlatformActionOutcome:
         if self.definition.target_kind == "host":
             return self._restart_host(operation, timeout_seconds)
-        if operation != "restart_service":
+        if operation not in {"restart_service", "restart_runtime", "restart_ui"}:
             return _failure("service_control_command_not_implemented", f"Command {operation} is not implemented.")
         if self.definition.transport == "local" and self.definition.restart_mode == "deferred_self_restart":
             return self._schedule_deferred_service_restart()
