@@ -122,6 +122,12 @@ compatibility settings getter. Curated public action IDs and finite voice
 grammar resolve exact typed action or entity mappings; a missing role, missing
 mapping, unsupported operation, ambiguous target, or incomplete provider fails
 closed and never falls back to a hardcoded or discovered provider target.
+Voice resolution, composite validation, and typed execution share the mapping
+equivalence check in `configuration/home_assistant_action_semantics.py`.
+Different mapping IDs or lexical aliases for an identical provider binding and
+execution policy count once; stable mapping-ID order selects the representative.
+Distinct bindings or policies remain ambiguous. Curated UI IDs still select
+their exact configured mapping, with unchanged semantic risk and verification.
 Configured aliases and normal climate bounds live on mappings; actual provider
 minimum/maximum and unit evidence is checked before climate dispatch. Confirmed
 actions re-enter through the same installed handler,

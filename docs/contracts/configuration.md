@@ -629,6 +629,13 @@ Finite Home Assistant mutation vocabulary is mapping-owned. Action mappings
 select exactly one code-supported operation compatible with the mapped provider
 object. Optional aliases are explicit Oracle-facing resolution terms; provider
 discovery and the reconstructable entity cache cannot add callable aliases.
+Multiple mapping IDs may name one equivalent binding in the selected provider:
+the mapping kind, Oracle target, provider object, allowed operation, and climate
+risk policy must all agree. Voice resolution, composite validation, and typed
+execution count that binding once and select its representative mapping ID in
+stable lexical order. Different provider objects, Oracle targets, operations,
+or risk policies remain distinct; genuinely ambiguous choices still clarify or
+fail before mutation. Explicit UI action IDs retain their configured bindings.
 Climate mappings that support adjustment declare their normal minimum, normal
 maximum, and unit. Those authored normal bounds classify semantic risk, while
 fresh provider/device bounds remain an independent execution-time limit.

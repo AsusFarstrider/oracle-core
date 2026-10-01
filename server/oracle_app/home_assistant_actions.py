@@ -8,6 +8,7 @@ from .configuration.domain_models import HomeAssistantObjectMapping
 from .configuration.home_assistant_action_semantics import (
     CLIMATE_HOME_ASSISTANT_ACTION_OPERATIONS,
     DIRECT_HOME_ASSISTANT_ACTION_OPERATIONS,
+    collapse_equivalent_home_mappings,
 )
 from .configuration.home_assistant_runtime_settings import HomeAssistantRuntimeSettings
 from .configuration.household_runtime_settings import HouseholdRuntimeSettings
@@ -116,11 +117,7 @@ def resolve_home_semantic_request(
             scored_candidates.append((max(map(len, matched_terms)), mapping_id, mapping))
     best_score = max((item[0] for item in scored_candidates), default=0)
     candidates = [(mapping_id, mapping) for score, mapping_id, mapping in scored_candidates if score == best_score]
-    # Equivalent aliases may name the same target and provider mapping; collapse them deterministically.
-    unique: dict[tuple[str, str], tuple[str, HomeAssistantObjectMapping]] = {}
-    for mapping_id, mapping in candidates:
-        unique.setdefault((mapping.oracle_id, mapping.entity_id), (mapping_id, mapping))
-    candidates = list(unique.values())
+    candidates = collapse_equivalent_home_mappings(candidates)
     if not candidates:
         return {"error": "home_action_unconfigured", "detail": "No configured target matches that action."}
     if len(candidates) != 1:
@@ -277,6 +274,7 @@ def execute_home_semantic_capability(
                 candidates.append((mapping_id, mapping))
         elif mapping.kind == "action" and mapping.allowed_operations == [operation]:
             candidates.append((mapping_id, mapping))
+    candidates = collapse_equivalent_home_mappings(candidates)
     if len(candidates) != 1:
         return {"ok": False, "status": "unsupported", "error": "home_action_mapping_ambiguous"}
     mapping_id, _mapping = candidates[0]

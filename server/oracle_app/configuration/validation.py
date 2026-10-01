@@ -11,6 +11,7 @@ from .models import (
 )
 from .home_assistant_action_semantics import (
     IMPLEMENTED_HOME_ASSISTANT_ACTION_OPERATIONS,
+    collapse_equivalent_home_mappings,
 )
 
 
@@ -632,17 +633,17 @@ def _validate_domain_references(
                                 if capability_id == "home.provider_action.invoke":
                                     action_id = arguments.get("action_id")
                                     mapping = home_assistant.mappings.get(action_id) if isinstance(action_id, str) else None
-                                    matches = [mapping] if mapping is not None and mapping.kind == "action" and mapping.allowed_operations == ["invoke"] and mapping.oracle_id == target_id else []
+                                    matches = [(action_id, mapping)] if mapping is not None and mapping.kind == "action" and mapping.allowed_operations == ["invoke"] and mapping.oracle_id == target_id else []
                                 elif capability_id == "home.environment.setpoint":
-                                    matches = [mapping for mapping in home_assistant.mappings.values()
+                                    matches = [(mapping_id, mapping) for mapping_id, mapping in home_assistant.mappings.items()
                                                if mapping.kind in {"action", "entity"} and mapping.oracle_id == target_id
                                                and str(mapping.entity_id).startswith("climate.") and mapping.normal_temperature_min is not None]
                                 else:
-                                    matches = [mapping for mapping in home_assistant.mappings.values()
+                                    matches = [(mapping_id, mapping) for mapping_id, mapping in home_assistant.mappings.items()
                                                if mapping.kind == "action" and mapping.oracle_id == target_id
                                                and mapping.allowed_operations == [expected_operation]
                                                and (capability_id != "home.lights.set" or str(mapping.entity_id).startswith("light."))]
-                                if len(matches) != 1:
+                                if len(collapse_equivalent_home_mappings(matches)) != 1:
                                     unknown("domains/routines.yaml", operation_path, "Composite Home capability must resolve exactly one compatible configured Oracle target/operation.", "config.reference.mapping_operation")
                         elif capability_id == "audiobooks.start_current":
                             if arguments.get("user_id") != definition.user_id or arguments.get("source_id") not in definition.source_ids:
