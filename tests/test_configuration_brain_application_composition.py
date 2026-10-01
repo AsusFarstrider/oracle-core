@@ -33,12 +33,52 @@ from oracle_app.schemas import DispatchPlan, TtsRequest
 from oracle_app.schemas import CommandRequest
 from oracle_app.satellite_projection_routes import satellite_projection_pull
 from oracle_app.routing import choose_route
+from oracle_app.runtime_paths import resolve_runtime_paths
 
 
 EXAMPLE_ROOT = Path(__file__).resolve().parents[1] / "examples" / "config"
 
 
 class CanonicalBrainApplicationCompositionTests(unittest.TestCase):
+    def test_enabled_lists_notes_use_canonical_runtime_memory_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = root / "bundle"
+            store_root = root / "store"
+            shutil.copytree(EXAMPLE_ROOT, bundle)
+            GenerationStore(store_root).initialize("example-home")
+            for domain, provider in (("lists", "nextcloud_tasks"), ("notes", "nextcloud_notes")):
+                role = bundle / "domains" / f"{domain}.yaml"
+                role.write_text(role.read_text().replace("enabled: false", "enabled: true", 1).replace("provider: null", f"provider: {provider}", 1))
+            with (bundle / "secrets.env").open("a") as companion:
+                companion.write("\nNEXTCLOUD_TASKS_APP_PASSWORD=test-only-tasks\nNEXTCLOUD_NOTES_APP_PASSWORD=test-only-notes\n")
+            effective = self._effective_config(bundle)
+            startup = BrainConfigurationStartup(
+                mode="canonical",
+                service_settings=ConfigurationBootstrapSettings(
+                    bundle_root=bundle, store_root=store_root,
+                    socket_path=root / "configuration.sock",
+                    authoring_mode="external_read_only",
+                ),
+                effective_config=effective,
+            )
+            # Exercise both fixed storage postures and a real registration read;
+            # constructing the composition itself must not create the database.
+            for standard in (False, True):
+                with self.subTest(standard=standard):
+                    paths = resolve_runtime_paths(
+                        {"ORACLE_STANDARD_INSTALLATION": "1"} if standard else {},
+                        standard_root=root / "installed", development_root=root / "development",
+                    )
+                    with patch("oracle_app.brain_application_composition.RUNTIME_PATHS", paths):
+                        composition = CanonicalBrainApplicationComposition.from_startup(startup)
+                    self.assertFalse(paths.memory_database.exists())
+                    self.assertEqual(composition.lists_execution.db_path, paths.memory_database)
+                    self.assertEqual(composition.notes_execution.db_path, paths.memory_database)
+                    self.assertEqual(set(composition.lists_execution.objects()), {"groceries"})
+                    self.assertEqual(set(composition.notes_execution.objects()), {"house_reference"})
+                    self.assertTrue(paths.memory_database.exists())
+
     def test_fastapi_has_no_import_time_v1_composition(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "not installed"):
             application_runtime.brain_application_composition(api.app)

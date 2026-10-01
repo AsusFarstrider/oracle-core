@@ -27,7 +27,7 @@ from .weather_runtime import CanonicalWeatherExecution
 from .network_runtime import CanonicalNetworkExecution
 from .lists_notes_runtime import CanonicalListsExecution, CanonicalNotesExecution
 from .suggestions.canonical import CanonicalSuggestionsExecution
-from .runtime_paths import validate_standard_storage_settings
+from .runtime_paths import RUNTIME_PATHS, validate_standard_storage_settings
 
 
 BRAIN_APPLICATION_COMPOSITION_STATE_KEY = "brain_application_composition"
@@ -170,7 +170,7 @@ class CanonicalBrainApplicationComposition:
         lists_execution = (
             CanonicalListsExecution(
                 runtime.lists,
-                db_path=runtime.brain.memory_storage.database_path,
+                db_path=RUNTIME_PATHS.memory_database,
             )
             if runtime.lists is not None and runtime.lists.enabled
             else None
@@ -178,7 +178,7 @@ class CanonicalBrainApplicationComposition:
         notes_execution = (
             CanonicalNotesExecution(
                 runtime.notes,
-                db_path=runtime.brain.memory_storage.database_path,
+                db_path=RUNTIME_PATHS.memory_database,
             )
             if runtime.notes is not None and runtime.notes.enabled
             else None

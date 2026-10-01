@@ -39,9 +39,16 @@ cache, environment variable, or file beside Oracle Memory.
    and pass the then-current expected secret generation. A canonical secret
    mutation is a managed activation transaction; follow its required
    verification/recovery procedure. Never hand-edit the companion or treat the
-   helper as a background auto-rotator. In external read-only authoring mode,
-   in-place secret replacement is unavailable; use the supported authoring
-   transition rather than a second credential store.
+   helper as a background auto-rotator. In a standard installation, the
+   protected `/run/oracle/control.sock` secret operation uses the existing
+   complete-activation coordinator and separately protected secret companion.
+   This is supported even though household YAML authoring is external read-only;
+   it does not edit the immutable household artifact. The coordinator requests
+   the Brain restart and finalizes credential retirement only after verified
+   startup. Check canonical status for the new complete activation and secret
+   generation before provider activation. A non-standard bootstrap without a
+   configured secret-mutation authority must use its supported authoring
+   procedure rather than a second credential store.
 4. Review and activate the candidate only under the normal configuration and
    deployment gates. Check `/api/admin/health/lists` for the selected provider,
    then create one unmistakably temporary list and exercise list/task CRUD,
