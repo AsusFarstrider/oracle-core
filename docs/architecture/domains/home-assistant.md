@@ -96,6 +96,12 @@ confined to the adapter-owned mappings.
 
 The view surface externalizes only household-specific inventory, ordering,
 canonical room association, optional labels, and camera snapshot references.
+Public Home/House and satellite room-control/environment serialization emits
+`target_id` from the mapping's Oracle `oracle_id`; cameras retain Oracle
+`camera_id`. Native `entity_id` is used only to fetch provider state and is not
+copied into public read models, including unavailable items. Provider remapping
+preserves public identity, labels, actions, order, and confirmation behavior.
+No separate identity registry or provider-ID compatibility field is created.
 Oracle code retains the fixed page/section vocabulary, rendering, icons,
 presentation defaults, state interpretation, actions, and response
 serialization. This is not a dashboard, widget, layout, or theme system.

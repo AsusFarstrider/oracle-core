@@ -26,6 +26,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class UiBrowserSurfaceTests(unittest.TestCase):
+    def test_house_read_labels_use_only_oracle_identity_fallbacks(self) -> None:
+        script = (ROOT / "house_ui" / "app.js").read_text(encoding="utf-8")
+        self.assertNotIn("item.entity_id", script)
+        self.assertIn('item.label || item.target_id || "Temperature"', script)
+        self.assertIn('item.label || item.target_id || "Light"', script)
+        self.assertIn('item.label || item.target_id || "Climate"', script)
+        self.assertIn('item.label || item.camera_id || "Camera"', script)
+
     def test_ui_mounts_are_registered(self) -> None:
         mounts = {route.path for route in app.routes if route.__class__.__name__ == "Mount"}
 

@@ -95,6 +95,19 @@ The Home page action definition must remain lightweight.
 
 The UI must not guess action semantics from `action_id` alone when Oracle can provide an explicit optional hint.
 
+## Canonical Household Controls
+
+Home's configured household `controls` and satellite Home's `room_controls`
+and `room_environment` items follow the Stage 8
+[canonical read-identity boundary](ui-house.md#canonical-read-identity).
+Each non-camera item exposes the existing Oracle mapping's `oracle_id` as
+`target_id`; cameras use their existing Oracle `camera_id`. Provider entity
+IDs are not public read references or client label fallbacks. Actions remain
+curated Oracle `action_id` values with unchanged risk and confirmation rules.
+This replaces the legacy HA identity fields without introducing a new identity
+registry, changing configured membership, or granting read references any
+mutation authority.
+
 ## Optional Fields
 
 Optional Alpha-safe fields may include:

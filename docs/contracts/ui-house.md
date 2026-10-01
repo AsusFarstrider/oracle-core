@@ -8,6 +8,22 @@ This is a curated household status and control page.
 
 It is not a generic Home Assistant dashboard.
 
+## Canonical Read Identity
+
+The Stage 8 read-boundary correction was ratified on 2026-10-01. Public Home,
+House, satellite room-control, and room-environment items expose Oracle-owned
+`target_id` from the configured mapping's `oracle_id`, never provider
+`entity_id`. Cameras retain their existing Oracle-owned `camera_id` and do not
+expose a second provider identifier. The unavailable unconfigured entry uses
+the code-owned `target_id: entry` placeholder; it grants no callable authority.
+
+These identities are read-model references, not execution authority. Actions
+still submit only configured Oracle `action_id` values through the existing
+semantic/confirmation path. Provider remapping must not change public read
+identity. Labels, ordering, normalized state, camera URLs, availability, and
+confirmation behavior remain unchanged. The older Alpha `entity_id` examples
+are superseded, not a compatibility exception or a provider-discovery surface.
+
 ## Request
 
 Method:
@@ -46,7 +62,7 @@ Rules:
 
 Recommended Alpha item fields:
 
-- `entity_id`
+- `target_id`
 - `label`
 - `available`
 - `value_f`
@@ -61,7 +77,7 @@ Rules:
 
 Recommended Alpha item fields:
 
-- `entity_id`
+- `target_id`
 - `label`
 - `available`
 - `state`
@@ -78,7 +94,7 @@ Rules:
 
 Recommended Alpha item fields:
 
-- `entity_id`
+- `target_id`
 - `label`
 - `available`
 - `state`
@@ -97,7 +113,6 @@ Rules:
 Recommended Alpha item fields:
 
 - `camera_id`
-- `entity_id`
 - `label`
 - `available`
 - `state`
@@ -163,7 +178,7 @@ Recommended default polling:
   },
   "temperatures": [
     {
-      "entity_id": "sensor.downstairs_temperature",
+      "target_id": "downstairs_temperature",
       "label": "Downstairs Temperature",
       "available": true,
       "value_f": 68.0,
@@ -173,7 +188,7 @@ Recommended default polling:
   ],
   "climate": [
     {
-      "entity_id": "climate.downstairs_thermostat",
+      "target_id": "downstairs_thermostat",
       "label": "Downstairs Thermostat",
       "available": true,
       "state": "heat",
@@ -184,7 +199,7 @@ Recommended default polling:
   ],
   "lights": [
     {
-      "entity_id": "light.reading_room",
+      "target_id": "reading_room",
       "label": "Reading Room Light",
       "available": true,
       "state": "on",
@@ -194,7 +209,6 @@ Recommended default polling:
   "cameras": [
     {
       "camera_id": "doorbell",
-      "entity_id": "camera.doorbell",
       "label": "Doorbell",
       "available": true,
       "state": "recording",

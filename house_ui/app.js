@@ -2955,7 +2955,7 @@ function houseOverviewTileIcon(label) {
 
 function renderHouseOverviewTiles(temperatures, climateItems) {
   const tiles = Array.isArray(temperatures) ? temperatures.map((item) => ({
-    label: item.label || item.entity_id || "Temperature",
+    label: item.label || item.target_id || "Temperature",
     value: item.value_f,
     available: item.available,
   })) : [];
@@ -3008,7 +3008,7 @@ function renderHouseLightTiles(items) {
           <span class="material-symbols-outlined">${icon}</span>
         </div>
         <div>
-          <p class="house-light-tile__label">${escapeHtml(item.label || item.entity_id || "Light")}</p>
+          <p class="house-light-tile__label">${escapeHtml(item.label || item.target_id || "Light")}</p>
           <span class="house-light-tile__status house-light-tile__status--${tone}">${escapeHtml(stateLabel)}</span>
         </div>
         ${
@@ -3034,7 +3034,7 @@ function renderHouseCameraTiles(items) {
     return renderEmpty("Camera inventory unavailable.");
   }
   return items.map((item) => {
-    const label = item.label || item.entity_id || "Camera";
+    const label = item.label || item.camera_id || "Camera";
     const snapshotUrl = item.snapshot_available && item.snapshot_url ? String(item.snapshot_url) : "";
     return `
       <article class="house-camera-tile">
@@ -3077,7 +3077,7 @@ function renderHouseClimateControls(items) {
     return `
       <article class="house-climate-card house-climate-card--${climateTone}">
         <div class="house-climate-card__head">
-          <span class="card-kicker">${escapeHtml(item.label || item.entity_id || "Climate")}</span>
+          <span class="card-kicker">${escapeHtml(item.label || item.target_id || "Climate")}</span>
           <span class="material-symbols-outlined">${climateIcon}</span>
         </div>
         <div class="house-climate-card__dial">

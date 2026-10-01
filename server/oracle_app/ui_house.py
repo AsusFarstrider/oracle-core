@@ -47,9 +47,9 @@ def _summarize_house_lock_state(state_payload: dict[str, object] | None) -> str:
     return normalized or "unknown"
 
 
-def _serialize_house_temperature_state(entity_id: str, label: str, state_payload: dict[str, object] | None) -> dict[str, object]:
+def _serialize_house_temperature_state(target_id: str, label: str, state_payload: dict[str, object] | None) -> dict[str, object]:
     result: dict[str, object] = {
-        "entity_id": entity_id,
+        "target_id": target_id,
         "label": label,
         "available": isinstance(state_payload, dict),
         "value_f": None,
@@ -70,14 +70,14 @@ def _serialize_house_temperature_state(entity_id: str, label: str, state_payload
 
 
 def _serialize_house_climate_state(
-    entity_id: str,
+    target_id: str,
     label: str,
     state_payload: dict[str, object] | None,
     *,
     actions: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     result: dict[str, object] = {
-        "entity_id": entity_id,
+        "target_id": target_id,
         "label": label,
         "available": isinstance(state_payload, dict),
         "state": None,
@@ -99,14 +99,14 @@ def _serialize_house_climate_state(
 
 
 def _serialize_house_light_state(
-    entity_id: str,
+    target_id: str,
     label: str,
     state_payload: dict[str, object] | None,
     *,
     actions: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     result: dict[str, object] = {
-        "entity_id": entity_id,
+        "target_id": target_id,
         "label": label,
         "available": isinstance(state_payload, dict),
         "state": None,
@@ -130,7 +130,6 @@ def _serialize_house_light_state(
 def _serialize_house_camera_state(
     *,
     camera_id: str,
-    entity_id: str,
     label: str,
     state_payload: dict[str, object] | None,
     snapshot_path: str | None,
@@ -138,7 +137,6 @@ def _serialize_house_camera_state(
 ) -> dict[str, object]:
     result: dict[str, object] = {
         "camera_id": camera_id,
-        "entity_id": entity_id,
         "label": label,
         "available": isinstance(state_payload, dict),
         "state": None,
@@ -218,7 +216,7 @@ def _build_canonical_ui_house_snapshot(
         mapping = _required_object_mapping(settings, item.mapping_id, "entity")
         temperatures.append(
             _serialize_house_temperature_state(
-                mapping.entity_id,
+                mapping.oracle_id,
                 item.label or mapping.oracle_id.replace("_", " ").title(),
                 bridge.fetch_entity_state(mapping.entity_id),
             )
@@ -229,7 +227,7 @@ def _build_canonical_ui_house_snapshot(
         state_payload = bridge.fetch_entity_state(mapping.entity_id)
         climate.append(
             _serialize_house_climate_state(
-                mapping.entity_id,
+                mapping.oracle_id,
                 item.label or mapping.oracle_id.replace("_", " ").title(),
                 state_payload,
                 actions=_canonical_control_actions(item, settings, state_payload),
@@ -241,7 +239,7 @@ def _build_canonical_ui_house_snapshot(
         state_payload = bridge.fetch_entity_state(mapping.entity_id)
         lights.append(
             _serialize_house_light_state(
-                mapping.entity_id,
+                mapping.oracle_id,
                 item.label or mapping.oracle_id.replace("_", " ").title(),
                 state_payload,
                 actions=_canonical_control_actions(item, settings, state_payload),
@@ -254,7 +252,6 @@ def _build_canonical_ui_house_snapshot(
         cameras.append(
             _serialize_house_camera_state(
                 camera_id=mapping.oracle_id,
-                entity_id=mapping.entity_id,
                 label=item.label or mapping.oracle_id.replace("_", " ").title(),
                 state_payload=bridge.fetch_entity_state(mapping.entity_id),
                 snapshot_path=snapshot_path,
@@ -307,7 +304,7 @@ def _serialize_canonical_control(
         action = actions[0] if actions else None
         if house_entry:
             return {
-                "entity_id": mapping.entity_id,
+                "target_id": mapping.oracle_id,
                 "label": label,
                 "available": isinstance(state_payload, dict) or isinstance(status_payload, dict),
                 "lock_state": lock_state,
@@ -316,7 +313,7 @@ def _serialize_canonical_control(
             }
         return {
             "kind": "door",
-            "entity_id": mapping.entity_id,
+            "target_id": mapping.oracle_id,
             "label": label,
             "icon": "lock" if lock_state == "locked" else "door-front",
             "available": isinstance(state_payload, dict) or isinstance(status_payload, dict),
@@ -329,14 +326,14 @@ def _serialize_canonical_control(
         }
     if domain == "climate":
         item = _serialize_house_climate_state(
-            mapping.entity_id,
+            mapping.oracle_id,
             label,
             state_payload,
             actions=_canonical_control_actions(reference, settings, state_payload),
         )
         return {"kind": "climate", **item}
     item = _serialize_house_light_state(
-        mapping.entity_id,
+        mapping.oracle_id,
         label,
         state_payload,
         actions=_canonical_control_actions(reference, settings, state_payload),
@@ -459,7 +456,7 @@ def _canonical_camera_snapshot(
 
 def _empty_front_door() -> dict[str, object]:
     return {
-        "entity_id": "entry",
+        "target_id": "entry",
         "label": "Entry",
         "available": False,
         "lock_state": "unknown",

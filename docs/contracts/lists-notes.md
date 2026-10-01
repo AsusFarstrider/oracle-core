@@ -7,7 +7,8 @@ semantics. Slice 8.1 established the law; Slice 8.9 implements the fixed roles,
 runtime owners, deterministic voice and typed UI surfaces, Nextcloud Tasks and
 Notes bridges, minimal registration, bounded caches, and health boundaries.
 Slice 8.10 adds a Microsoft To Do Lists adapter. Its real-account gate passed
-on 2026-09-22; the adapter remains unactivated in production.
+on 2026-09-22. Provider activation remains an explicit deployment choice;
+installing an adapter never selects or enables it.
 
 Lists and Notes are separate Brain-owned domains. They share provider-neutral
 identity, association, result, and safety principles but do not share content

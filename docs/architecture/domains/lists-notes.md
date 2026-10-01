@@ -2,8 +2,8 @@
 
 The normative behavior is owned by
 [`lists-notes.md`](../../contracts/lists-notes.md). This page records the
-Nextcloud implementation and the live-proven but unactivated Microsoft To Do
-provider boundary.
+Nextcloud and Microsoft To Do implementation boundaries. Installed adapters
+remain distinct from explicitly selected, enabled deployment providers.
 
 Lists and Notes are separate optional Brain domains. Each accepts one explicit
 provider selection from its own fixed configuration role. Neither borrows the

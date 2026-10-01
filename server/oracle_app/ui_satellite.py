@@ -276,6 +276,7 @@ def _build_canonical_room_controls_snapshot(
 
         serialized.append(
             _serialize_satellite_room_control_item(
+                target_id=mapping.oracle_id,
                 entity_id=mapping.entity_id,
                 label=reference.label or mapping.oracle_id.replace("_", " ").title(),
                 icon="",
@@ -314,6 +315,7 @@ def _build_canonical_room_environment_snapshot(
     for reference in room_view.environment:
         mapping = _required_object_mapping(settings, reference.mapping_id, "entity")
         item = _serialize_satellite_room_environment_item(
+            target_id=mapping.oracle_id,
             entity_id=mapping.entity_id,
             label=reference.label or mapping.oracle_id.replace("_", " ").title(),
             humidity_source=reference.metric == "humidity",
@@ -327,6 +329,7 @@ def _build_canonical_room_environment_snapshot(
 
 def _serialize_satellite_room_control_item(
     *,
+    target_id: str,
     entity_id: str,
     label: str,
     icon: str,
@@ -339,10 +342,10 @@ def _serialize_satellite_room_control_item(
     normalized_kind = str(kind or "").strip().lower()
     resolved_label = str(label or "").strip() if prefer_configured_label else ""
     if not resolved_label:
-        resolved_label = _resolve_house_entity_label(entity_id, label, cached_names)
+        resolved_label = _resolve_house_entity_label(target_id, label, cached_names)
     if normalized_kind == "climate" or entity_id.startswith("climate."):
         item = _serialize_house_climate_state(
-            entity_id,
+            target_id,
             resolved_label,
             fetch_state(entity_id),
             actions=canonical_actions,
@@ -356,7 +359,7 @@ def _serialize_satellite_room_control_item(
             elif current is not None:
                 detail = f"{round(float(current))}F now"
         return {
-            "entity_id": entity_id,
+            "target_id": target_id,
             "label": resolved_label,
             "kind": "climate",
             "icon": icon or "thermostat",
@@ -371,7 +374,7 @@ def _serialize_satellite_room_control_item(
         lock_state = _summarize_house_lock_state(lock_payload)
         actions = canonical_actions or []
         return {
-            "entity_id": entity_id,
+            "target_id": target_id,
             "label": resolved_label,
             "kind": "lock",
             "icon": icon or "lock",
@@ -394,7 +397,7 @@ def _serialize_satellite_room_control_item(
         fan_state = str((fan_payload or {}).get("state") or "").strip().lower()
         actions: list[dict[str, object]] = canonical_actions or []
         return {
-            "entity_id": entity_id,
+            "target_id": target_id,
             "label": resolved_label,
             "kind": "fan",
             "icon": icon or "air",
@@ -413,7 +416,7 @@ def _serialize_satellite_room_control_item(
         }
 
     item = _serialize_house_light_state(
-        entity_id,
+        target_id,
         resolved_label,
         fetch_state(entity_id),
         actions=canonical_actions,
@@ -433,7 +436,7 @@ def _serialize_satellite_room_control_item(
     else:
         status_label = "Off"
     return {
-        "entity_id": entity_id,
+        "target_id": target_id,
         "label": resolved_label,
         "kind": "light",
         "icon": icon or "lightbulb",
@@ -446,6 +449,7 @@ def _serialize_satellite_room_control_item(
 
 def _serialize_satellite_room_environment_item(
     *,
+    target_id: str,
     entity_id: str,
     label: str,
     humidity_source: bool = False,
@@ -453,7 +457,7 @@ def _serialize_satellite_room_environment_item(
 ) -> dict[str, object]:
     state_payload = fetch_state(entity_id)
     result: dict[str, object] = {
-        "entity_id": entity_id,
+        "target_id": target_id,
         "label": label,
         "available": isinstance(state_payload, dict),
         "temperature_f": None,

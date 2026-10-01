@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -7,6 +8,7 @@ from unittest.mock import patch
 from oracle_app.configuration.domain_models import (
     HomeAssistantCameraViewReference,
     HomeAssistantControlViewReference,
+    HomeAssistantEnvironmentViewReference,
     HomeAssistantHomeView,
     HomeAssistantHouseView,
     HomeAssistantObjectMapping,
@@ -21,7 +23,7 @@ from oracle_app.home_assistant_actions import (
     execute_home_assistant_ui_action,
 )
 from oracle_app.ui_house import build_canonical_ui_home_assistant_snapshot, build_ui_house_snapshot
-from oracle_app.ui_satellite import build_satellite_room_controls_snapshot, build_satellite_ui_config
+from oracle_app.ui_satellite import build_satellite_room_controls_snapshot, build_satellite_room_environment_snapshot, build_satellite_ui_config
 from oracle_app.health import check_home_assistant_health
 
 
@@ -151,7 +153,7 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
             home_assistant_settings=settings,
         )
 
-        self.assertEqual([item["entity_id"] for item in payload["lights"]], ["light.second", "light.first"])
+        self.assertEqual([item["target_id"] for item in payload["lights"]], ["second", "first"])
         self.assertEqual(payload["lights"][0]["label"], "Second Light")
         self.assertEqual(payload["cameras"][0]["camera_id"], "porch")
         self.assertEqual(payload["cameras"][0]["snapshot_url"].split("?", 1)[0], "/api/ui/house/cameras/porch/snapshot")
@@ -169,7 +171,7 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
 
         payload = build_canonical_ui_home_assistant_snapshot(self._settings())
 
-        self.assertEqual([item["entity_id"] for item in payload["controls"]], ["light.first"])
+        self.assertEqual([item["target_id"] for item in payload["controls"]], ["first"])
         self.assertEqual([item["action_id"] for item in payload["actions"]], ["first_on"])
 
     @patch("oracle_app.ui_house.HomeAssistantBridge.fetch_entity_state")
@@ -201,7 +203,82 @@ class CanonicalHomeAssistantViewTests(unittest.TestCase):
             {"required": True, "supported": True, "mechanism": "windows_native_runtime_and_browser_wake_lock"},
         )
         self.assertEqual(payload["selection_source"], "canonical_view")
-        self.assertEqual([item["entity_id"] for item in payload["items"]], ["light.second"])
+        self.assertEqual([item["target_id"] for item in payload["items"]], ["second"])
+
+    @patch("oracle_app.ui_house.fetch_snapshot_metadata")
+    @patch("oracle_app.ui_house.HomeAssistantBridge.fetch_entity_state")
+    def test_all_public_read_identities_survive_provider_remapping(self, fetch_state, snapshot_metadata) -> None:
+        settings = self._settings()
+        mappings = {key: settings.mapping(key) for key in ("first", "second", "first_on", "second_on", "porch_camera")}
+        for identity, domain in (("entry", "lock"), ("thermostat", "climate"), ("purifier", "fan"), ("temperature", "sensor"), ("humidity", "sensor")):
+            mappings[identity] = HomeAssistantObjectMapping(
+                kind="entity", oracle_id=identity, entity_id=f"{domain}.provider_{identity}", allowed_operations=["read"]
+            )
+        settings.mapping = mappings.get
+        controls = [HomeAssistantControlViewReference(mapping_id=key) for key in ("first", "entry", "thermostat", "purifier")]
+        settings.views = HomeAssistantViews(
+            home=HomeAssistantHomeView(controls=controls),
+            house=HomeAssistantHouseView(
+                temperatures=[HomeAssistantViewReference(mapping_id="temperature")],
+                climate=[controls[2]], lights=[controls[0]],
+                cameras=[HomeAssistantCameraViewReference(mapping_id="porch_camera", snapshot_ref="porch.jpg")],
+            ),
+            rooms={"living_room": HomeAssistantRoomView(
+                controls=controls,
+                environment=[
+                    HomeAssistantEnvironmentViewReference(mapping_id="temperature", metric="temperature"),
+                    HomeAssistantEnvironmentViewReference(mapping_id="humidity", metric="humidity"),
+                    HomeAssistantEnvironmentViewReference(mapping_id="thermostat", metric="climate"),
+                ],
+            )},
+        )
+        snapshot_metadata.return_value = SimpleNamespace(available=True, last_modified="fixed")
+        fleet, household = self._fleet_and_household()
+
+        def snapshots():
+            house = build_ui_house_snapshot(home_assistant_settings=settings)
+            house.pop("generated_at")
+            return {
+                "house": house,
+                "home": build_canonical_ui_home_assistant_snapshot(settings),
+                "controls": build_satellite_room_controls_snapshot("living_room_satellite", home_assistant_settings=settings, fleet_settings=fleet, household_settings=household),
+                "environment": build_satellite_room_environment_snapshot("living_room_satellite", home_assistant_settings=settings, fleet_settings=fleet, household_settings=household),
+            }
+
+        for available in (True, False):
+            with self.subTest(available=available):
+                fetch_state.side_effect = lambda entity_id: {
+                    "entity_id": entity_id, "state": "off",
+                    "attributes": {"current_temperature": 68, "humidity": 45, "credential": "must-not-leak"},
+                } if available else None
+                before = snapshots()
+                self.assertEqual([item["target_id"] for item in before["home"]["controls"]], ["first", "entry", "thermostat", "purifier"])
+                self.assertEqual([item["target_id"] for item in before["controls"]["items"]], ["first", "entry", "thermostat", "purifier"])
+                self.assertEqual([item["target_id"] for item in before["environment"]["items"]], ["temperature", "humidity", "thermostat"])
+                self.assertEqual(before["house"]["temperatures"][0]["target_id"], "temperature")
+                self.assertEqual(before["house"]["climate"][0]["target_id"], "thermostat")
+                self.assertEqual(before["house"]["lights"][0]["target_id"], "first")
+                self.assertEqual(before["house"]["cameras"][0]["camera_id"], "porch")
+                serialized = json.dumps(before)
+                self.assertNotIn('"entity_id"', serialized)
+                self.assertNotIn("must-not-leak", serialized)
+                for mapping in mappings.values():
+                    self.assertNotIn(mapping.entity_id, serialized)
+                self.assertEqual(before["controls"]["items"][2]["available"], available)
+                if available:
+                    self.assertEqual(before["environment"]["items"][1]["humidity_pct"], 45)
+                previous_entities = [mapping.entity_id for mapping in mappings.values()]
+                for key, mapping in list(mappings.items()):
+                    domain = mapping.entity_id.split(".", 1)[0]
+                    mappings[key] = mapping.model_copy(update={"entity_id": f"{domain}.rebound_{key}"})
+                self.assertEqual(snapshots(), before)
+                read_entities = [call.args[0] for call in fetch_state.call_args_list]
+                self.assertTrue(any(entity in read_entities for entity in previous_entities))
+                self.assertTrue(any(mapping.entity_id in read_entities for mapping in mappings.values()))
+
+    def test_disabled_read_surface_has_only_oracle_entry_placeholder(self) -> None:
+        payload = build_ui_house_snapshot(home_assistant_settings=None)
+        self.assertNotIn('"entity_id"', json.dumps(payload))
 
     @staticmethod
     def _settings():
