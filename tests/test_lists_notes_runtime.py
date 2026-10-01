@@ -190,6 +190,28 @@ def test_runtime_created_list_registration_survives_reconstruction_without_conte
     assert "Milk" not in path.read_bytes().decode(errors="ignore")
 
 
+@pytest.mark.parametrize("selector", ["note_ref", "lookup_title"])
+def test_runtime_created_note_delete_tombstones_registration_for_ui_and_voice_selection(tmp_path: Path, selector: str) -> None:
+    path = tmp_path / "memory.sqlite3"
+    bridge = FakeNotesBridge()
+    execution = CanonicalNotesExecution(_notes_settings(), db_path=path, bridge=bridge)
+    created = execution.execute("create", title="Canary note", content="Temporary content")
+    identity = created["note"]["id"]
+    values = {selector: created["note"]["ref"] if selector == "note_ref" else "Canary note"}
+    assert execution.execute("read", **values)["note"]["id"] == identity
+    with pytest.raises(ListsNotesError, match="requires confirmation"):
+        execution.execute("delete", **values)
+    assert identity in execution.objects()
+    execution.execute("delete", confirmed=True, **values)
+    reconstructed = CanonicalNotesExecution(_notes_settings(), db_path=path, bridge=bridge)
+    assert identity not in reconstructed.objects()
+    assert all(note.provider_id != "8" for note in bridge.notes)
+    with transaction(path) as conn:
+        row = conn.execute("SELECT status, payload_json FROM memory_current_projections WHERE projection_id=?", (f"provider-object:nextcloud_notes:notes:{identity}",)).fetchone()
+    assert row["status"] == "deleted"
+    assert "Temporary content" not in row["payload_json"]
+
+
 def test_runtime_registration_cannot_cross_selected_list_providers(tmp_path: Path) -> None:
     path = tmp_path / "memory.sqlite3"
     graph_settings = replace(

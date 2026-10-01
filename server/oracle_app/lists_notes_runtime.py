@@ -256,6 +256,8 @@ class CanonicalNotesExecution:
             matches = [note for note in notes if note.title.casefold() == title.strip().casefold()]
         if len(matches) != 1:
             raise ListsNotesError("note_not_found" if not matches else "note_ambiguous", "Choose exactly one note before changing it.", options=[note.title for note in matches or notes[:10]])
+        if selected_id is None:
+            selected_id = next((item.id for item in objects.values() if item.provider_object_id == matches[0].provider_id), None)
         return selected_id, matches[0]
 
     def _provider(self) -> dict[str, Any]:
