@@ -83,11 +83,14 @@ async def alert_scheduler_loop(
 ) -> None:
     while True:
         try:
-            reconcile_communication_modes(
-                household=household,
-                now=datetime.now(timezone.utc),
-                db_path=alerts_module.ALERT_DB_PATH,
-            )
+            try:
+                reconcile_communication_modes(
+                    household=household,
+                    now=datetime.now(timezone.utc),
+                    db_path=alerts_module.ALERT_DB_PATH,
+                )
+            except Exception:
+                logger.exception("communication_mode_reconciliation_failed")
             if calendar_execution is not None:
                 try:
                     reconcile_calendar_alerts(
