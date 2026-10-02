@@ -288,6 +288,14 @@ resumption uses the existing scheduler. Restart reconciliation resumes only a
 proven pre-dispatch boundary and marks a persisted running capability
 `uncertain`/the run `interrupted` rather than replaying it.
 
+The shared admin/House progress serializer reads an active child status from
+the existing child run, checking its parent run/operation linkage, and uses the
+parent's recorded child result for terminal operation history. It exposes only
+the bounded status; child IDs, raw operation/controller payloads, and provider
+identifiers remain private. Missing or unlinked child evidence produces no
+invented status. This read projection neither caches child state nor changes
+execution, cancellation, restart, or lifecycle authority.
+
 The definition schema limits a composite to 32 operations, 16 typed inputs,
 16 automatic triggers, three retry attempts, ten authored repetitions per
 operation, four child levels, and 64 expanded child operations. Operations

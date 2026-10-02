@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Request
 
-from .memory.orchestrations import list_orchestration_runs
+from .memory.orchestrations import get_orchestration_run, list_orchestration_runs
+
+
+_PUBLIC_CHILD_STATUSES = frozenset({
+    "running", "waiting", "completed", "completed_with_issues", "failed", "canceled", "stopped", "interrupted",
+})
 
 
 def admin_orchestrations(
@@ -227,11 +232,14 @@ def _public_run(run: dict[str, object]) -> dict[str, object]:
     public["compensation_outcome"] = state.get("compensation_outcome") if state.get("compensation_outcome") in {"not_required", "running", "completed", "failed"} else "unknown"
     public["cancellation_requested"] = state.get("cancellation_requested") is True
     steps = run.get("steps") if isinstance(run.get("steps"), list) else []
-    public["steps"] = [_public_step(step) for step in steps if isinstance(step, dict)]
+    public["steps"] = [
+        _public_step(step, parent_run_id=str(run.get("run_id") or ""))
+        for step in steps if isinstance(step, dict)
+    ]
     return public
 
 
-def _public_step(step: dict[str, object]) -> dict[str, object]:
+def _public_step(step: dict[str, object], *, parent_run_id: str) -> dict[str, object]:
     state = step.get("payload") if isinstance(step.get("payload"), dict) else {}
     result = {
         key: step.get(key)
@@ -241,8 +249,31 @@ def _public_step(step: dict[str, object]) -> dict[str, object]:
     result["attempt"] = state.get("attempt") if isinstance(state.get("attempt"), int) and 0 <= state["attempt"] <= 100 else 0
     result["iteration"] = state.get("iteration") if isinstance(state.get("iteration"), int) and 0 <= state["iteration"] <= 100 else 0
     result["due_at"] = state.get("due_at") if isinstance(state.get("due_at"), str) and len(state["due_at"]) <= 64 else ""
-    result["child_status"] = state.get("child_status") if state.get("child_status") in {"running", "waiting", "completed", "completed_with_issues", "failed", "canceled", "stopped"} else ""
+    result["child_status"] = _public_child_status(step, state, parent_run_id=parent_run_id)
     return result
+
+
+def _public_child_status(step, state, *, parent_run_id: str) -> str:
+    definition = state.get("definition")
+    if not isinstance(definition, dict) or definition.get("type") != "child":
+        return ""
+    child_id = state.get("child_run_id")
+    # Terminal history describes the result this parent actually observed.
+    results = state.get("results")
+    if step.get("status") not in {"pending", "running", "waiting"} and isinstance(results, list) and results:
+        last = results[-1]
+        if isinstance(last, dict) and isinstance(last.get("child_run_id"), str) and last["child_run_id"] and (not child_id or last["child_run_id"] == child_id):
+            status = last.get("child_status")
+            if isinstance(status, str) and status in _PUBLIC_CHILD_STATUSES:
+                return status
+    # Active work reflects the existing child owner, never a cached UI status.
+    if not isinstance(child_id, str) or not child_id or not parent_run_id:
+        return ""
+    child = get_orchestration_run(child_id)
+    if child is None or child.get("parent_run_id") != parent_run_id or child.get("parent_operation_id") != step.get("step_id"):
+        return ""
+    status = child.get("status")
+    return status if isinstance(status, str) and status in _PUBLIC_CHILD_STATUSES else ""
 
 
 def _run_is_active(run: dict[str, object]) -> bool:
