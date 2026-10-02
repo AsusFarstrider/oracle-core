@@ -2,7 +2,9 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock
 import wave
@@ -186,6 +188,9 @@ def test_pocket_uses_existing_expiry_lru_and_maintenance(pocket, monkeypatch):
     monkeypatch.setattr(tts, 'TTS_CACHE_MAX_CLIPS', 1)
     provider.synthesize('First.')
     first = provider._cache_path_for_text('First.')
+    # Rapid writes can share an access timestamp; make the LRU order explicit.
+    accessed = time.time() - 10
+    os.utime(first, (accessed, accessed))
     provider.synthesize('Second.')
     assert not first.exists() and provider.cache_diagnostics().entry_count == 1
     assert provider.maintain_cache(now=10**12).removed_expired == 1
