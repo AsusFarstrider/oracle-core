@@ -126,6 +126,22 @@ class UiBrowserSurfaceTests(unittest.TestCase):
         self.assertIn("min-width: 0", label_rule)
         self.assertIn("overflow-wrap: anywhere", label_rule)
 
+    def test_house_calendar_can_shrink_to_mobile_viewports(self) -> None:
+        house = (ROOT / "house_ui" / "app.css").read_text(encoding="utf-8")
+
+        pages_rule = house.split(".pages {", 1)[1].split("}", 1)[0]
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", pages_rule)
+        page_rule = house.split(".page {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-width: 0", page_rule)
+        root_rule = house.split(".page-root {", 1)[1].split("}", 1)[0]
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", root_rule)
+        root_child_rule = house.split(".page-root > * {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-width: 0", root_child_rule)
+        provider_detail_rule = house.split(".calendar-provider-truth > div {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-width: 0", provider_detail_rule)
+        provider_copy_rule = house.split(".calendar-provider-truth p {", 1)[1].split("}", 1)[0]
+        self.assertIn("overflow-wrap: anywhere", provider_copy_rule)
+
     def test_suggestions_ui_discloses_advisory_collection_and_review_truth(self) -> None:
         content = (ROOT / "ui" / "system.js").read_text(encoding="utf-8")
 

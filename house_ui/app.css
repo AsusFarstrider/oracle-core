@@ -341,10 +341,12 @@ a {
 
 .pages {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .page {
   display: none;
+  min-width: 0;
 }
 
 .page.is-active {
@@ -393,7 +395,12 @@ select {
 
 .page-root {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
+}
+
+.page-root > * {
+  min-width: 0;
 }
 
 .hero-card,
@@ -2533,7 +2540,7 @@ select {
   .audio-grid,
   .house-grid,
   .control-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -2755,6 +2762,14 @@ select {
   border-radius: 0.85rem;
 }
 
+.calendar-provider-truth > .material-symbols-outlined {
+  flex: 0 0 auto;
+}
+
+.calendar-provider-truth > div {
+  min-width: 0;
+}
+
 .calendar-provider-truth.is-partial {
   border-color: rgba(222, 151, 66, 0.55);
 }
@@ -2762,6 +2777,7 @@ select {
 .calendar-provider-truth p {
   margin: 0.2rem 0 0;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .house-content-panel,
