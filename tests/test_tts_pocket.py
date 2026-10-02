@@ -17,6 +17,7 @@ import tts
 from oracle_app.application_speech import synthesize_speech_with_provider
 from oracle_app.configuration.brain_core_runtime_consumers import _build_tts_provider
 from oracle_app.configuration.runtime_models import PocketProvider, TtsRole
+from oracle_app.logging_setup import configure_brain_logging
 from oracle_app.schemas import TtsRequest
 
 
@@ -181,6 +182,19 @@ def test_health_reports_asset_loss_during_probe_without_loading(pocket, monkeypa
     assert 'asset unavailable' in provider.status().detail
     provider._load_model.assert_called_once()
     model.generate_audio.assert_not_called()
+
+
+def test_warmup_timing_reaches_existing_brain_logging_handler(pocket, monkeypatch):
+    provider, _, _, _ = pocket
+    logger = tts.logging.getLogger('oracle-brain')
+    monkeypatch.setattr(logger, 'handlers', [])
+    monkeypatch.setattr(logger, 'level', logger.level)
+    monkeypatch.setattr(logger, 'propagate', logger.propagate)
+    output = io.StringIO()
+    configure_brain_logging(stream=output)
+    provider._run_warmup()
+    assert 'pocket_model_loaded elapsed_ms=' in output.getvalue()
+    assert 'pocket_warmup_succeeded elapsed_ms=' in output.getvalue()
 
 
 def test_pocket_uses_existing_expiry_lru_and_maintenance(pocket, monkeypatch):

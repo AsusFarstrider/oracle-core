@@ -327,7 +327,7 @@ class PocketTtsProvider(CachedTtsProvider):
                 raise TtsError("Pocket voice/model assets changed during loading")
             self._model, self._voice, self._resident_identity = model, voice, identity
             self._load_error = None
-            logging.getLogger("oracle.tts").info(
+            logging.getLogger("oracle-brain.tts").info(
                 "pocket_model_loaded elapsed_ms=%.1f", (time.perf_counter() - started) * 1000
             )
         except Exception as exc:
@@ -350,7 +350,7 @@ class PocketTtsProvider(CachedTtsProvider):
 
     def _run_warmup(self) -> None:
         started = time.perf_counter()
-        logger = logging.getLogger("oracle.tts")
+        logger = logging.getLogger("oracle-brain.tts")
         logger.info("pocket_warmup_started")
         try:
             self.warmup()
@@ -374,7 +374,7 @@ class PocketTtsProvider(CachedTtsProvider):
                 if identity != self._configuration_identity():
                     raise TtsError("Pocket voice/model assets changed during synthesis")
                 self._store_cached_clip(text, audio_bytes)
-                logging.getLogger("oracle.tts").info(
+                logging.getLogger("oracle-brain.tts").info(
                     "pocket_synthesis elapsed_ms=%.1f audio_bytes=%d",
                     (time.perf_counter() - started) * 1000, len(audio_bytes),
                 )
