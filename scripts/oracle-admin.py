@@ -246,6 +246,12 @@ def prepare_schema_transition(*args: object, **kwargs: object):
     return implementation(*args, **kwargs)
 
 
+def load_schema_transition(*args: object, **kwargs: object):
+    from oracle_app.installation_schema_transition import load_schema_transition as implementation
+
+    return implementation(*args, **kwargs)
+
+
 def recover_schema_transition_before_managed_activation(*args: object, **kwargs: object):
     from oracle_app.installation_schema_transition import (
         recover_schema_transition_before_managed_activation as implementation,
@@ -2819,7 +2825,7 @@ _BOOTSTRAP_COMMANDS = frozenset({"preflight", "stage-plan", "stage"})
 _ASSEMBLY_COMMANDS = frozenset(
     {
         "assemble-plan", "assemble", "update-assemble-plan", "update-assemble",
-        "schema-transition-plan", "schema-transition-prepare", "schema-transition-recover",
+        "schema-transition-plan", "schema-transition-prepare",
     }
 )
 
@@ -2827,7 +2833,11 @@ _ASSEMBLY_COMMANDS = frozenset(
 def _managed_environment_for_command(args: argparse.Namespace, *, root: Path = STANDARD_ROOT) -> Path | None:
     if args.command in _BOOTSTRAP_COMMANDS:
         return None
-    if args.command in _ASSEMBLY_COMMANDS:
+    if args.command == "schema-transition-recover":
+        capsule = load_schema_transition(InstallationLayout(root))
+        name = environment_directory_name(capsule["target"]["python_environment_identity"])
+        environment = root / "environments" / name
+    elif args.command in _ASSEMBLY_COMMANDS:
         name = environment_directory_name(args.environment_identity)
         environment = root / "environments" / name
     elif args.command in {
@@ -2858,7 +2868,10 @@ def _managed_environment_for_command(args: argparse.Namespace, *, root: Path = S
 def _managed_application_for_command(args: argparse.Namespace, *, root: Path = STANDARD_ROOT) -> Path | None:
     if args.command in _BOOTSTRAP_COMMANDS:
         return None
-    if args.command in _ASSEMBLY_COMMANDS:
+    if args.command == "schema-transition-recover":
+        capsule = load_schema_transition(InstallationLayout(root))
+        application = root / "revisions" / ("core-" + capsule["target"]["core_commit"])
+    elif args.command in _ASSEMBLY_COMMANDS:
         manifest = verify(args.core_artifact)
         application = root / "revisions" / ("core-" + str(manifest["core_commit"]))
     elif args.command in {

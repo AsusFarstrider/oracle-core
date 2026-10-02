@@ -287,6 +287,34 @@ print(json.dumps({"status": "ready"}))
             [str(interpreter), "-B", str(script), *argv],
         )
 
+    def test_schema_recovery_dispatch_uses_capsule_target_without_cli_artifact_arguments(self) -> None:
+        root = self.root / "managed"
+        identity = "oracle-python-environment-v1:sha256:" + "6" * 64
+        environment = root / "environments" / ("environment-" + "6" * 64)
+        interpreter = environment / "bin" / "python"
+        interpreter.parent.mkdir(parents=True)
+        interpreter.write_text("", encoding="utf-8")
+        script = root / "revisions" / ("core-" + "7" * 40) / "scripts" / "oracle-admin.py"
+        script.parent.mkdir(parents=True)
+        script.write_text("# target fixture\n", encoding="utf-8")
+        argv = ["schema-transition-recover"]
+        args = oracle_admin.parser().parse_args(argv)
+        capsule = {"target": {"python_environment_identity": identity, "core_commit": "7" * 40}}
+        with (
+            mock.patch.object(oracle_admin, "load_schema_transition", return_value=capsule),
+            mock.patch.object(oracle_admin.sys, "prefix", str(self.root / "bootstrap")),
+            mock.patch.object(oracle_admin.os, "execv") as execute,
+        ):
+            oracle_admin._reexecute_post_staging_command(args, argv, root=root)
+        execute.assert_called_once_with(str(interpreter), [str(interpreter), "-B", str(script), *argv])
+        with (
+            mock.patch.object(oracle_admin, "load_schema_transition", side_effect=RuntimeError("invalid capsule")),
+            mock.patch.object(oracle_admin.os, "execv") as execute,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "invalid capsule"):
+                oracle_admin._reexecute_post_staging_command(args, argv, root=root)
+        execute.assert_not_called()
+
     def test_standard_layout_plan_has_only_ratified_lifecycle_roots(self) -> None:
         root = self.root / "oracle"
         plan = oracle_admin.standard_layout_plan(root)
