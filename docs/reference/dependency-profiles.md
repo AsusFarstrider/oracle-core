@@ -9,7 +9,7 @@ immutable native Python environment from the matching complete hash lock.
 | --- | --- | --- | --- | --- |
 | `minimal-brain` | `server/requirements.txt` | `server/requirements.lock` | CPython 3.13 on the Stage 4 Debian tuple | Provider-free Brain production runtime |
 | `fast-whisper` | `server/requirements-fast-whisper.txt` | `server/requirements-fast-whisper.lock` | CPython 3.13 on the Stage 4 Debian tuple | Additive Fast-Whisper STT implementation |
-| `full-production-brain` | `server/requirements-full-production.txt` | `server/requirements-full-production.lock` | CPython 3.13 on the Stage 4 Debian tuple | Fixed Fast-Whisper plus Piper environment used by the full production Brain lifecycle |
+| `full-production-brain` | `server/requirements-full-production.txt` | `server/requirements-full-production.lock` | CPython 3.13 on the Stage 4 Debian tuple | Fixed Fast-Whisper, Piper, and Pocket CPU environment used by the full production Brain lifecycle |
 | `wake-satellite` | `satellite/requirements.txt` | `satellite/requirements.lock` | CPython 3.11 on Linux | Retained wake/audio satellite runtime; TensorFlow Lite currently prevents Python 3.13 resolution |
 | `clean-core-test` | `server/requirements.txt` plus `requirements-dev.txt` | `requirements-test.lock` | CPython 3.13 on the CI baseline | Required test tooling; never installed into production environments |
 
@@ -83,3 +83,20 @@ observed skip with the exact reviewed IDs in
 skips, and declared skips that silently disappear all fail the job. Tests kept
 outside core are private integration, live-provider, or hardware evidence and
 are not made optional through runtime skip behavior.
+
+## Pocket CPU capability
+
+The full-production Brain profile retains Piper 1.4.1 and adds Pocket 3.3.0
+with PyTorch 2.14.0+cpu. The supported CPython 3.13 Debian amd64 tuple uses the
+explicit CPU wheel index and complete artifact hashes. No CUDA dependencies
+or experimental venv are selected. Pocket requires python-multipart >=0.0.21;
+Oracle pins 0.0.32 and regenerates every dependent profile lock. Existing shared
+package versions otherwise remain pinned by their locks.
+
+The standard immutable environment builder installs and validates the full
+profile through its existing exact package/lock/tree identity. Model, tokenizer,
+and voice assets are hash/size governed by the household asset manifest and
+packaged into each complete deployment artifact. Their installed home is
+`selection/active/deployment/assets/tts/pocket`, alongside retained Piper
+assets. Environment and asset changes therefore participate in ordinary managed
+stage, assemble, activate, recovery, and compatible rollback semantics.

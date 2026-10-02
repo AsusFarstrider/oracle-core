@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 
 from stt import attempt_stt_provider_warmup
-from tts import maintain_tts_cache, tts_cache_diagnostics
+from tts import attempt_tts_provider_warmup, maintain_tts_cache, tts_cache_diagnostics
 
 from .alert_scheduler import alert_scheduler_loop
 from .brain_application_composition import (
@@ -192,6 +192,7 @@ async def lifespan(target_app: FastAPI):
             canonical_execution=startup_composition.network_execution,
         )
         attempt_stt_provider_warmup(startup_composition.core_consumers.stt_provider)
+        attempt_tts_provider_warmup(startup_composition.core_consumers.tts_provider)
         attempt_fallback_router_warmup(startup_composition.core_consumers.inference)
         cache_maintenance = maintain_runtime_caches(startup_composition)
         configuration_host_local_runtime = start_brain_configuration_host_local_runtime(startup=startup)

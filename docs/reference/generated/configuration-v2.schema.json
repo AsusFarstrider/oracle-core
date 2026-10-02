@@ -741,6 +741,35 @@
           "title": "PiperProvider",
           "type": "object"
         },
+        "PocketProvider": {
+          "additionalProperties": false,
+          "properties": {
+            "model_config_path": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "title": "Model Config Path",
+              "type": "string"
+            },
+            "type": {
+              "const": "pocket",
+              "title": "Type",
+              "type": "string"
+            },
+            "voice_state_path": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "title": "Voice State Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "model_config_path",
+            "voice_state_path"
+          ],
+          "title": "PocketProvider",
+          "type": "object"
+        },
         "SharedInferenceRole": {
           "additionalProperties": false,
           "properties": {
@@ -903,13 +932,17 @@
                 "^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$": {
                   "discriminator": {
                     "mapping": {
-                      "piper": "#/$defs/PiperProvider"
+                      "piper": "#/$defs/PiperProvider",
+                      "pocket": "#/$defs/PocketProvider"
                     },
                     "propertyName": "type"
                   },
                   "oneOf": [
                     {
                       "$ref": "#/$defs/PiperProvider"
+                    },
+                    {
+                      "$ref": "#/$defs/PocketProvider"
                     }
                   ]
                 }

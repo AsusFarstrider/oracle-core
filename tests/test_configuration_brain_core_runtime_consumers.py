@@ -16,7 +16,7 @@ from stt import (
     SttResult,
     attempt_stt_provider_warmup,
 )
-from tts import DisabledTtsProvider, PiperTtsProvider, TtsResult
+from tts import DisabledTtsProvider, PiperTtsProvider, PocketTtsProvider, TtsResult
 from fastapi import UploadFile
 
 from oracle_app.configuration import (
@@ -77,6 +77,13 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
         self.assertEqual(consumers.stt_provider.binary, "bin/whisper-cli")
         self.assertEqual(consumers.stt_provider.model, "models/whisper.bin")
         self.assertEqual(consumers.stt_provider.threads, 8)
+
+    def test_pocket_selection_from_canonical_snapshot_has_no_loading_side_effects(self) -> None:
+        with patch.object(PocketTtsProvider, "_load_model") as load:
+            consumers = self._consumers(mode="pocket")
+        self.assertIsInstance(consumers.tts_provider, PocketTtsProvider)
+        self.assertIsNone(consumers.tts_provider._model)
+        load.assert_not_called()
 
     def test_explicit_canonical_warmups_do_not_read_legacy_settings(self) -> None:
         consumers = self._consumers(mode="enabled")
@@ -203,6 +210,9 @@ class BrainCoreRuntimeConsumersTests(unittest.TestCase):
                         "model": "routing-model",
                         "timeout_seconds": 9,
                     }
+                if mode == "pocket":
+                    brain["speech"]["tts"]["enabled"] = True
+                    brain["speech"]["tts"]["provider"] = "local_pocket"
                 path.write_text(json.dumps(brain), encoding="utf-8")
             inspection = inspect_candidate(bundle)
             self.assertTrue(inspection.report.activation_eligible, inspection.report)

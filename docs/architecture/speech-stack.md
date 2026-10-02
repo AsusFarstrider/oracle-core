@@ -16,8 +16,9 @@ current status is deliberately distinct:
 
 - Fast-Whisper is the primary integration deployment's current STT provider and a retained reusable
   implementation.
-- Piper is the primary integration deployment's current TTS provider and a retained reusable
-  implementation.
+- Piper remains a supported selectable TTS implementation. The approved Stage 8
+  addendum adds Pocket/Federation as the production default; activation evidence
+  is tracked in the Stage 8 acceptance ledger.
 - whisper.cpp is a retained alternate STT provider that was previously
   functional but is not currently deployed, freshly live-verified, or
   validated as a standard-installation profile.
@@ -41,13 +42,31 @@ must not be treated as interchangeable dependency or model arrangements.
 
 ## TTS Structure
 
-The primary integration deployment's current TTS path synthesizes WAV output
-through the Piper provider.
-Piper is separate from both STT implementations and has its own optional
-installation-profile requirements.
+The `TtsProvider` boundary in `server/tts.py` provides Piper, Pocket, and explicit
+disabled implementations. Canonical `brain.yaml` selects one typed definition.
+`application_speech.py`, composition, and `/api/speech/tts` consume the same
+provider contract and return the existing completed WAV response. Both engines
+emit PCM WAV suitable for current satellite decoders. There is no streaming,
+satellite, playback, or UI redesign and no automatic Pocket-to-Piper fallback.
+
+Pocket construction is cheap. Lifespan explicitly initiates daemon warmup;
+model/voice loading is also lazy on synthesis. The model and exported voice
+state stay resident on CPU. A provider lock serializes warmup and generation;
+`copy_state=True` preserves the accepted voice state for consecutive requests.
+Health checks dependency presence and local assets without synthesis/model
+loading; it reports not loaded, warming, load failure, missing assets, or ready.
+Provider errors map through existing `TtsError`/HTTP 503 semantics.
+
+The managed full-production profile installs both engines. The accepted voice
+is copied byte-for-byte, never retrained or retuned. Its SHA-256 is
+`0faae5b80a8d531aac54fba1b5eb2d092d542f5eb3e5104a15505ae4c2cc99e9`.
+Its selected installed path is
+`/srv/oracle/selection/active/deployment/assets/tts/pocket/oracle-federation-computer.safetensors`.
+The model and tokenizer reproduce the prototype's pinned English assets using
+local paths rather than runtime downloads.
 
 The TTS layer owns one versioned clip cache. Its identity includes the exact
-synthesis text, provider, model, Piper configuration content identity, and
+synthesis text, provider, model, provider configuration content identity, and
 cache version; case, whitespace, or configuration changes therefore cannot
 reuse a semantically different clip. The older fixed-filename and normalized
 phrase layers are not part of the canonical cache.
@@ -83,3 +102,20 @@ Shared Brain STT/TTS provider definitions belong narrowly in `brain.yaml`.
 Machine-specific executable/model paths have no household-specific core
 defaults. Satellite capture/playback settings arrive through projection. The
 existing Brain/satellite speech responsibility boundary does not change.
+
+## Cache preservation and warming
+
+Both providers use shared `CachedTtsProvider` clip operations and unchanged v2
+bounds, expiry, LRU, and atomic writes. Piper's serialized key is byte-for-byte
+unchanged. Pocket additionally hashes model YAML, model weights, tokenizer,
+exported voice bytes, and Pocket/PyTorch version identities. File-stat-keyed
+digest reuse avoids rehashing model weights for each utterance; an observed
+asset change reloads residency and cannot reuse the prior clip identity.
+
+The cache has no plaintext reverse index. Retained audio hashes cannot recover
+arbitrary original text. Warm only exact texts available in authoritative
+Oracle source/records, without reconstructing hashes or adding a plaintext
+speech index. Piper clips coexist and remain available when Piper is selected.
+Normal retention still applies to both providers; bound migration warming to
+available cache capacity. Record cache preservation and warmed text provenance
+in acceptance evidence, without publishing household speech content.

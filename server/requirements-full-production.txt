@@ -5,3 +5,7 @@
 piper-tts==1.4.1
 # Piper 1.4.1 imports this from its CLI but declares it only in the train extra.
 pathvalidate==3.3.1
+# Pocket stays resident inside the Brain; pin the CPU build, never CUDA wheels.
+pocket-tts==3.3.0
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.0+cpu

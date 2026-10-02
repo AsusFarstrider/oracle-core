@@ -39,7 +39,7 @@ class ConfigurationNormalizationTests(unittest.TestCase):
         self.assertTrue(normalized.config_revision.startswith(CONFIG_REVISION_PREFIX))
         self.assertEqual(
             normalized.config_revision,
-            "oracle-config-v2:sha256:15f1c8c4bf1465d976db6584f36ef17c35d31b3f4e32efb591609f2c33e24bff",
+            "oracle-config-v2:sha256:630fe3286c3ac3fd3c84e50fc55a4f8efc919f2bc1cb71756ec2963ecec86e94",
         )
         self.assertEqual(hashlib.sha256(normalized.canonical_bytes).hexdigest(), normalized.config_revision.rsplit(":", 1)[1])
         self.assertEqual(normalized.configuration["kind"], "oracle_configuration_bundle")

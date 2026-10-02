@@ -37,7 +37,7 @@ The schema-v1 Brain role is now closed and typed:
 - `storage` owns the Memory SQLite and alert JSON persistence mechanisms plus
   bounded Memory retention;
 - `speech.stt` admits typed `whisper_cpp` and `fast_whisper` definitions;
-- `speech.tts` admits typed `piper` definitions; and
+- `speech.tts` admits typed `piper` and `pocket` definitions; and
 - `inference.shared_backend` admits typed credential-free `ollama` definitions
   and the fallback-router model/timeout override.
 
@@ -57,3 +57,13 @@ activation.
 The whisper.cpp provider, when selected, requires an explicitly validated
 external executable and model location. It never falls back to a developer
 checkout. Fast-Whisper uses its distinct Python dependency and model contract.
+
+## Selecting Pocket or Piper
+
+Keep both typed definitions in `speech.tts.providers` and select their canonical
+ID in `speech.tts.provider`. Pocket requires a local model YAML and an exported
+voice `.safetensors` state. The Brain's speech boundary owns model residency;
+construction does not import/load Pocket. Startup explicitly begins background
+warmup; synthesis can load lazily and reuses the resident model and voice.
+Switching to Piper uses the same canonical review, activation, and restart flow.
+Do not change satellite configuration to select a Brain speech provider.

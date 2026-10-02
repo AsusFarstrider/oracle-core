@@ -80,7 +80,13 @@ class PiperProvider(ConfigurationModel):
     model_path: MachinePath
 
 
-TtsProvider = Annotated[PiperProvider, Field(discriminator="type")]
+class PocketProvider(ConfigurationModel):
+    type: Literal["pocket"]
+    model_config_path: MachinePath
+    voice_state_path: MachinePath
+
+
+TtsProvider = Annotated[PiperProvider | PocketProvider, Field(discriminator="type")]
 
 
 class SttRole(ConfigurationModel):

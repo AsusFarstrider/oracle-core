@@ -14,6 +14,7 @@ from .runtime_models import (
     OllamaProvider,
     OpenAILunaProvider,
     PiperProvider,
+    PocketProvider,
     WhisperCppProvider,
 )
 
@@ -33,7 +34,7 @@ class SelectedSttConfiguration:
 class SelectedTtsConfiguration:
     enabled: bool
     provider_id: str | None
-    provider: PiperProvider | None
+    provider: PiperProvider | PocketProvider | None
 
 
 @dataclass(frozen=True)

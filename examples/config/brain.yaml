@@ -46,6 +46,10 @@ speech:
   tts:
     enabled: false
     providers:
+      local_pocket:
+        type: pocket
+        model_config_path: /opt/oracle/models/pocket/model.yaml
+        voice_state_path: /opt/oracle/models/pocket/voice.safetensors
       local_piper:
         type: piper
         binary_path: bin/piper

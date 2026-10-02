@@ -259,12 +259,12 @@
       "kind": "speech_provider_boundary",
       "owner": "Brain speech service",
       "implementations": ["server/tts.py"],
-      "consumers": ["speech synthesis API", "reply audio", "health"],
+      "consumers": ["speech synthesis API", "TTS explicit startup warmup", "reply audio", "health"],
       "health_owner": "Brain speech health",
       "errors": "typed TTS provider status and synthesis errors mapped at speech edge",
-      "cache_owner": "TTS domain clip cache",
+      "cache_owner": "Brain TTS boundary shared v2 cache; Pocket owns model/voice residency",
       "configuration_authority": "canonical brain TTS provider selection and typed provider settings",
-      "tests": ["tests/test_health_canonical.py"]
+      "tests": ["tests/test_health_canonical.py", "tests/test_tts_pocket.py"]
     },
     {
       "role_id": "satellite_playback_control",

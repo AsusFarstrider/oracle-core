@@ -151,3 +151,12 @@ mismatch does not make deterministic configuration structurally invalid.
 Configuration reports separate validation findings, activation blockers, and
 operational-readiness findings. Finding severity and `blocks_activation` remain
 separate fields. Public liveness never exposes configuration or secret detail.
+
+## Resident TTS readiness
+
+TTS health delegates to the selected `TtsProvider`. Pocket distinguishes missing
+configuration, dependency/runtime unavailable, voice/model assets unavailable,
+not loaded/warming, load failure, and ready resident execution. Health must not
+load the model or synthesize speech. Startup initiates warmup explicitly;
+provider construction has no model/network/startup side effects. Selecting
+Piper is canonical provider switching, not an implicit per-request fallback.

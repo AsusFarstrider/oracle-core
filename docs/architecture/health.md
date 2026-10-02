@@ -44,3 +44,11 @@ Current typed probe ownership includes:
 Provider status is operational evidence, not configuration authority. A
 provider outage does not rewrite or invalidate the selected bundle, and a
 valid bundle does not imply that an external dependency is reachable.
+
+## Pocket TTS
+
+The existing `/api/admin/health/tts` probe calls the selected provider's status.
+Pocket checks module presence and local model/voice assets, and reports resident
+warmup/load readiness without synthesizing. Startup warmup failure is logged
+as `pocket_warmup_failed`; subsequent requests return the existing HTTP 503 error
+contract. Read `/health` for shallow liveness and TTS health for usability.

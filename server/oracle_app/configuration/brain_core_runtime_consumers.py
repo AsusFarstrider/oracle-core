@@ -8,7 +8,7 @@ from stt import (
     SttProvider,
     WhisperCppProvider as WhisperCppRuntimeProvider,
 )
-from tts import DisabledTtsProvider, PiperTtsProvider, TtsProvider
+from tts import DisabledTtsProvider, PiperTtsProvider, PocketTtsProvider, TtsProvider
 
 from oracle_app.inference import (
     InferenceClient,
@@ -24,6 +24,7 @@ from .runtime_models import (
     OllamaProvider,
     OpenAILunaProvider,
     PiperProvider,
+    PocketProvider,
     WhisperCppProvider,
 )
 from .secrets import SecretSnapshot
@@ -80,6 +81,11 @@ def _build_tts_provider(settings: BrainRuntimeSettings) -> TtsProvider:
     provider = selected.provider
     if isinstance(provider, PiperProvider):
         return PiperTtsProvider(binary=provider.binary_path, model=provider.model_path)
+    if isinstance(provider, PocketProvider):
+        return PocketTtsProvider(
+            model_config_path=provider.model_config_path,
+            voice_state_path=provider.voice_state_path,
+        )
     raise TypeError("Enabled canonical TTS lacks an executable typed provider.")
 
 

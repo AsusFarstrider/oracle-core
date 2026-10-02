@@ -63,3 +63,10 @@ Update the JSON entry and its evidence whenever mutable state is introduced,
 moved, removed, or changes lifecycle. Change `state-model.md` only when the
 normative ownership or state law changes. Historical migration explanation
 belongs in the appropriate archived stage record, not here.
+
+## Pocket speech residency
+
+`speech.pocket_residency` owns one process-local selected model/voice, explicit
+warmup state, and bounded file-digest snapshots under the TTS provider lock.
+It adds no durable voice state owner; the immutable household artifact owns
+voice/model assets. `cache.tts` remains the shared v2 reconstructable clip owner.

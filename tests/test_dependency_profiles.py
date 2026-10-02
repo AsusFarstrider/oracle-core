@@ -58,6 +58,13 @@ class DependencyProfileTests(unittest.TestCase):
         self.assertIn("piper-tts==1.4.1", lock)
         self.assertIn("pathvalidate==3.3.1", lock)
 
+    def test_full_production_pocket_is_cpu_only_and_keeps_piper(self) -> None:
+        lock = (ROOT / "server/requirements-full-production.lock").read_text()
+        self.assertIn("pocket-tts==3.3.0", lock)
+        self.assertIn("torch==2.14.0+cpu", lock)
+        self.assertNotIn("nvidia-", lock)
+        self.assertIn("piper-tts==1.4.1", lock)
+
 
 if __name__ == "__main__":
     unittest.main()

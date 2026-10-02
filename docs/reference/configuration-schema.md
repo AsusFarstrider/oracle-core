@@ -1100,9 +1100,9 @@ satellite activation may advance independently.
 
 `BrainCoreRuntimeConsumers.from_runtime_settings` is the first bounded
 execution adapter over that snapshot. It constructs existing disabled,
-whisper.cpp, Fast-Whisper, disabled-TTS, or Piper runtime providers directly
+whisper.cpp, Fast-Whisper, disabled-TTS, Piper, or Pocket runtime providers directly
 from the selected typed definitions, and freezes Ollama request/fallback values
-in `InferenceExecutionSettings`. The canonical STT and fallback-router warmup
+in `InferenceExecutionSettings`. The canonical STT, TTS, and fallback-router warmup
 paths accept these objects explicitly and do not call compatibility configuration
 getters. Construction performs neither model loading nor provider I/O.
 Canonical lifespan and request dispatch consume these objects.
@@ -1596,3 +1596,14 @@ mutating-control enablement require explicit acknowledgement.
 A supported canonical schema migration records source and destination schema
 identities, deterministic transforms, secret handling, validation evidence,
 compatibility and rollback requirements, and any explicitly retired fields.
+
+## Pocket TTS provider (Stage 8 addendum)
+
+`speech.tts.providers.<id>` is a discriminated `piper | pocket` union.
+Pocket has exactly `type: pocket`, `model_config_path`, and `voice_state_path`.
+Both paths identify already installed local assets. Its YAML model configuration
+references absolute local weights and tokenizer files; runtime downloading is
+not part of the provider. Piper keeps `type`, `binary_path`, and `model_path`.
+Both definitions may coexist; `speech.tts.provider` selects one. `enabled: false`
+remains explicit. Provider switching follows canonical activation/restart;
+there is no per-request fallback selection.
