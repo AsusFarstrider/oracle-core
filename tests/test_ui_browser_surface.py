@@ -139,6 +139,8 @@ class UiBrowserSurfaceTests(unittest.TestCase):
         self.assertIn("min-width: 0", root_child_rule)
         provider_detail_rule = house.split(".calendar-provider-truth > div {", 1)[1].split("}", 1)[0]
         self.assertIn("min-width: 0", provider_detail_rule)
+        provider_icon_rule = house.split(".calendar-provider-truth > .material-symbols-outlined {", 1)[1].split("}", 1)[0]
+        self.assertIn("flex: 0 0 24px", provider_icon_rule)
         provider_copy_rule = house.split(".calendar-provider-truth p {", 1)[1].split("}", 1)[0]
         self.assertIn("overflow-wrap: anywhere", provider_copy_rule)
 

@@ -2763,7 +2763,9 @@ select {
 }
 
 .calendar-provider-truth > .material-symbols-outlined {
-  flex: 0 0 auto;
+  width: 24px;
+  flex: 0 0 24px;
+  overflow: hidden;
 }
 
 .calendar-provider-truth > div {
