@@ -77,7 +77,14 @@ def classify_system_intent(normalized_text: str) -> SystemIntent | None:
             confidence=0.98,
         )
 
-    if is_dnd_request(normalized_text):
+    # An alert's explicit DND presentation clause belongs to the alert
+    # capability. A mode-control request can still mention existing alerts.
+    alert_dnd_override = detect_alert_query(normalized_text) and bool(re.search(
+        r"\b(?:alarm|timer|countdown|reminder)\b.*\b(?:during|while|through) "
+        r"(?:dnd|do not disturb|quiet mode)\b",
+        normalized_text,
+    ))
+    if is_dnd_request(normalized_text) and not alert_dnd_override:
         return SystemIntent(
             action="communication_mode",
             reason="Matched canonical Do Not Disturb request",

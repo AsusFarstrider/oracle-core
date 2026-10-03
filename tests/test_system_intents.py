@@ -15,6 +15,28 @@ from oracle_app.system_intents import (
 
 
 class SystemIntentTests(unittest.TestCase):
+    def test_alert_dnd_override_stays_with_alert_capability(self) -> None:
+        for text in (
+            "set an alarm for 07:00 every day always sound during dnd",
+            "set a timer for two minutes even during do not disturb",
+            "change the work alarm to always ring through quiet mode",
+            "set a timer for five minutes silently during dnd",
+        ):
+            with self.subTest(text=text):
+                intent = classify_system_intent(text)
+                self.assertIsNotNone(intent)
+                self.assertEqual(intent.action, "alerts")
+
+    def test_explicit_dnd_control_with_alert_mentions_stays_mode_control(self) -> None:
+        for text in (
+            "turn on dnd for ten minutes",
+            "turn off do not disturb",
+            "turn on dnd for ten minutes with an alarm scheduled",
+            "check dnd status before my timer",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(classify_system_intent(text).action, "communication_mode")
+
     def test_empty_text_classifies_as_ignore(self) -> None:
         intent = classify_system_intent("")
 
