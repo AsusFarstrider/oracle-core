@@ -13,6 +13,13 @@ immutable native Python environment from the matching complete hash lock.
 | `wake-satellite` | `satellite/requirements.txt` | `satellite/requirements.lock` | CPython 3.11 on Linux | Retained wake/audio satellite runtime; TensorFlow Lite currently prevents Python 3.13 resolution |
 | `clean-core-test` | `server/requirements.txt` plus `requirements-dev.txt` | `requirements-test.lock` | CPython 3.13 on the CI baseline | Required test tooling; never installed into production environments |
 
+The clean-core test profile includes the pinned `icalendar` and
+`recurring-ical-events` libraries used by Calendar/Tasks provider tests. Their
+presence in test tooling does not make them mandatory in the minimal production
+Brain profile. Required CI constructs its test environment from the complete
+test lock, so provider tests cannot rely on an operator's ambient development
+packages.
+
 The lock file bytes are part of each Python-environment identity along with the
 exact interpreter, ABI, platform, architecture, and selected profile. Install
 with pip's `--require-hashes` option. The direct declarations remain the small

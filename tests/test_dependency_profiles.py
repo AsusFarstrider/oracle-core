@@ -31,6 +31,8 @@ class DependencyProfileTests(unittest.TestCase):
         self.assertIn("pytest==9.0.2", test)
         self.assertIn("numpy==2.4.2", test)
         self.assertIn("pyyaml==6.0.3", test)
+        self.assertIn("icalendar==7.3.0", test)
+        self.assertIn("recurring-ical-events==3.8.1", test)
 
     def test_optional_profiles_remain_additive_and_distinct(self) -> None:
         fast_whisper = (ROOT / "server/requirements-fast-whisper.txt").read_text(encoding="utf-8")
